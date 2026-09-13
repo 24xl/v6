@@ -135,6 +135,14 @@ class BazaarNpcMacro extends ModuleBase {
         this.reset();
         const inventory = Player.getInventory();
         if (!inventory) return this.fail('Could not snapshot your inventory.');
+        if (
+            !cleanupMode &&
+            inventory
+                .getItems()
+                .slice(0, 36)
+                .some((item) => item && item.getStackSize() > 0 && !clean(item.getName()).startsWith('skyblock menu'))
+        )
+            return this.fail('Empty your inventory before enabling the macro. The SkyBlock Menu can remain.');
         this.cleanupMode = cleanupMode;
         this.startingInventory = cleanupMode && cleanupInventory ? cleanupInventory : this.inventorySnapshot(inventory.getItems());
         this.lastCheckedInventory = this.startingInventory;
