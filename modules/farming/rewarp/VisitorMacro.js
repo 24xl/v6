@@ -1,5 +1,6 @@
 import { bazaarUtil } from '../../../utils/BazaarUtil';
 import { chat } from '../../../utils/Chat';
+import { ArmorStandEntity } from '../../../utils/Constants';
 import Pathfinder from '../../../utils/pathfinder/PathFinder';
 import { clickItem, clickSlot, closeInventory, findFirstItem } from '../../../utils/player/Inventory';
 import { Rotations } from '../../../utils/player/Rotations';
@@ -143,10 +144,17 @@ class VisitorMacro {
 
     findVisitor(target) {
         const expected = cleanText(target).toLowerCase();
-        return World.getAllEntities().find((entity) => {
-            const name = cleanText(entity.getName?.()).toLowerCase();
-            return name && (name.includes(expected) || expected.includes(name));
-        });
+        const nameTag = World.getAllEntitiesOfType(ArmorStandEntity)
+            .filter((entity) => cleanText(entity.getName?.()).toLowerCase() === expected)
+            .sort((a, b) => a.distanceTo(Player.getPlayer()) - b.distanceTo(Player.getPlayer()))[0];
+        if (!nameTag) return null;
+
+        return World.getAllEntities()
+            .filter((entity) => !(entity.toMC() instanceof ArmorStandEntity) && !entity.isDead())
+            .filter(
+                (entity) => (entity.getX() - nameTag.getX()) ** 2 + (entity.getZ() - nameTag.getZ()) ** 2 < 0.25 && Math.abs(entity.getY() - nameTag.getY()) < 5
+            )
+            .sort((a, b) => a.distanceTo(nameTag) - b.distanceTo(nameTag))[0];
     }
 
     pathTo(entity) {
