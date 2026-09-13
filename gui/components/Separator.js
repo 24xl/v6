@@ -10,12 +10,12 @@ export class Separator {
         this.x = 0;
         this.y = 0;
         this.optionPanelWidth = 0;
-        this.titleWidth = getTextWidth(title, FontSizes.REGULAR);
+        this.titleWidth = getTextWidth(title, FontSizes.LARGE);
     }
 
     draw(mouseX, mouseY) {
         const width = this.optionPanelWidth - PADDING * 2 - (this.fullWidth ? 0 : 20);
-        const titleX = this.x + 8;
+        const titleX = this.x - 6;
         const lineX = titleX + this.titleWidth + 8;
 
         drawRoundedRectangle({
@@ -27,6 +27,6 @@ export class Separator {
             color: THEME.BG_INSET,
         });
 
-        drawText(this.title, titleX, this.y + 8, FontSizes.REGULAR, THEME.TEXT);
+        drawText(this.title, titleX, this.y + 8, FontSizes.LARGE, THEME.TEXT);
     }
 }

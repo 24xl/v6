@@ -161,6 +161,7 @@ class OreMiner extends ModuleBase {
         this.selectedWaypoint = -1;
         this.editing = false;
 
+        this.addButton('Open Ore Route Editor', () => oreRouteEditor.open(this), 'Open the visual editor for ore routes.');
         this.addSlider('Drill Slot', 1, 8, 1, (value) => (this.drillSlot = Math.round(value) - 1), 'Mining tool hotbar slot.');
         this.addSlider(
             'Mining Deployable Slot',
@@ -322,6 +323,7 @@ class OreMiner extends ModuleBase {
         v5Command('mining ore start', () => (this.enabled ? this.startRoute() : this.toggle(true, false, 'user')));
         v5Command('mining ore stop', () => this.toggle(false));
         v5Command('mining ore status', () => this.printStatus());
+        v5Command('mining ore editor', () => oreRouteEditor.open(this));
         v5Command('mining ore edit', (...parts) => this.editRoute(parts), ['greedyString']);
     }
 
@@ -363,6 +365,7 @@ class OreMiner extends ModuleBase {
         this.message('  &fload <name> &7- load a route');
         this.message('  &fsave <name> &7- save the current route');
         this.message('  &flist | start | stop | status');
+        this.message('  &feditor &7- open the visual route editor');
         this.message('  &fedit add <tp|walk> [index] &7- append, or insert and shift later waypoints');
         this.message('  &fedit add <mine|onetap|ronetap> [waypoint] &7- add the block under your crosshair');
         this.message('  &fedit deployable <waypoint> &7- toggle deployable placement');

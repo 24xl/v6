@@ -4,6 +4,7 @@ import { getConfigFile, writeConfigFile } from '../../utils/Utils';
 import { OverlayManager } from '../../gui/OverlayUtils';
 import { GuiState } from '../../gui/core/GuiState';
 import { SkijaPIP } from '../../utils/Constants';
+import { oreRouteEditor } from '../../gui/OreRouteEditor';
 
 const DrawContextHolder = com.chattriggers.ctjs.api.render.DrawContextHolder;
 
@@ -147,7 +148,7 @@ class HUD extends ModuleBase {
     }
 
     prepareOverlay(enabled, recalc) {
-        if (GuiState.myGui.isOpen() || OverlayManager.drawingGUI || !enabled || !this.worldLoaded) return false;
+        if (GuiState.myGui.isOpen() || oreRouteEditor.isOpen() || OverlayManager.drawingGUI || !enabled || !this.worldLoaded) return false;
 
         if (Render2D.screen.getWidth() <= 0 || Render2D.screen.getHeight() <= 0) return false;
 
@@ -157,7 +158,7 @@ class HUD extends ModuleBase {
 
     updateRenderRegistrations() {
         this.syncFromOverlayEditor();
-        const visible = this.worldLoaded && !GuiState.myGui.isOpen() && !OverlayManager.drawingGUI;
+        const visible = this.worldLoaded && !GuiState.myGui.isOpen() && !oreRouteEditor.isOpen() && !OverlayManager.drawingGUI;
         if (visible && this.STATS_HUD && this.stats.enabled !== false && !this.statsRegistration) {
             this.statsRegistration = Render2D.registerV5Render(this.statsCallback);
         } else if ((!visible || !this.STATS_HUD || this.stats.enabled === false) && this.statsRegistration) {

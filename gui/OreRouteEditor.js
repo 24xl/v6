@@ -727,6 +727,7 @@ const renderEditor = () => {
 };
 
 export const oreRouteEditor = {
+    isOpen: () => routeEditorGui.isOpen(),
     open(module) {
         if (module.routeActive) return module.message('&cStop Ore Miner before opening the route editor.');
         oreMiner = module;
