@@ -171,6 +171,7 @@ class BazaarNpcMacro extends ModuleBase {
         this.orderCheckQueue = [];
         this.activeTargets = [];
         this.claimedTargets = new Set();
+        this.refillIds = new Set();
         this.skippedIds = new Map();
         this.consecutiveSkips = 0;
         this.claimOnly = false;
@@ -296,6 +297,7 @@ class BazaarNpcMacro extends ModuleBase {
                 this.adoptOpenOrders(bazaar, items);
                 if (adoptOnly) return this.setAction(this.inspectOrder, 'Checking duplicates', this.clickDelay);
                 this.orderQueue = this.findBestFlips(bazaar, items);
+                this.refillIds.clear();
                 if (!this.orderQueue.length) {
                     if (!this.activeTargets.length) return this.setAction(this.openOrders, 'Waiting for profitable items', 60_000, 0);
                     if (resumeChecks) return this.setAction(this.inspectOrder, 'Checking orders', this.clickDelay, 0);
@@ -355,7 +357,13 @@ class BazaarNpcMacro extends ModuleBase {
         }
         const seen = new Set();
         return candidates
-            .sort((a, b) => b.profit * b.profitPercent - a.profit * a.profitPercent || b.profitPercent - a.profitPercent || b.profit - a.profit)
+            .sort(
+                (a, b) =>
+                    Number(this.refillIds.has(b.id)) - Number(this.refillIds.has(a.id)) ||
+                    b.profit * b.profitPercent - a.profit * a.profitPercent ||
+                    b.profitPercent - a.profitPercent ||
+                    b.profit - a.profit
+            )
             .filter((target) => !seen.has(clean(target.name)) && seen.add(clean(target.name)))
             .slice(0, Math.max(0, this.maxBuyOrders - this.openOrderCount));
     }
@@ -528,6 +536,7 @@ class BazaarNpcMacro extends ModuleBase {
         const openTargets = [];
         const usedOrderSlots = new Set();
         let claimable = null;
+        let completed = null;
         for (const target of this.activeTargets) {
             const slot = this.findOrderSlot(target, usedOrderSlots);
             if (slot === -1) continue;
@@ -535,12 +544,26 @@ class BazaarNpcMacro extends ModuleBase {
             openTargets.push(target);
             const stack = Player.getContainer().getStackInSlot(slot);
             const orderLore = lore(stack);
-            if (!claimable && !this.claimedTargets.has(target) && orderLore.some((line) => /^you have [\d,]+ items? to claim!$/i.test(line))) {
-                claimable = { target, slot };
+            if (!this.claimedTargets.has(target) && orderLore.some((line) => /^you have [\d,]+ items? to claim!$/i.test(line))) {
+                claimable ||= { target, slot };
+                if (!completed && orderLore.some((line) => /^filled: .+ 100%!$/i.test(line))) completed = { target, slot };
             }
         }
 
         this.activeTargets = openTargets;
+        if (completed) {
+            const hasNewItems = this.hasInventoryIncrease();
+            if (this.inventoryFull()) {
+                if (hasNewItems) return this.setAction(this.openTrades, 'Inventory full', 500);
+                return this.fail('Inventory is full, but none of it was added by this macro.');
+            }
+            this.target = completed.target;
+            this.refillIds.add(completed.target.id);
+            this.orderQueue = [];
+            this.claimedTargets.add(completed.target);
+            clickSlot(completed.slot);
+            return this.setAction(this.openTrades, 'Claiming items', Math.max(250, this.clickDelay), 0);
+        }
         if (!this.orderLimitReached && !this.orderSlotsChecked && this.openOrderCount < this.maxBuyOrders) {
             this.orderSlotsChecked = true;
             if (this.orderQueue.length) return this.placeNextOrder();
