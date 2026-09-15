@@ -574,7 +574,7 @@ class BazaarNpcMacro extends ModuleBase {
             this.orderQueue = [];
             this.claimedTargets.add(completed.target);
             clickSlot(completed.slot);
-            return this.setAction(this.openTrades, 'Claiming items', Math.max(250, this.clickDelay), 0);
+            return this.setAction(this.inspectOrder, 'Claiming items', Math.max(250, this.clickDelay), 0);
         }
         if (!this.orderLimitReached && !this.orderSlotsChecked && this.openOrderCount < this.maxBuyOrders) {
             this.orderSlotsChecked = true;
@@ -599,7 +599,7 @@ class BazaarNpcMacro extends ModuleBase {
             this.target = claimable.target;
             this.claimedTargets.add(claimable.target);
             clickSlot(claimable.slot);
-            return this.setAction(this.openTrades, 'Claiming items', Math.max(250, this.clickDelay), 0);
+            return this.setAction(this.inspectOrder, 'Claiming items', Math.max(250, this.clickDelay), 0);
         }
         if (hasNewItems) return this.setAction(this.openTrades, 'Selling claimed items', 500);
         this.orderQueue = [];
@@ -624,7 +624,7 @@ class BazaarNpcMacro extends ModuleBase {
         }
         if (claimSlot !== undefined) {
             clickSlot(claimSlot);
-            return this.setAction(this.openTrades, 'Claiming items', Math.max(250, this.clickDelay), 0);
+            return this.setAction(this.inspectOrder, 'Claiming items', Math.max(250, this.clickDelay), 0);
         }
         if (buySlots.length) return this.clickAndWait(buySlots[0], this.cancelCleanupOrder, 'Opening buy order');
         if (hasNewItems) return this.setAction(this.openTrades, 'Selling claimed items', 500);
