@@ -254,14 +254,26 @@ class BazaarNpcMacro extends ModuleBase {
     }
 
     commandAndWait(command, action, status, delay = 0, timeout = GUI_TIMEOUT) {
+        const previousGui = getGuiName();
         const run = () => {
             const wait = this.runCommand(command);
             if (wait) return this.setAction(run, status, wait, 0);
-            this.setAction(action, status, delay, timeout, retry);
+            this.setAction(waitForGui, status, delay, timeout, retry);
+        };
+        const waitForGui = () => {
+            action.call(this);
+            if (this.action === waitForGui || !this.retryAction) return;
+            const nextRetry = this.retryAction;
+            this.retryAction = () => {
+                const nextAction = this.action;
+                nextRetry?.call(this);
+                if (this.action === nextAction && getGuiName() === previousGui) run();
+            };
+            this.retryAt = Date.now() + STUCK_RETRY_DELAY;
         };
         const retry = () => {
-            action.call(this);
-            if (this.action === action && this.retryAction === retry) run();
+            waitForGui();
+            if (this.action === waitForGui && this.retryAction === retry) run();
         };
         run();
     }
