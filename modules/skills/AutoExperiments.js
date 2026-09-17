@@ -184,11 +184,7 @@ class AutoExperiments extends ModuleBase {
         if (!this.isCompleted(items[21])) return this._clickSlot(SLOTS.CHRONOMATRON);
         if (!this.isCompleted(items[23])) return this._clickSlot(SLOTS.ULTRASEQUENCER);
 
-        if (!this.automaticSuperpairs) {
-            closeInventory();
-            this.reset();
-            return this.message('Experiments complete');
-        }
+        if (!this.automaticSuperpairs) return;
 
         this._clickSlot(SLOTS.SUPERPAIRS);
         this.message('Superpairs ready');
@@ -350,7 +346,10 @@ class AutoExperiments extends ModuleBase {
         }
 
         const slot = this.buyXpTargetLevel <= 100 ? SLOTS.GRAND_BOTTLE : SLOTS.TITANIC_BOTTLE;
-        if (items[slot] && this.canClick() && this._clickSlot(slot)) this.boughtXP = true;
+        if (items[slot] && this.canClick() && this._clickSlot(slot)) {
+            this.boughtXP = true;
+            this.lastClickTime = Date.now() + 1000;
+        }
     }
 
     startReopenSequence() {
