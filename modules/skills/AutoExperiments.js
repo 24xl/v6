@@ -50,7 +50,6 @@ class AutoExperiments extends ModuleBase {
         this.reopeningStarted = false;
         this.buyXpTargetLevel = 0;
         this.boughtXP = false;
-        this.awaitingXpApplication = false;
         this.state = STATES.WAITING;
         this.superpairsRewardsClaimed = false;
         this.superpairsCards = new Map();
@@ -58,7 +57,6 @@ class AutoExperiments extends ModuleBase {
         this.superpairsCurrentKey = null;
 
         this.on('tick', () => this.onTick());
-        this.on('chat', () => (this.awaitingXpApplication = false)).setCriteria('You applied ${*} experience!');
 
         this.addSlider(
             'Action Delay (ms)',
@@ -352,10 +350,7 @@ class AutoExperiments extends ModuleBase {
         }
 
         const slot = this.buyXpTargetLevel <= 100 ? SLOTS.GRAND_BOTTLE : SLOTS.TITANIC_BOTTLE;
-        if (!this.awaitingXpApplication && items[slot] && this.canClick() && this._clickSlot(slot)) {
-            this.boughtXP = true;
-            this.awaitingXpApplication = true;
-        }
+        if (items[slot] && this.canClick() && this._clickSlot(slot)) this.boughtXP = true;
     }
 
     startReopenSequence() {
@@ -530,7 +525,6 @@ class AutoExperiments extends ModuleBase {
         this.lastClickTime = Date.now();
         this.buyXpTargetLevel = 0;
         this.boughtXP = false;
-        this.awaitingXpApplication = false;
         this.state = STATES.WAITING;
         this.maxEnchanting = false;
         this.superpairsRewardsClaimed = false;
