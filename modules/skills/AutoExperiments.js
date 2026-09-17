@@ -568,10 +568,9 @@ class AutoExperiments extends ModuleBase {
     }
 
     onCooldown(item) {
-        if (!item) return true;
+        if (!item) return false;
         const lore = item.getLore();
-        if (!lore) return true;
-        return lore.join(' ').includes('Experiments on cooldown!');
+        return lore ? lore.join(' ').includes('Experiments on cooldown!') : false;
     }
 }
 
