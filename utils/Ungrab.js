@@ -1,4 +1,4 @@
-import { GLFW, isLinux } from './Constants';
+import { GLFW, IS_MC_26_3, isLinux } from './Constants';
 
 let requestedUngrab = false;
 let forcedGrab = false;
@@ -12,7 +12,7 @@ const applyUngrab = () => {
     const mc = Client.getMinecraft();
     if (!mc.mouseHandler) return;
     mc.mouseHandler.releaseMouse();
-    if (isLinux) GLFW.glfwSetInputMode(mc.getWindow().handle(), GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_NORMAL);
+    if (!IS_MC_26_3 && isLinux) GLFW.glfwSetInputMode(mc.getWindow().getWindow(), GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_NORMAL);
 };
 
 const applyRegrab = () => {
@@ -21,7 +21,7 @@ const applyRegrab = () => {
     const mc = Client.getMinecraft();
     if (Client.getCurrentScreen() != null) return;
     mc.mouseHandler.grabMouse();
-    GLFW.glfwSetInputMode(mc.getWindow().handle(), GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_DISABLED);
+    if (!IS_MC_26_3 && isLinux) GLFW.glfwSetInputMode(mc.getWindow().getWindow(), GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_DISABLED);
 };
 
 export function ungrab() {

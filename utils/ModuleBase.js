@@ -5,10 +5,8 @@ import { chat } from './Chat';
 import { getModule, isMacroRunning, markEnabledModulesChanged, onModuleDisabled, onModuleEnabled, registerModule } from './MacroState';
 import { ScheduleTask } from './ScheduleTask';
 import { registerSkyblockEvent } from './SkyblockEvents';
-import { InputConstants } from './Constants';
+import { ScriptKey } from './Constants';
 import { getConfigFile, writeConfigFile } from './Utils';
-
-const KeyMapping = net.minecraft.client.KeyMapping;
 
 export class ModuleBase {
     static conditions = [];
@@ -243,18 +241,12 @@ export class ModuleBase {
 
     getToggleKeyName() {
         const keyCode = this._wrappedKey?.getKeyCode?.();
-        return keyCode === undefined || keyCode === null || keyCode <= 0
-            ? 'Unbound'
-            : InputConstants.Type.KEYSYM.getOrCreate(keyCode).getDisplayName().getString();
+        return keyCode === undefined || keyCode === null || keyCode <= 0 ? 'Unbound' : this._wrappedKey.getKeyName();
     }
 
     setToggleKey(keyCode) {
-        const mapping = Client.getMinecraft().options.keyMappings.find((entry) => entry.getName() === this._wrappedKeyTitle);
-        if (!mapping) return;
-
-        const unbound = keyCode === 256;
-        mapping.setKey(unbound ? InputConstants.getKey('key.keyboard.unknown') : InputConstants.Type.KEYSYM.getOrCreate(keyCode));
-        KeyMapping.resetMapping();
+        const unbound = keyCode === ScriptKey.ESCAPE;
+        this._wrappedKey?.setKeyCode(unbound ? Keyboard.KEY_NONE : keyCode);
         this._saveKey(this._wrappedKeyTitle, unbound ? Keyboard.KEY_NONE : keyCode);
     }
 

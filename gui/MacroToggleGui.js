@@ -1,8 +1,20 @@
 import { GuiRectangles, GuiState } from './core/GuiState';
-import { FontSizes, PADDING, THEME, drawImage, drawRoundedRectangle, drawRoundedRectangleWithBorder, drawText, isInside } from './Utils';
+import {
+    FontSizes,
+    PADDING,
+    THEME,
+    drawImage,
+    drawRoundedRectangle,
+    drawRoundedRectangleWithBorder,
+    drawText,
+    isInside,
+    setTextInputArea,
+    startTextInput,
+    stopTextInput,
+} from './Utils';
 import { loadSettings } from './GuiSave';
 import { getEnabledMacros, getModule, modules as registeredModules } from '../utils/MacroState';
-import { globalAssetsDir } from '../utils/Constants';
+import { globalAssetsDir, ScriptKey } from '../utils/Constants';
 import { Categories } from './categories/CategorySystem';
 import { drawSubcategoryButtons, getModuleBorderColor, getModuleNavButtonRect, getModuleNavRect, getModuleNavScrollX } from './categories/CategoryRenderer';
 import { getConfigFile, writeConfigFile } from '../utils/Utils';
@@ -28,6 +40,13 @@ const macroCategoryState = {
     subcatScrollX: 0,
     subcatScrollUpdatedAt: 0,
     hoverStates: {},
+};
+
+const setQueryFocused = (focused) => {
+    if (queryFocused === focused) return;
+    queryFocused = focused;
+    if (focused) startTextInput(GuiState.myGui, layout.search);
+    else stopTextInput(GuiState.myGui);
 };
 
 const loadFavorites = () => {
@@ -90,7 +109,7 @@ export const macroToggleGui = {
         loadFavorites();
         syncCategories();
         query = '';
-        queryFocused = false;
+        setQueryFocused(false);
         favoritesOnly = false;
         bindingModule = null;
         macroCategoryState.selectedSubcategory = null;
@@ -133,6 +152,7 @@ export const macroToggleGui = {
             list: { x, y: listY, width, height: listHeight },
             rows: [],
         };
+        if (queryFocused) setTextInputArea(layout.search);
 
         drawRoundedRectangleWithBorder({
             ...panel,
@@ -202,9 +222,11 @@ export const macroToggleGui = {
     handleClick(mouseX, mouseY) {
         if (isInside(mouseX, mouseY, layout.settings)) {
             GuiState.macroToggleOpen = false;
+            setQueryFocused(false);
             return;
         }
         if (isInside(mouseX, mouseY, layout.nav)) {
+            setQueryFocused(false);
             const scrollX = getModuleNavScrollX(macroCategory, false, macroCategoryState);
             const subcategories = ['All', ...macroCategory.subcategories];
             const index = subcategories.findIndex((subcategory, i) =>
@@ -224,13 +246,14 @@ export const macroToggleGui = {
             return;
         }
         if (isInside(mouseX, mouseY, layout.filter)) {
+            setQueryFocused(false);
             favoritesOnly = !favoritesOnly;
             scrollY = 0;
             invalidateRows();
             return;
         }
 
-        queryFocused = isInside(mouseX, mouseY, layout.search);
+        setQueryFocused(isInside(mouseX, mouseY, layout.search));
         const row = layout.rows?.find((entry) => isInside(mouseX, mouseY, entry));
         if (!row) return;
         if (mouseX <= row.x + 28) {
@@ -244,7 +267,7 @@ export const macroToggleGui = {
         if (isInside(mouseX, mouseY, row.keybind)) {
             if (!row.module._wrappedKey) row.module.bindToggleKey();
             bindingModule = row.module;
-            queryFocused = false;
+            setQueryFocused(false);
             return;
         }
 
@@ -256,7 +279,7 @@ export const macroToggleGui = {
     },
 
     reset() {
-        queryFocused = false;
+        setQueryFocused(false);
         bindingModule = null;
         GuiState.macroToggleOpen = false;
     },
@@ -268,15 +291,15 @@ register('guiKey', (char, keyCode, gui, event) => {
         bindingModule.setToggleKey(keyCode);
         bindingModule = null;
     } else if (!queryFocused) return;
-    else if (keyCode === 256 || keyCode === 257) queryFocused = false;
-    else if (keyCode === 259) {
+    else if (keyCode === ScriptKey.ESCAPE || keyCode === ScriptKey.ENTER) setQueryFocused(false);
+    else if (keyCode === ScriptKey.BACKSPACE) {
         const nextQuery = query.slice(0, -1);
         if (nextQuery !== query) {
             query = nextQuery;
             invalidateRows();
         }
         scrollY = 0;
-    } else if (char && String(char).length === 1 && String(char).codePointAt(0) >= 32) {
+    } else if (char && String(char).codePointAt(0) >= ScriptKey.SPACE) {
         query += char;
         scrollY = 0;
         invalidateRows();

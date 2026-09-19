@@ -1,4 +1,4 @@
-import { ClipContext, GLFW, InputConstants, Vec3d } from '../../utils/Constants';
+import { ClipContext, Vec3d } from '../../utils/Constants';
 import { clearCameraPosition, setCameraPosition } from '../../utils/Camera';
 import { ModuleBase } from '../../utils/ModuleBase';
 import { wrapTo180 } from '../../utils/Math';
@@ -252,11 +252,11 @@ class Freecam extends ModuleBase {
     }
 
     isRightClickDown() {
-        return GLFW.glfwGetMouseButton(mc.getWindow().handle(), GLFW.GLFW_MOUSE_BUTTON_RIGHT) === GLFW.GLFW_PRESS;
+        return Client.getCurrentScreen() == null && mc.options.keyUse.isDown();
     }
 
     isKeyDown(keybind) {
-        return Client.getCurrentScreen() == null && InputConstants.isKeyDown(mc.getWindow(), InputConstants.getKey(keybind.saveString()).getValue());
+        return Client.getCurrentScreen() == null && keybind.isDown();
     }
 
     getInitialCameraPos(player, yaw, pitch) {

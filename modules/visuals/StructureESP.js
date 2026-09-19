@@ -1,5 +1,5 @@
 import { isDeveloperModeEnabled } from '../../utils/DeveloperModeState';
-import { Vec3d } from '../../utils/Constants';
+import { IS_MC_26_3, Vec3d } from '../../utils/Constants';
 import { ModuleBase } from '../../utils/ModuleBase';
 import { ClientboundBlockUpdatePacket, ClientboundLevelChunkWithLightPacket } from '../../utils/Packets';
 
@@ -16,8 +16,7 @@ class StructureESP extends ModuleBase {
         });
 
         this.on('packetReceived', (packet) => {
-            const cx = packet?.getX();
-            const cz = packet?.getZ();
+            const [cx, cz] = IS_MC_26_3 ? [packet.x(), packet.z()] : [packet.getX(), packet.getZ()];
             if (typeof cx !== 'number' || typeof cz !== 'number') return;
             setTimeout(() => {
                 if (!this.enabled) return;

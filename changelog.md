@@ -1,5 +1,10 @@
 # Changelog
 
+## V5.2.1 - 26.3 Support
+
+- Support for 26.3
+- thats basically it
+
 ## V5.2.0 - 26.2 Support
 
 ### New features

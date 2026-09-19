@@ -1,5 +1,5 @@
-import { BP, Direction, MCHand, Vec3d } from './Constants';
-import { ServerboundPlayerActionPacket, ServerboundPlayerActionPacket$Action, ServerboundSwingPacket } from './Packets';
+import { BP, Direction, Vec3d } from './Constants';
+import { createSwingPacket, ServerboundPlayerActionPacket, ServerboundPlayerActionPacket$Action } from './Packets';
 
 const MAX_REACH_DISTANCE = 6;
 const MIN_NUKE_INTERVAL = 50;
@@ -43,7 +43,7 @@ export function sendBreakPackets(blockPos, facing) {
     Client.sendSequencedPacket(
         (sequence) => new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket$Action.START_DESTROY_BLOCK, blockPos, facing, sequence)
     );
-    Client.sendPacket(new ServerboundSwingPacket(MCHand.MAIN_HAND));
+    Client.sendPacket(createSwingPacket());
 }
 
 export const queueNuke = (blockPos, ticks) => nukeQueue.push([blockPos, ticks]);
@@ -78,6 +78,6 @@ register('tick', () => {
         tickCounter = action[1];
     } else if (tickCounter > 0) {
         tickCounter--;
-        Client.sendPacket(new ServerboundSwingPacket(MCHand.MAIN_HAND));
+        Client.sendPacket(createSwingPacket());
     }
 });

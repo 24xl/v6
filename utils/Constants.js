@@ -1,6 +1,16 @@
 export const MCHand = net.minecraft.world.InteractionHand;
 
 export const CLIENT_VERSION = JSON.parse(FileLib.read('V5', 'metadata.json')).version;
+export const IS_MC_26_3 = java.lang.System.getProperty('v5.minecraft_version') === '26.3';
+export const ScriptKey = {
+    SPACE: 32,
+    V: 86,
+    ESCAPE: 256,
+    ENTER: 257,
+    BACKSPACE: 259,
+    RIGHT: 262,
+    LEFT: 263,
+};
 
 export const StandardCharsets = java.nio.charset.StandardCharsets;
 export const BufferedInputStream = java.io.BufferedInputStream;
@@ -19,7 +29,9 @@ export const Toolkit = java.awt.Toolkit;
 export const AudioSystem = javax.sound.sampled.AudioSystem;
 export const FloatControl = javax.sound.sampled.FloatControl;
 export const BufferUtils = org.lwjgl.BufferUtils;
-export const GLFW = org.lwjgl.glfw.GLFW;
+export const GLFW = IS_MC_26_3 ? null : Java.type('org.lwjgl.glfw.GLFW');
+export const SDLVideo = IS_MC_26_3 ? Java.type('org.lwjgl.sdl.SDLVideo') : null;
+export const SDLRect = IS_MC_26_3 ? Java.type('org.lwjgl.sdl.SDL_Rect') : null;
 export const System = java.lang.System;
 export const SystemTray = java.awt.SystemTray;
 export const TrayIcon = java.awt.TrayIcon;
@@ -49,7 +61,7 @@ export const Blocks = net.minecraft.world.level.block.Blocks;
 export const SnowBlock = net.minecraft.world.level.block.SnowLayerBlock;
 export const ArmorStandEntity = net.minecraft.world.entity.decoration.ArmorStand;
 export const ZombieEntity = net.minecraft.world.entity.monster.zombie.Zombie;
-export const EndermanEntity = net.minecraft.world.entity.monster.EnderMan;
+export const EndermanEntity = Java.type(`net.minecraft.world.entity.monster.${IS_MC_26_3 ? 'Enderman' : 'EnderMan'}`);
 export const ShulkerEntity = net.minecraft.world.entity.monster.Shulker;
 export const PortalParticle = net.minecraft.client.particle.PortalParticle;
 export const ParticleTypes = net.minecraft.core.particles.ParticleTypes;
