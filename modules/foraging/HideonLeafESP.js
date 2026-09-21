@@ -37,9 +37,7 @@ class HideonLeafESP extends ModuleBase {
             return;
         }
 
-        this.targets = World.getAllEntitiesOfType(ShulkerEntity).filter(
-            (entity) => entity && !entity.isDead() && entity.toMC().getColor() === DyeColor.GREEN
-        );
+        this.targets = World.getAllEntitiesOfType(ShulkerEntity).filter((entity) => entity && !entity.isDead() && entity.toMC().getColor() === DyeColor.GREEN);
     }
 
     renderTargets() {
