@@ -142,7 +142,7 @@ class BazaarNpcMacro extends ModuleBase {
                 .slice(0, 36)
                 .some((item) => item && item.getStackSize() > 0 && !clean(item.getName()).startsWith('skyblock menu'))
         )
-            return this.fail('Empty your inventory before enabling the macro. The SkyBlock Menu can remain.');
+            return this.fail('Empty your inventory before enabling the macro.');
         this.cleanupMode = cleanupMode;
         this.startingInventory = cleanupMode && cleanupInventory ? cleanupInventory : this.inventorySnapshot(inventory.getItems());
         this.lastCheckedInventory = this.startingInventory;
