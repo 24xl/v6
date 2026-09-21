@@ -5,7 +5,6 @@ import { chat } from '../../utils/Chat';
 import { streamDownloadToFile } from '../../utils/FileUtils';
 import { ModuleBase } from '../../utils/ModuleBase';
 import { executeAsync } from '../../utils/ThreadExecutor';
-import { getConfigFile, writeConfigFile } from '../../utils/Utils';
 import { OverlayManager } from '../../gui/OverlayUtils';
 import { clamp, drawMusicOverlay, getMusicOverlayBounds } from '../../gui/OverlayRenderers';
 
@@ -24,17 +23,27 @@ class Music extends ModuleBase {
         this.lastDataReceivedAt = 0;
         this.lastRestartAttempt = 0;
 
-        this.positionConfig = getConfigFile('OverlayPositions/music_overlay.json') || {};
-        const savedX = typeof this.positionConfig.x === 'number' ? this.positionConfig.x : 100;
-        const savedY = typeof this.positionConfig.y === 'number' ? this.positionConfig.y : 100;
-        const savedScale = typeof this.positionConfig.scale === 'number' ? this.positionConfig.scale : 1.0;
-
-        this.x = savedX;
-        this.y = savedY;
-        this.scale = clamp(savedScale, 0.5, 3.0);
-        this.overlayEnabled = this.positionConfig.enabled !== false;
-        this.dynamicWidth = 200;
-        this.baseHeight = 90;
+        this.overlaySettings = OverlayManager.musicSettings;
+        this.overlay = {};
+        this.playback = { currentText: '--:--', totalText: '--:--', progress: 0 };
+        this.lastCurrentSecond = null;
+        this.lastTotalSecond = null;
+        this.lastFallbackTotalText = null;
+        this.lastTimeText = null;
+        this.lastTotalTimeText = null;
+        this.parsedCurrentSeconds = 0;
+        this.parsedTotalSeconds = 0;
+        this.artworkUrl = '';
+        this.drawArtwork = (x, y, size) => drawImageFromURL(this.artworkUrl, x, y, size, size, 6);
+        this.drawArgs = {
+            overlay: this.overlay,
+            songName: '',
+            currentTime: '--:--',
+            totalTime: '--:--',
+            progress: 0,
+            titleColor: THEME.TEXT_MUTED,
+            drawArtwork: null,
+        };
 
         this.on('step', () => {
             if (Client.getFPS() > 0) {
@@ -49,8 +58,8 @@ class Music extends ModuleBase {
         });
 
         register('worldUnload', () => this.stopWindowsProgram());
-        register('gameUnload', () => this.savePosition());
-        register('guiClosed', () => this.savePosition());
+        register('gameUnload', () => OverlayManager.saveMusicSettings());
+        register('guiClosed', () => OverlayManager.saveMusicSettings());
         Runtime.getRuntime().addShutdownHook(new java.lang.Thread(() => this.stopWindowsProgram()));
     }
 
@@ -81,11 +90,13 @@ class Music extends ModuleBase {
 
     getPlaybackState() {
         if (!this.data) {
-            return {
-                currentText: '--:--',
-                totalText: '--:--',
-                progress: 0,
-            };
+            this.lastCurrentSecond = null;
+            this.lastTotalSecond = null;
+            this.lastFallbackTotalText = null;
+            this.playback.currentText = '--:--';
+            this.playback.totalText = '--:--';
+            this.playback.progress = 0;
+            return this.playback;
         }
 
         const hasMsTimeline = typeof this.data.positionMs === 'number' && typeof this.data.durationMs === 'number' && this.data.durationMs > 0;
@@ -106,50 +117,53 @@ class Music extends ModuleBase {
                 currentSec += Math.min(elapsedSinceReceive, 5.0);
             }
         } else {
-            currentSec = this.parseTimeToSeconds(this.data.time || '0:00');
-            totalSec = this.parseTimeToSeconds(this.data.totalTime || '0:00');
+            const timeText = this.data.time || '0:00';
+            const totalTimeText = this.data.totalTime || '0:00';
+            if (timeText !== this.lastTimeText) {
+                this.lastTimeText = timeText;
+                this.parsedCurrentSeconds = this.parseTimeToSeconds(timeText);
+            }
+            if (totalTimeText !== this.lastTotalTimeText) {
+                this.lastTotalTimeText = totalTimeText;
+                this.parsedTotalSeconds = this.parseTimeToSeconds(totalTimeText);
+            }
+            currentSec = this.parsedCurrentSeconds;
+            totalSec = this.parsedTotalSeconds;
         }
 
         if (totalSec > 0) {
             currentSec = Math.min(currentSec, totalSec);
         }
 
-        return {
-            currentText: this.formatSecondsToTime(currentSec),
-            totalText: totalSec > 0 ? this.formatSecondsToTime(totalSec) : this.data.totalTime || '0:00',
-            progress: totalSec > 0 ? Math.max(0, Math.min(currentSec / totalSec, 1)) : 0,
-        };
-    }
-
-    savePosition() {
-        this.syncFromOverlayEditor();
-        this.positionConfig = {
-            x: this.x,
-            y: this.y,
-            scale: this.scale,
-            enabled: this.overlayEnabled,
-        };
-        if (OverlayManager && OverlayManager.musicSettings) Object.assign(OverlayManager.musicSettings, this.positionConfig);
-        writeConfigFile('OverlayPositions/music_overlay.json', this.positionConfig);
-    }
-
-    syncFromOverlayEditor() {
-        const latest = OverlayManager?.musicSettings;
-        if (!latest || typeof latest !== 'object') return;
-
-        if (typeof latest.x === 'number') this.x = latest.x;
-        if (typeof latest.y === 'number') this.y = latest.y;
-        if (typeof latest.scale === 'number') this.scale = clamp(latest.scale, 0.5, 3.0);
-        if (typeof latest.enabled === 'boolean') this.overlayEnabled = latest.enabled;
-
-        this.positionConfig = latest;
+        const currentSecond = Math.floor(currentSec);
+        if (currentSecond !== this.lastCurrentSecond) {
+            this.lastCurrentSecond = currentSecond;
+            this.playback.currentText = this.formatSecondsToTime(currentSecond);
+        }
+        if (totalSec > 0) {
+            const totalSecond = Math.floor(totalSec);
+            if (totalSecond !== this.lastTotalSecond) {
+                this.lastTotalSecond = totalSecond;
+                this.playback.totalText = this.formatSecondsToTime(totalSecond);
+            }
+            this.lastFallbackTotalText = null;
+        } else {
+            const totalText = this.data.totalTime || '0:00';
+            if (totalText !== this.lastFallbackTotalText) {
+                this.lastFallbackTotalText = totalText;
+                this.playback.totalText = totalText;
+            }
+            this.lastTotalSecond = null;
+        }
+        this.playback.progress = totalSec > 0 ? Math.max(0, Math.min(currentSec / totalSec, 1)) : 0;
+        return this.playback;
     }
 
     renderOverlay() {
         if (OverlayManager.drawingGUI) return;
 
-        this.syncFromOverlayEditor();
-        if (!this.overlayEnabled) return;
+        const settings = this.overlaySettings;
+        if (!settings.enabled) return;
 
         const sw = Render2D.screen.getWidth();
         const isSkeleton = !this.data;
@@ -157,32 +171,33 @@ class Music extends ModuleBase {
         const imageURL = isSkeleton || !this.data.art || this.data.art.toLowerCase() === 'none' ? '' : this.data.art;
 
         const playback = this.getPlaybackState();
-        const interpolatedTimeText = playback.currentText;
-        const timeMax = playback.totalText;
-        const progress = playback.progress;
 
-        const overlay = { x: this.x, y: this.y, scale: this.scale || 1.0, ...getMusicOverlayBounds(this.scale || 1.0, songName) };
-        this.dynamicWidth = overlay.width;
-        this.baseHeight = overlay.height;
-        overlay.x = clamp(overlay.x, 0, Math.max(0, sw - overlay.width));
-        this.x = overlay.x;
+        const scale = settings.scale || 1.0;
+        const bounds = getMusicOverlayBounds(scale, songName);
+        const overlay = this.overlay;
+        overlay.x = clamp(settings.x, 0, Math.max(0, sw - bounds.width));
+        overlay.y = settings.y;
+        overlay.scale = settings.scale;
+        overlay.enabled = settings.enabled;
+        overlay.width = bounds.width;
+        overlay.height = bounds.height;
+        this.artworkUrl = imageURL;
+        const drawArgs = this.drawArgs;
+        drawArgs.songName = songName;
+        drawArgs.currentTime = playback.currentText;
+        drawArgs.totalTime = playback.totalText;
+        drawArgs.progress = playback.progress;
+        drawArgs.titleColor = isSkeleton ? THEME.TEXT_MUTED : THEME.TEXT;
+        drawArgs.drawArtwork = imageURL.length > 5 ? this.drawArtwork : null;
 
         try {
-            drawMusicOverlay({
-                overlay,
-                songName,
-                currentTime: interpolatedTimeText,
-                totalTime: timeMax,
-                progress,
-                titleColor: isSkeleton ? THEME.TEXT_MUTED : THEME.TEXT,
-                drawArtwork: imageURL.length > 5 ? (x, y, size) => drawImageFromURL(imageURL, x, y, size, size, 6) : null,
-            });
+            drawMusicOverlay(drawArgs);
         } catch (e) {}
     }
 
     onDisable() {
         Render2D.unloadImage(this.data?.art || '');
-        this.savePosition();
+        OverlayManager.saveMusicSettings();
         this.stopWindowsProgram();
     }
 

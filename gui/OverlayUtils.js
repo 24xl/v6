@@ -20,6 +20,7 @@ import {
     drawInventoryHudBackground,
     drawMusicOverlay,
     drawStatsHud,
+    clampOverlayToScreen,
     getInventoryHudBounds,
     getMusicOverlayBounds,
     getStatsHudBounds,
@@ -53,13 +54,15 @@ class OverlayUtils {
             scheduler: this.getScaleProps(this.schedulerSettings.scale),
         };
         this.hudSettings = {
-            stats: { x: 10, y: 10, scale: 1.0 },
-            inventory: { x: 50, y: 100, scale: 1.0 },
+            stats: { x: 10, y: 10, scale: 1.0, enabled: true },
+            inventory: { x: 50, y: 100, scale: 1.0, enabled: true },
         };
+        this.hudOverlays = { stats: null, inventory: null };
         this.musicSettings = {
             x: 100,
             y: 100,
             scale: 1.0,
+            enabled: true,
         };
 
         this.editorOrder = ['default', 'scheduler', 'hudInventory', 'hudStats', 'music'];
@@ -530,10 +533,7 @@ class OverlayUtils {
         const sh = shOverride !== null ? shOverride : Render2D.screen.getHeight();
         if (sw === 0 || sh === 0) return { x, y };
 
-        return {
-            x: Math.max(border, Math.min(x, sw - w - border)),
-            y: Math.max(border, Math.min(y, sh - h - border)),
-        };
+        return clampOverlayToScreen({ x, y, width: w, height: h }, sw, sh, border);
     }
 
     drawSectionDivider(x, y, width, progress, accentOverride = null) {
@@ -867,8 +867,39 @@ class OverlayUtils {
             default: this.settings,
             scheduler: this.schedulerSettings,
         });
-        writeConfigFile('OverlayPositions/hud_positions.json', this.hudSettings);
-        writeConfigFile('OverlayPositions/music_overlay.json', this.musicSettings);
+        this.saveHudSettings();
+        this.saveMusicSettings();
+    }
+
+    saveHudSettings() {
+        writeConfigFile('OverlayPositions/hud_positions.json', {
+            stats: this.getOverlaySettings(this.hudSettings.stats),
+            inventory: this.getOverlaySettings(this.hudSettings.inventory),
+        });
+    }
+
+    saveMusicSettings() {
+        writeConfigFile('OverlayPositions/music_overlay.json', this.getOverlaySettings(this.musicSettings));
+    }
+
+    getOverlaySettings(settings) {
+        return {
+            x: settings.x,
+            y: settings.y,
+            scale: settings.scale,
+            enabled: settings.enabled !== false,
+        };
+    }
+
+    applyOverlaySettings(settings, saved, defaults) {
+        if (!saved || typeof saved !== 'object') return;
+
+        Object.assign(settings, {
+            x: Number.isFinite(saved.x) ? saved.x : defaults.x,
+            y: Number.isFinite(saved.y) ? saved.y : defaults.y,
+            scale: clamp(Number.isFinite(saved.scale) ? saved.scale : defaults.scale, 0.5, 3),
+            enabled: saved.enabled !== false,
+        });
     }
 
     loadSettings() {
@@ -905,58 +936,56 @@ class OverlayUtils {
 
         const hudData = getConfigFile('OverlayPositions/hud_positions.json');
         if (hudData && typeof hudData === 'object') {
-            if (hudData.stats && typeof hudData.stats.x === 'number') {
-                this.hudSettings.stats = {
-                    x: hudData.stats.x,
-                    y: hudData.stats.y,
-                    scale: typeof hudData.stats.scale === 'number' ? hudData.stats.scale : 1.0,
-                    enabled: hudData.stats.enabled !== false,
-                };
-            }
-
-            if (hudData.inventory && typeof hudData.inventory.x === 'number') {
-                this.hudSettings.inventory = {
-                    x: hudData.inventory.x,
-                    y: hudData.inventory.y,
-                    scale: typeof hudData.inventory.scale === 'number' ? hudData.inventory.scale : 1.0,
-                    enabled: hudData.inventory.enabled !== false,
-                };
-            }
+            this.applyOverlaySettings(this.hudSettings.stats, hudData.stats, { x: 10, y: 10, scale: 1.0 });
+            this.applyOverlaySettings(this.hudSettings.inventory, hudData.inventory, { x: 50, y: 100, scale: 1.0 });
         }
 
         const musicData = getConfigFile('OverlayPositions/music_overlay.json');
-        if (musicData && typeof musicData === 'object' && typeof musicData.x === 'number' && typeof musicData.y === 'number') {
-            this.musicSettings = {
-                x: musicData.x,
-                y: musicData.y,
-                scale: typeof musicData.scale === 'number' ? musicData.scale : 1.0,
-                enabled: musicData.enabled !== false,
-            };
-        }
+        this.applyOverlaySettings(this.musicSettings, musicData, { x: 100, y: 100, scale: 1.0 });
+    }
+
+    getHudOverlay(kind, sw, sh, border = 0) {
+        const settings = this.hudSettings[kind];
+        const cached = this.hudOverlays[kind];
+        if (
+            cached &&
+            cached.settingsX === settings.x &&
+            cached.settingsY === settings.y &&
+            cached.settingsScale === settings.scale &&
+            cached.settingsEnabled === settings.enabled &&
+            cached.sw === sw &&
+            cached.sh === sh &&
+            cached.border === border
+        )
+            return cached.overlay;
+
+        const bounds = kind === 'stats' ? getStatsHudBounds(settings.scale) : getInventoryHudBounds(settings.scale);
+        const overlay = { ...settings, ...bounds };
+        Object.assign(overlay, this.clampToScreen(overlay.x, overlay.y, overlay.width, overlay.height, sw, sh, border));
+        this.hudOverlays[kind] = {
+            settingsX: settings.x,
+            settingsY: settings.y,
+            settingsScale: settings.scale,
+            settingsEnabled: settings.enabled,
+            sw,
+            sh,
+            border,
+            overlay,
+        };
+        return overlay;
     }
 
     drawHudStatsPreview(sw, sh) {
         const lines = getStatsHudLines();
-        const overlay = {
-            ...this.hudSettings.stats,
-            ...getStatsHudBounds(this.hudSettings.stats.scale),
-        };
-        Object.assign(this.hudSettings.stats, this.clampToScreen(overlay.x, overlay.y, overlay.width, overlay.height, sw, sh, BORDER_WIDTH * overlay.scale));
-        Object.assign(overlay, this.hudSettings.stats);
+        const overlay = this.getHudOverlay('stats', sw, sh, BORDER_WIDTH * this.hudSettings.stats.scale);
+        Object.assign(this.hudSettings.stats, { x: overlay.x, y: overlay.y });
         drawStatsHud(overlay, lines);
         return overlay;
     }
 
     drawHudInventoryPreview(sw, sh) {
-        const overlay = {
-            ...this.hudSettings.inventory,
-            ...getInventoryHudBounds(this.hudSettings.inventory.scale),
-        };
-        Object.assign(
-            this.hudSettings.inventory,
-            this.clampToScreen(overlay.x, overlay.y, overlay.width, overlay.height, sw, sh, BORDER_WIDTH * overlay.scale)
-        );
-        Object.assign(overlay, this.hudSettings.inventory);
+        const overlay = this.getHudOverlay('inventory', sw, sh, BORDER_WIDTH * this.hudSettings.inventory.scale);
+        Object.assign(this.hudSettings.inventory, { x: overlay.x, y: overlay.y });
         drawInventoryHudBackground(overlay);
         return overlay;
     }

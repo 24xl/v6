@@ -4,6 +4,20 @@ import { BORDER_WIDTH, colorWithAlpha, CORNER_RADIUS, drawRoundedRectangleWithBo
 const STATS_LABELS = ['FPS:', 'Ping:', 'TPS:'];
 const STATS_VALUES = ['999', '999ms', '20.00'];
 const statsGeometry = new Map();
+const statsLines = [
+    { label: 'FPS', value: '', color: THEME.TEXT },
+    { label: 'Ping', value: '', color: 0 },
+    { label: 'TPS', value: '', color: 0 },
+];
+let lastStatsFps;
+let lastStatsPing;
+let lastStatsTps;
+let musicBounds = null;
+let lastCurrentTime;
+let lastTotalTime;
+let lastTimerFontSize;
+let currentTimeWidth = 0;
+let totalTimeWidth = 0;
 
 const getStatsGeometry = (scale) => {
     if (statsGeometry.has(scale)) return statsGeometry.get(scale);
@@ -28,28 +42,31 @@ const getStatsGeometry = (scale) => {
 };
 
 export const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
-export const clampOverlayToScreen = (overlay, sw, sh) => ({
-    x: clamp(overlay.x, 0, Math.max(0, sw - overlay.width)),
-    y: clamp(overlay.y, 0, Math.max(0, sh - overlay.height)),
+export const clampOverlayToScreen = (overlay, sw, sh, border = 0) => ({
+    x: clamp(overlay.x, border, Math.max(border, sw - overlay.width - border)),
+    y: clamp(overlay.y, border, Math.max(border, sh - overlay.height - border)),
 });
 
 export const getStatsHudLines = () => {
     const fps = Client.getFPS();
     const ping = getPing();
     const tps = getTPS();
-    return [
-        { label: 'FPS', value: String(fps), color: THEME.TEXT },
-        {
-            label: 'Ping',
-            value: `${ping}ms`,
-            color: (0xff000000 | getPingColor(ping)) >>> 0,
-        },
-        {
-            label: 'TPS',
-            value: tps.toFixed(2),
-            color: (0xff000000 | getTpsColor(tps)) >>> 0,
-        },
-    ];
+    if (fps !== lastStatsFps) {
+        lastStatsFps = fps;
+        statsLines[0].value = String(fps);
+    }
+    if (ping !== lastStatsPing) {
+        lastStatsPing = ping;
+        statsLines[1].value = `${ping}ms`;
+        statsLines[1].color = (0xff000000 | getPingColor(ping)) >>> 0;
+    }
+    if (tps !== lastStatsTps) {
+        lastStatsTps = tps;
+        statsLines[2].value = tps.toFixed(2);
+        statsLines[2].color = (0xff000000 | getTpsColor(tps)) >>> 0;
+    }
+    statsLines[0].color = THEME.TEXT;
+    return statsLines;
 };
 
 export function getStatsHudBounds(scale) {
@@ -75,7 +92,8 @@ export function drawStatsHud(overlay, lines = getStatsHudLines()) {
 
     let x = overlay.x + pad;
     const centerY = overlay.y + overlay.height / 2;
-    lines.forEach((line, index) => {
+    for (let index = 0; index < lines.length; index++) {
+        const line = lines[index];
         const label = `${line.label}:`;
         drawText(label, x, centerY, fontSize, THEME.TEXT_MUTED, 17);
         drawText(String(line.value), x + labelWidths[index] + gaps[index], centerY, fontSize, line.color, 17);
@@ -84,7 +102,7 @@ export function drawStatsHud(overlay, lines = getStatsHudLines()) {
             drawText(separator, x, centerY, fontSize, colorWithAlpha(THEME.TEXT_MUTED, 0.6), 17);
             x += separatorWidth;
         }
-    });
+    }
 }
 
 export function getInventoryHudBounds(scale) {
@@ -118,12 +136,15 @@ export function drawInventoryHudBackground(overlay) {
 }
 
 export function getMusicOverlayBounds(scale, songName) {
+    if (musicBounds && musicBounds.scale === scale && musicBounds.songName === songName) return musicBounds.bounds;
     const padding = 12 * scale;
     const imageSize = 55 * scale;
-    return {
+    const bounds = {
         width: Math.max(200 * scale, getTextWidth(songName, FontSizes.MEDIUM * 1.3 * scale) + imageSize + padding * 4),
         height: 90 * scale,
     };
+    musicBounds = { scale, songName, bounds };
+    return bounds;
 }
 
 export function drawMusicOverlay({ overlay, songName, currentTime, totalTime, progress = 0, titleColor = THEME.TEXT_MUTED, drawArtwork = null }) {
@@ -132,9 +153,19 @@ export function drawMusicOverlay({ overlay, songName, currentTime, totalTime, pr
     const imageSize = 55 * scale;
     const titleFontSize = FontSizes.MEDIUM * 1.3 * scale;
     const timerFontSize = FontSizes.MEDIUM * 0.85 * scale;
+    const timerFontSizeChanged = timerFontSize !== lastTimerFontSize;
     const barHeight = 4 * scale;
     const imageX = overlay.x + overlay.width - imageSize - padding;
     const imageY = overlay.y + padding;
+    if (timerFontSizeChanged || currentTime !== lastCurrentTime) {
+        lastTimerFontSize = timerFontSize;
+        lastCurrentTime = currentTime;
+        currentTimeWidth = getTextWidth(currentTime, timerFontSize);
+    }
+    if (timerFontSizeChanged || totalTime !== lastTotalTime) {
+        lastTotalTime = totalTime;
+        totalTimeWidth = getTextWidth(totalTime, timerFontSize);
+    }
 
     drawRoundedRectangleWithBorder({
         x: overlay.x,
@@ -164,8 +195,8 @@ export function drawMusicOverlay({ overlay, songName, currentTime, totalTime, pr
 
     drawText(songName, overlay.x + padding, overlay.y + padding + titleFontSize, titleFontSize, titleColor, 16);
     const gap = 4 * scale;
-    const barStartX = overlay.x + padding + getTextWidth(currentTime, timerFontSize) + gap;
-    const barWidth = overlay.x + overlay.width - padding - getTextWidth(totalTime, timerFontSize) - gap - barStartX;
+    const barStartX = overlay.x + padding + currentTimeWidth + gap;
+    const barWidth = overlay.x + overlay.width - padding - totalTimeWidth - gap - barStartX;
     const barY = overlay.y + overlay.height - padding - barHeight * 0.8;
     const timerY = barY + barHeight / 2;
     drawText(currentTime, overlay.x + padding, timerY, timerFontSize, THEME.TEXT_MUTED, 16);
