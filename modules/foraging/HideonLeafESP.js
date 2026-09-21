@@ -23,7 +23,8 @@ class HideonLeafESP extends ModuleBase {
         this.when(
             () => this.enabled && World.isLoaded() && isInGalatea() && this.targets.length > 0,
             'postRenderWorld',
-            () => this.renderTargets()
+            () => this.renderTargets(),
+            true
         );
 
         this.on('worldUnload', () => {

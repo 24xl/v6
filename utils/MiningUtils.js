@@ -474,13 +474,13 @@ class RefuelService {
         };
 
         this.reset();
-        register('tick', () => {
+        this.tickRegister = register('tick', () => {
             try {
                 this.tick();
             } catch (error) {
                 this.abort('Refueling error: ' + error);
             }
-        });
+        }).unregister();
     }
 
     reset() {
@@ -498,12 +498,14 @@ class RefuelService {
         this.swapState = 0;
         this.finalSuccess = false;
         this.allowNpc = true;
+        if (this.tickRegister) this.tickRegister.unregister();
     }
 
     setState(nextState, waitTicks = 0, timeoutTicks = null) {
         this.state = nextState;
         this.waitTicks = waitTicks;
         this.timeoutTicks = timeoutTicks;
+        this.tickRegister.register();
     }
 
     refuel(callback, { allowNpc = true } = {}) {

@@ -18,7 +18,7 @@ class OreRoutePathWalker {
         this.splinePath = null;
         this.walkTarget = null;
 
-        register('postRenderWorld', () => this.render());
+        this.renderRegister = register('postRenderWorld', () => this.render()).unregister();
     }
 
     start(goal) {
@@ -39,6 +39,7 @@ class OreRoutePathWalker {
             0,
             PathConfig.PATHFINDER_MAX_COMPUTE
         );
+        if (this.active && !this.renderRegister.isRegistered()) this.renderRegister.register();
         return this.active;
     }
 
@@ -165,6 +166,7 @@ class OreRoutePathWalker {
             Swift.clear();
         }
         this.active = false;
+        if (this.renderRegister.isRegistered()) this.renderRegister.unregister();
         this.goal = null;
         this.goalKey = '';
         this.path = null;

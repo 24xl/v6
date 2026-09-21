@@ -35,7 +35,11 @@ class LoadoutHandler extends ModuleBase {
             (value) => (this.pestSpawnSwapCooldown = Math.round(value)),
             'Switches to the pest spawning loadout at or below this cooldown in seconds.'
         );
-        register('tick', () => this.tick());
+        this.when(
+            () => this.targetSlot !== null,
+            'tick',
+            () => this.tick()
+        );
     }
 
     select(slot) {

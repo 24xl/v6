@@ -1,5 +1,5 @@
 import { Categories } from '../../gui/categories/CategorySystem';
-import { getEnabledMacros, getLastDisableMeta, getModule, getModuleDuration, getModuleStartTime } from '../../utils/MacroState';
+import { getEnabledMacros, getLastDisableMeta, getModule, getModuleDuration, getModuleStartTime, isMacroRunning } from '../../utils/MacroState';
 import { ModuleBase } from '../../utils/ModuleBase';
 import { Webhook } from '../../utils/Webhooks';
 
@@ -67,7 +67,7 @@ class DiscordIntegration extends ModuleBase {
         );
 
         this.when(
-            () => this.MACRO_EMBEDS,
+            () => this.MACRO_EMBEDS && (isMacroRunning() || this.lastActiveMacro !== null),
             'tick',
             () => this.onTick()
         );
