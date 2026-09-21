@@ -74,6 +74,14 @@ export function getStatsHudBounds(scale) {
     return { width, height };
 }
 
+const colorKey = (color) => (color?.getRGB ? color.getRGB() : color) | 0;
+
+export const getStatsHudCacheKey = (overlay, lines) =>
+    [overlay.x, overlay.y, overlay.width, overlay.height, overlay.scale]
+        .concat([THEME.BG_COMPONENT, THEME.BORDER, THEME.TEXT, THEME.TEXT_MUTED].map(colorKey))
+        .concat(lines.map(({ label, value, color }) => [label, value, colorKey(color)].join('|')))
+        .join('|');
+
 export function drawStatsHud(overlay, lines = getStatsHudLines()) {
     const scale = overlay.scale;
     const { pad, fontSize, gaps, separatorWidth, labelWidths, slotWidths } = getStatsGeometry(scale);
@@ -111,6 +119,9 @@ export function getInventoryHudBounds(scale) {
     return { width: pad * 2 + 9 * slot, height: pad * 2 + 4 * slot + 4 * scale };
 }
 
+export const getInventoryHudCacheKey = (overlay) =>
+    [overlay.x, overlay.y, overlay.width, overlay.height, overlay.scale].concat([THEME.BG_COMPONENT, THEME.BORDER, THEME.ACCENT].map(colorKey)).join('|');
+
 export function drawInventoryHudBackground(overlay) {
     const scale = overlay.scale;
     const pad = 6 * scale;
@@ -131,8 +142,7 @@ export function drawInventoryHudBackground(overlay) {
         borderWidth: BORDER_WIDTH * scale,
         borderColor: THEME.BORDER,
     });
-    Render2D.drawGradientRect(overlay.x + pad, separatorY, rowWidth / 2, Math.max(1, scale), edgeColor, centerColor, 'LeftToRight', 0);
-    Render2D.drawGradientRect(overlay.x + pad + rowWidth / 2, separatorY, rowWidth / 2, Math.max(1, scale), centerColor, edgeColor, 'LeftToRight', 0);
+    Render2D.drawHorizontalThreeStopGradient(overlay.x + pad, separatorY, rowWidth, Math.max(1, scale), edgeColor, centerColor);
 }
 
 export function getMusicOverlayBounds(scale, songName) {

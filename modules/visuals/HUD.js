@@ -1,4 +1,4 @@
-import { drawInventoryHudBackground, drawStatsHud, getStatsHudLines } from '../../gui/OverlayRenderers';
+import { drawInventoryHudBackground, drawStatsHud, getInventoryHudCacheKey, getStatsHudCacheKey, getStatsHudLines } from '../../gui/OverlayRenderers';
 import { ModuleBase } from '../../utils/ModuleBase';
 import { OverlayManager } from '../../gui/OverlayUtils';
 import { GuiState } from '../../gui/core/GuiState';
@@ -38,10 +38,9 @@ class HUD extends ModuleBase {
             'postGuiRender',
             () => this.renderOverlay()
         );
-        this.inventoryOverlay = null;
-        this.inventoryBackgroundCallback = () => drawInventoryHudBackground(this.inventoryOverlay);
         this.statsCallback = () => this.renderStatsOverlay();
         this.statsRegistration = null;
+        this.pendingPanels = null;
 
         register('gameUnload', () => OverlayManager.saveHudSettings());
         register('guiClosed', () => OverlayManager.saveHudSettings());
@@ -116,47 +115,77 @@ class HUD extends ModuleBase {
     updateRenderRegistrations() {
         const visible = this.worldLoaded && !GuiState.myGui.isOpen() && !oreRouteEditor.isOpen() && !OverlayManager.drawingGUI;
         if (visible && this.stats.enabled !== false && !this.statsRegistration) {
-            this.statsRegistration = Render2D.registerV5Render(this.statsCallback);
+            this.statsRegistration = Render2D.registerV5CachedRender(this.statsCallback);
         } else if ((!visible || this.stats.enabled === false) && this.statsRegistration) {
             Render2D.unregisterV5Render(this.statsRegistration);
             this.statsRegistration = null;
         }
     }
 
-    drawInventoryHudItems(overlay) {
-        const inventory = Player.getPlayer()?.getInventory();
+    panelBounds(overlay) {
+        const pad = overlay.scale + 1;
+        return { x: overlay.x - pad, y: overlay.y - pad, width: overlay.width + pad * 2, height: overlay.height + pad * 2 };
+    }
+
+    disjoint(left, right) {
+        return left.x + left.width <= right.x || right.x + right.width <= left.x || left.y + left.height <= right.y || right.y + right.height <= left.y;
+    }
+
+    enqueueInventory(overlay, key, callback) {
         const context = DrawContextHolder.currentContext;
-        if (!inventory || !context) return;
-
-        const { x, y, scale } = overlay;
-        const pose = context.pose();
-
-        pose.pushMatrix();
-        pose.translate(x + 7 * scale, y + 7 * scale);
-        pose.scale(scale, scale);
-
-        try {
-            for (let i = 0; i < 27; i++) {
-                const stack = inventory.getItem(i + 9);
-                if (!stack.isEmpty()) context.item(stack, (i % 9) * 18, Math.floor(i / 9) * 18);
-            }
-
-            for (let i = 0; i < 9; i++) {
-                const stack = inventory.getItem(i);
-                if (!stack.isEmpty()) context.item(stack, i * 18, 58);
-            }
-        } finally {
-            pose.popMatrix();
-        }
+        if (!context) return;
+        const bounds = this.panelBounds(overlay);
+        SkijaPIP.drawInventory(context, bounds.x, bounds.y, bounds.width, bounds.height, key, callback);
     }
 
     renderOverlay() {
-        this.inventoryOverlay = this.prepareOverlay('inventory');
-        if (!this.inventoryOverlay) return;
+        this.pendingPanels = null;
+        const inventory = this.prepareOverlay('inventory');
+        if (!inventory) return;
 
         try {
-            SkijaPIP.draw(DrawContextHolder.currentContext, this.inventoryBackgroundCallback, false);
-            this.drawInventoryHudItems(this.inventoryOverlay);
+            const stats = this.prepareOverlay('stats');
+            const lines = stats && getStatsHudLines().map(({ label, value, color }) => ({ label, value, color }));
+            const inventoryBounds = this.panelBounds(inventory);
+            const statsBounds = stats && this.panelBounds(stats);
+            if (statsBounds && this.disjoint(inventoryBounds, statsBounds)) {
+                const x = Math.min(inventoryBounds.x, statsBounds.x);
+                const y = Math.min(inventoryBounds.y, statsBounds.y);
+                const width = Math.max(inventoryBounds.x + inventoryBounds.width, statsBounds.x + statsBounds.width) - x;
+                const height = Math.max(inventoryBounds.y + inventoryBounds.height, statsBounds.y + statsBounds.height) - y;
+                const key = `${getInventoryHudCacheKey(inventory)}:${getStatsHudCacheKey(stats, lines)}`;
+                const callback = () => {
+                    drawInventoryHudBackground(inventory);
+                    drawStatsHud(stats, lines);
+                };
+                this.pendingPanels = {
+                    context: DrawContextHolder.currentContext,
+                    x,
+                    y,
+                    width,
+                    height,
+                    stats: statsBounds,
+                    key,
+                    statsKey: getStatsHudCacheKey(stats, lines),
+                    callback,
+                };
+                SkijaPIP.drawPanels(
+                    DrawContextHolder.currentContext,
+                    x,
+                    y,
+                    width,
+                    height,
+                    inventoryBounds.x,
+                    inventoryBounds.y,
+                    inventoryBounds.width,
+                    inventoryBounds.height,
+                    key,
+                    callback
+                );
+            } else {
+                this.enqueueInventory(inventory, getInventoryHudCacheKey(inventory), () => drawInventoryHudBackground(inventory));
+            }
+            Render2D.drawPlayerInventory(DrawContextHolder.currentContext, inventory.x, inventory.y, inventory.scale);
         } catch (e) {
             console.error(e);
         }
@@ -165,8 +194,19 @@ class HUD extends ModuleBase {
     renderStatsOverlay() {
         const overlay = this.prepareOverlay('stats');
         if (!overlay) return;
+        const panels = this.pendingPanels;
+        this.pendingPanels = null;
         try {
-            drawStatsHud(overlay, getStatsHudLines());
+            if (panels?.context === DrawContextHolder.currentContext && panels.statsKey === getStatsHudCacheKey(overlay, getStatsHudLines())) {
+                const { x, y, width, height, stats, key, callback } = panels;
+                SkijaPIP.drawPanels(DrawContextHolder.currentContext, x, y, width, height, stats.x, stats.y, stats.width, stats.height, key, callback);
+                return;
+            }
+            const lines = getStatsHudLines().map(({ label, value, color }) => ({ label, value, color }));
+            const bounds = this.panelBounds(overlay);
+            SkijaPIP.drawStats(DrawContextHolder.currentContext, bounds.x, bounds.y, bounds.width, bounds.height, getStatsHudCacheKey(overlay, lines), () =>
+                drawStatsHud(overlay, lines)
+            );
         } catch (e) {
             console.error(e);
         }
