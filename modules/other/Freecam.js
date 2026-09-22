@@ -21,6 +21,10 @@ class Freecam extends ModuleBase {
         this.bindToggleKey();
 
         this.moveSpeed = 0.8;
+        const options = mc.options;
+        this.physicalKeybinds = [options.keyUp, options.keyDown, options.keyLeft, options.keyRight, options.keyJump, options.keyShift].map(
+            (keybind) => new KeyBind(keybind)
+        );
         this.cameraPos = null;
         this.velocity = new Vec3d(0, 0, 0);
         this.savedPerspective = null;
@@ -120,24 +124,24 @@ class Freecam extends ModuleBase {
         const sinYaw = Math.sin(yaw);
         const cosYaw = Math.cos(yaw);
 
-        if (this.isKeyDown(options.keyUp)) {
+        if (this.isKeyDown(this.physicalKeybinds[0])) {
             moveX -= sinYaw;
             moveZ += cosYaw;
         }
-        if (this.isKeyDown(options.keyDown)) {
+        if (this.isKeyDown(this.physicalKeybinds[1])) {
             moveX += sinYaw;
             moveZ -= cosYaw;
         }
-        if (this.isKeyDown(options.keyLeft)) {
+        if (this.isKeyDown(this.physicalKeybinds[2])) {
             moveX += cosYaw;
             moveZ += sinYaw;
         }
-        if (this.isKeyDown(options.keyRight)) {
+        if (this.isKeyDown(this.physicalKeybinds[3])) {
             moveX -= cosYaw;
             moveZ -= sinYaw;
         }
-        if (this.isKeyDown(options.keyJump)) moveY += 1;
-        if (this.isKeyDown(options.keyShift)) moveY -= 1;
+        if (this.isKeyDown(this.physicalKeybinds[4])) moveY += 1;
+        if (this.isKeyDown(this.physicalKeybinds[5])) moveY -= 1;
 
         const magnitude = Math.hypot(moveX, moveY, moveZ) || 1;
         const hasInput = Math.abs(moveX) > 0 || Math.abs(moveY) > 0 || Math.abs(moveZ) > 0;
@@ -256,7 +260,7 @@ class Freecam extends ModuleBase {
     }
 
     isKeyDown(keybind) {
-        return Client.getCurrentScreen() == null && keybind.isDown();
+        return Client.getCurrentScreen() == null && keybind.isPhysicalKeyDown();
     }
 
     getInitialCameraPos(player, yaw, pitch) {
