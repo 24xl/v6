@@ -378,7 +378,7 @@ class Combat extends ModuleBase {
             return;
         }
 
-        this.blacklistTarget(target, PATH_FAILURE_BLACKLIST_MS);
+        if (this.externalTargets === null) this.blacklistTarget(target, PATH_FAILURE_BLACKLIST_MS);
         this.setTarget(null);
     }
 
