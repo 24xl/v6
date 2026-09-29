@@ -17,7 +17,7 @@ import './mining/TunnelsMiner';
 import './foraging/AutoHarp';
 import './foraging/HideonLeafESP';
 import './foraging/HuntingHelpers';
-import './foraging/TreeESP';
+//import './foraging/TreeESP';
 
 /* FARMING */
 import './farming/CocoaBeansMacro';
