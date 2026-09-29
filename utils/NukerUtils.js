@@ -61,8 +61,8 @@ export const queueNuke = (blockPos, ticks) => {
     return count;
 };
 
-export const queueVanillaNuke = (blockPos, reach = MAX_REACH_DISTANCE) => {
-    const count = nukeQueue.push({ blockPos, reach, vanilla: true });
+export const queueVanillaNuke = (blockPos, reach = MAX_REACH_DISTANCE, owner) => {
+    const count = nukeQueue.push({ blockPos, reach, vanilla: true, owner });
     syncNukeTick();
     return count;
 };

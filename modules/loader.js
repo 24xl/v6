@@ -56,6 +56,7 @@ import './rift/AgaricusCapTriggerbot';
 import './rift/SunGeckoMacro';
 import './rift/MirrorverseMacro';
 import './rift/ScribeNuker';
+//import './rift/LivingMetalNuker';
 
 /* BAZAAR */
 import './bazaar/BazaarNpcMacro';
