@@ -3,7 +3,22 @@
 ## V5.2.1 - 26.3 Support
 
 - Support for 26.3
-- thats basically it
+- Bazaar to NPC macro auto reconnect if limbo or disconect
+- Improved rendering performance significantly
+
+### Rift features!
+
+- Mirrorverse Dance Room Macro
+- Kloon Hacking Minigame QOL Macro
+
+### Hybrid Rewarp Farming mode
+
+This combines the two existing modes.
+It is for farms with a start/end point.
+It works by:
+
+1.  /sethome, then does rewarp actions such as pest killing, then /warp garden, to get back to the home.
+2.  Once it reaches the end of the farm it will manually fly back to the configured start and continue farming.
 
 ## V5.2.0 - 26.2 Support
 
@@ -24,8 +39,6 @@
 - Moves down layers when there is no hardstone left nearby.
 - Automatically refuels through an Abiphone.
 
-(powder nuker macro clip here)
-
 ### Ore Macro
 
 - New route-based mining macro that walks/etherwarps between waypoints and mines ore waypints.
@@ -34,8 +47,6 @@
 - Places mining deployables.
 - Automatically activates mining abilities when ready, with rod swapping for autopet rules.
 - Automatically refuels empty drills and restarts the route afterward.
-
-(ore macro clip here)
 
 ### Mining Bot
 
@@ -65,8 +76,6 @@
 - The `Hourly Profit` shown in the overlay is an esimate assuming you are never outbid.
 - Hypixel has a 500 million coin NPC sell limit which will limit how long you can run the macro for.
 - In private testing, this macro makes roughly ~150M per day, running for 2-4 hours before NPC limit is reached.
-
-(bazaar npc clip here)
 
 ### Auto Forge
 

@@ -17,7 +17,7 @@ import './mining/TunnelsMiner';
 import './foraging/AutoHarp';
 import './foraging/HideonLeafESP';
 import './foraging/HuntingHelpers';
-import './foraging/TreeESP';
+//import './foraging/TreeESP';
 
 /* FARMING */
 import './farming/CocoaBeansMacro';
@@ -47,9 +47,16 @@ import './skills/FishOnMCMacro';
 import './skills/StridersurferMacro';
 import './skills/JerryBoxMacro';
 import './skills/MinionCollector';
-import './skills/MirrorverseMacro';
 import './skills/RouteWalker';
 import './skills/WynnProfessionMacro';
+
+/* RIFT */
+import './rift/KloonHackingMacro';
+import './rift/AgaricusCapTriggerbot';
+import './rift/SunGeckoMacro';
+import './rift/MirrorverseMacro';
+import './rift/ScribeNuker';
+//import './rift/LivingMetalNuker';
 
 /* BAZAAR */
 import './bazaar/BazaarNpcMacro';
@@ -72,7 +79,6 @@ import './other/RatProtection';
 import './other/VoidgloomHelper';
 import './other/AutoCombine';
 import './other/AutoFusionRepeat';
-import './other/SunGeckoMacro';
 import './other/RatMacro';
 import './other/PeltMacro';
 import './other/PeltQOL';

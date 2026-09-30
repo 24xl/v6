@@ -1,4 +1,4 @@
-import { ArmorStandEntity, DataComponents, EndermanEntity, Vec3d, ZombieEntity } from '../../utils/Constants';
+import { Vec3d } from '../../utils/Constants';
 import { angleToPlayer, getDistance, getDistanceToPlayer } from '../../utils/Math';
 import { ModuleBase } from '../../utils/ModuleBase';
 import Pathfinder from '../../utils/pathfinder/PathFinder';
@@ -12,23 +12,7 @@ const STATES = {
     FIGHTING: 'FIGHTING',
 };
 
-const parseNames = (value) => [
-    ...new Set(
-        String(value)
-            .split(',')
-            .map((name) => name.trim().toLowerCase())
-            .filter(Boolean)
-    ),
-];
-
-const BLACKHOLE_TEXTURES = new Set([
-    'ewogICJ0aW1lc3RhbXAiIDogMTczNjE4NDg2Nzc3MywKICAicHJvZmlsZUlkIiA6ICJjNmViMzdjNmE4YjM0MDI3OGJjN2FmZGE3ZjMxOWJmMyIsCiAgInByb2ZpbGVOYW1lIiA6ICJFbFJleUNhbGFiYXphbCIsCiAgInNpZ25hdHVyZVJlcXVpcmVkIiA6IHRydWUsCiAgInRleHR1cmVzIiA6IHsKICAgICJTS0lOIiA6IHsKICAgICAgInVybCIgOiAiaHR0cDovL3RleHR1cmVzLm1pbmVjcmFmdC5uZXQvdGV4dHVyZS81NWI3MGYwOTRlMDE2Nzk1MDhkZDViY2EzOTY0MGVkOWVjNWM2YzY3OTJmYmQ4ZjU3YzAzYjNhMTJmOWMwYTkyIiwKICAgICAgIm1ldGFkYXRhIiA6IHsKICAgICAgICAibW9kZWwiIDogInNsaW0iCiAgICAgIH0KICAgIH0KICB9Cn0=',
-    'ewogICJ0aW1lc3RhbXAiIDogMTczNjE4NDg1MjkxMCwKICAicHJvZmlsZUlkIiA6ICI5OWY1MzhjMDhlN2E0NTg3YmU4MGJjNGVmNzU0ZmQyMSIsCiAgInByb2ZpbGVOYW1lIiA6ICJTb2xvV1MyIiwKICAic2lnbmF0dXJlUmVxdWlyZWQiIDogdHJ1ZSwKICAidGV4dHVyZXMiIDogewogICAgIlNLSU4iIDogewogICAgICAidXJsIiA6ICJodHRwOi8vdGV4dHVyZXMubWluZWNyYWZ0Lm5ldC90ZXh0dXJlL2Q2MWI4N2YxYTEwNDBhOGI5MjJjYTUxYmU5YzBiYzZkNmZjNzFiYTVkNzQ1YzZiZjY1OWNiZDBkOWE5Y2Y0ZmMiLAogICAgICAibWV0YWRhdGEiIDogewogICAgICAgICJtb2RlbCIgOiAic2xpbSIKICAgICAgfQogICAgfQogIH0KfQ==',
-    'ewogICJ0aW1lc3RhbXAiIDogMTczNjE5OTQ3NjI5MiwKICAicHJvZmlsZUlkIiA6ICI0YWY1YmQ3NTdmZDE0MWEwOTczYmUxNTFkZWRjNmM5ZiIsCiAgInByb2ZpbGVOYW1lIiA6ICJjcmFzaGludG95b3VybW9tIiwKICAic2lnbmF0dXJlUmVxdWlyZWQiIDogdHJ1ZSwKICAidGV4dHVyZXMiIDogewogICAgIlNLSU4iIDogewogICAgICAidXJsIiA6ICJodHRwOi8vdGV4dHVyZXMubWluZWNyYWZ0Lm5ldC90ZXh0dXJlLzhkMzQ1NmUyZDkwZjQxMmM1NzA5MjViNTI4YmI1YTNlNGUxZTZhM2YyNGVmODIwYTZiMWNlNDJhYzhlMDA2MDIiLAogICAgICAibWV0YWRhdGEiIDogewogICAgICAgICJtb2RlbCIgOiAic2xpbSIKICAgICAgfQogICAgfQogIH0KfQ==',
-    'ewogICJ0aW1lc3RhbXAiIDogMTczNjE5OTcxODMwNSwKICAicHJvZmlsZUlkIiA6ICI4NzczZWRiODZmYWQ0MTczOGFiYWJhNTUxMWM3MDcwZSIsCiAgInByb2ZpbGVOYW1lIiA6ICJjb3NtaWNwb3RhdG9lcyIsCiAgInNpZ25hdHVyZVJlcXVpcmVkIiA6IHRydWUsCiAgInRleHR1cmVzIiA6IHsKICAgICJTS0lOIiA6IHsKICAgICAgInVybCIgOiAiaHR0cDovL3RleHR1cmVzLm1pbmVjcmFmdC5uZXQvdGV4dHVyZS9mNDM4YzZiYzUwMTk4NWNiYTA3OTZkODE3OTcxZTY4Njc5M2JlMDhiZTQyYjUzODVkN2QwYjkzZDg4MTUyMDE5IiwKICAgICAgIm1ldGFkYXRhIiA6IHsKICAgICAgICAibW9kZWwiIDogInNsaW0iCiAgICAgIH0KICAgIH0KICB9Cn0=',
-    'ewogICJ0aW1lc3RhbXAiIDogMTczNjE5OTY5MzM4NCwKICAicHJvZmlsZUlkIiA6ICIzZmM3ZmRmOTM5NjM0YzQxOTExOTliYTNmN2NjM2ZlZCIsCiAgInByb2ZpbGVOYW1lIiA6ICJZZWxlaGEiLAogICJzaWduYXR1cmVSZXF1aXJlZCIgOiB0cnVlLAogICJ0ZXh0dXJlcyIgOiB7CiAgICAiU0tJTiIgOiB7CiAgICAgICJ1cmwiIDogImh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvMTI5MDc4MTM3ZWEwOTcxOTQ0YzM3NzQxODY3MTcyNjE2NmI3NTFiZDgzOTVlNDcxNDYwMTk1MjJjNzU3ODIyOSIsCiAgICAgICJtZXRhZGF0YSIgOiB7CiAgICAgICAgIm1vZGVsIiA6ICJzbGltIgogICAgICB9CiAgICB9CiAgfQp9',
-    'ewogICJ0aW1lc3RhbXAiIDogMTczNjE5OTc0NTg5NCwKICAicHJvZmlsZUlkIiA6ICJmYjZkM2E5Zjk3MWY0ZTdlYmQ0MjE2Yjk0MjE5NDA3NCIsCiAgInByb2ZpbGVOYW1lIiA6ICJtYXJjaXhkZCIsCiAgInNpZ25hdHVyZVJlcXVpcmVkIiA6IHRydWUsCiAgInRleHR1cmVzIiA6IHsKICAgICJTS0lOIiA6IHsKICAgICAgInVybCIgOiAiaHR0cDovL3RleHR1cmVzLm1pbmVjcmFmdC5uZXQvdGV4dHVyZS9jYjgzMmZjOTdkMzhjY2NhOGJkMTE4YmZiZGEyZmE1N2M1MjA4ZTFmYmJkNmI4ZWE0MjhmNzBjN2NhMTY1NmY0IiwKICAgICAgIm1ldGFkYXRhIiA6IHsKICAgICAgICAibW9kZWwiIDogInNsaW0iCiAgICAgIH0KICAgIH0KICB9Cn0=',
-]);
+const TARGET_NAMES = ['old wolf', 'wolf', 'pack spirit', 'howling spirit', 'soul of the alpha'];
 
 const ATTACK_REACH = 4;
 const PATH_HANDOFF_DISTANCE = 6;
@@ -37,52 +21,18 @@ const REPATH_DELAY_MS = 1200;
 const PATH_FAILURE_BLACKLIST_MS = 5000;
 const VISIBILITY_GRACE_MS = 750;
 
-const BLACKHOLE_AVOID_RADIUS = 8.5;
-const BLACKHOLE_SCAN_INTERVAL = 10;
-const BLACKHOLE_SCAN_RADIUS = 30;
-const BLACKHOLE_SCAN_Y_RANGE = 20;
-const BLACKHOLE_MEMORY_MS = 60000;
-const BLACKHOLE_MERGE_RADIUS = 2.5;
-
-const COMBAT_PRESETS = {
-    Graveyard: {
-        entityClass: ZombieEntity,
-        checkVisibility: false,
-        boundaryCheck: (x, y) => y >= 60 && y <= 100 && x <= -72,
-    },
-    Endermen: {
-        entityClass: EndermanEntity,
-        checkVisibility: true,
-    },
-    Goblins: {
-        names: ['Goblin', 'Weakling', 'Knifethrower', 'Fireslinger'],
-        checkVisibility: true,
-        boundaryCheck: (x, y, z) => y > 127 && !(z > 153 && x < -157) && !(z < 148 && x > -77),
-    },
-    'Ice Walkers': {
-        names: ['Ice Walker', 'Glacite Walker'],
-        checkVisibility: true,
-        boundaryCheck: (x, y, z) => y >= 127 && y <= 145 && z <= 180 && z >= 130 && x <= 80,
-    },
-};
-
-class Combat extends ModuleBase {
+class WolfSoulKiller extends ModuleBase {
     constructor() {
         super({
-            name: 'Combat Bot',
+            name: 'Wolf Soul Killer',
             subcategory: 'Combat',
-            description: 'Automatically hunts entities matching configured names.',
-            tooltip: 'Enter one or more entity names, then toggle with the module keybind.',
-            theme: '#c74d4d',
+            description: 'Targets Old Wolf, Wolf, Pack Spirit, Howling Spirit and Soul of the Alpha.',
+            theme: '#5fb0ff',
             isMacro: true,
         });
 
-        this.bindToggleKey('Toggle Combat Bot');
+        this.bindToggleKey('Toggle Wolf Soul Killer');
 
-        this.externalTargets = null;
-        this.enabledPresets = new Set(['Graveyard']);
-        this.targetNames = [];
-        this.targetNameBlacklist = [];
         this.targets = [];
         this.target = null;
         this.trackedTarget = null;
@@ -95,8 +45,6 @@ class Combat extends ModuleBase {
 
         this.blacklistedTargets = new Map();
         this.visibleUntil = new Map();
-        this.activeBlackholes = [];
-        this.scanTicker = 0;
 
         this.attackRange = ATTACK_REACH;
         this.pathfindingThreshold = 15;
@@ -146,7 +94,7 @@ class Combat extends ModuleBase {
                 rotationSpeedSlider.visible = this.overrideRotationSpeed;
                 this.refreshTargetRotation();
             },
-            'Use a Combat Bot-specific rotation speed instead of the global setting.'
+            'Use a Wolf Soul Killer-specific rotation speed instead of the global setting.'
         );
         rotationSpeedSlider = this.addSlider(
             'Combat Rotation Speed',
@@ -161,42 +109,13 @@ class Combat extends ModuleBase {
         );
         rotationSpeedSlider.visible = false;
 
-        this.addMultiToggle(
-            'Target Presets',
-            Object.keys(COMBAT_PRESETS),
-            false,
-            (selected) => {
-                this.enabledPresets.clear();
-                selected.forEach((item) => {
-                    if (item.enabled && COMBAT_PRESETS[item.name]) this.enabledPresets.add(item.name);
-                });
-            },
-            'Select built-in mob types to target when running standalone.',
-            'Graveyard'
-        );
-
-        this.addTextInput(
-            'Target Names',
-            '',
-            (value) => (this.targetNames = parseNames(value)),
-            'Generic internal entity names separated by commas. Use presets for location-specific mobs.'
-        );
-
-        this.addTextInput(
-            'Target Name Blacklist',
-            '',
-            (value) => (this.targetNameBlacklist = parseNames(value)),
-            'Case-insensitive entity names to exclude, separated by commas.'
-        );
-
         this.createOverlay([
             {
-                title: 'Status',
+                title: 'Wolf Soul Killer',
                 data: {
                     State: () => this.state,
                     Target: () => this.getTargetDisplayName(this.target),
                     'Targets Found': () => this.targets.length,
-                    'Known Blackholes': () => this.activeBlackholes.length,
                 },
             },
         ]);
@@ -212,7 +131,6 @@ class Combat extends ModuleBase {
             return;
         }
 
-        this.scanBlackholes();
         this.expireTargetData();
         this.targets = this.getTargets();
 
@@ -310,11 +228,6 @@ class Combat extends ModuleBase {
     }
 
     startPath(position) {
-        if (!this.isPositionSafe(position.x, position.y, position.z)) {
-            this.setTarget(null);
-            return;
-        }
-
         this.cancelPath();
         this.trackTarget();
         this.setState(STATES.PATHING);
@@ -348,8 +261,6 @@ class Combat extends ModuleBase {
             },
             entityTrackDistance: 8,
             walkArrivalRadius: PATH_HANDOFF_DISTANCE,
-            avoidPoints: this.activeBlackholes,
-            avoidRadius: Math.ceil(BLACKHOLE_AVOID_RADIUS),
             silent: true,
         });
     }
@@ -378,7 +289,7 @@ class Combat extends ModuleBase {
             return;
         }
 
-        if (this.externalTargets === null) this.blacklistTarget(target, PATH_FAILURE_BLACKLIST_MS);
+        this.blacklistTarget(target, PATH_FAILURE_BLACKLIST_MS);
         this.setTarget(null);
     }
 
@@ -444,7 +355,7 @@ class Combat extends ModuleBase {
             if (uuid && this.blacklistedTargets.has(uuid)) return false;
 
             const position = this.getTargetPosition(target);
-            if (!position || !this.isPositionSafe(position.x, position.y, position.z)) return false;
+            if (!position) return false;
 
             return this.targets.some((candidate) => this.sameTarget(candidate, target));
         } catch (e) {
@@ -509,35 +420,11 @@ class Combat extends ModuleBase {
         }
     }
 
-    findMob(config, whitelist = null) {
-        if (!config?.entityClass && !Array.isArray(config?.names)) return [];
-
-        const names = config.names?.map((name) => name.toLowerCase());
-        const entities = config.entityClass ? World.getAllEntitiesOfType(config.entityClass) : World.getAllEntities();
-
-        return entities.filter((entity) => {
-            try {
-                const uuid = entity.getUUID();
-                if (whitelist?.has(uuid)) return false;
-                if (names && !names.some((candidate) => this.getCleanEntityName(entity).includes(candidate))) return false;
-                if (entity.toMC().isSpectator() || entity.isInvisible?.() || entity.isDead?.()) return false;
-                if (config.boundaryCheck && !config.boundaryCheck(entity.getX(), entity.getY(), entity.getZ())) return false;
-
-                return this.isVisibleOrRecent(entity, config.checkVisibility);
-            } catch (e) {
-                console.error('V5 Combat Bot target scan error: ' + e);
-                return false;
-            }
-        });
-    }
-
     getCleanEntityName(entity) {
         return ChatLib.removeFormatting(String(entity.getName()?.getString?.() ?? entity.getName())).toLowerCase();
     }
 
-    isVisibleOrRecent(entity, checkVisibility) {
-        if (!checkVisibility) return true;
-
+    isVisibleOrRecent(entity) {
         const uuid = this.getTargetUuid(entity);
         if (!uuid) return false;
 
@@ -550,75 +437,18 @@ class Combat extends ModuleBase {
     }
 
     getTargets() {
-        const targets = this.externalTargets !== null ? this.externalTargets : this.targetNames.length ? this.findMob({ names: this.targetNames }) : [];
-        if (this.externalTargets === null) this.enabledPresets.forEach((name) => targets.push(...this.findMob(COMBAT_PRESETS[name])));
-        return [...new Map(targets.map((target) => [this.getTargetUuid(target), target])).values()].filter((target) => !this.isTargetNameBlacklisted(target));
-    }
+        const entities = World.getAllEntities();
 
-    isTargetNameBlacklisted(target) {
-        if (!this.targetNameBlacklist.length) return false;
-        try {
-            const name = this.getCleanEntityName(target);
-            return this.targetNameBlacklist.some((blocked) => name.includes(blocked));
-        } catch (e) {
-            return false;
-        }
-    }
-
-    setExternalTargets(targets) {
-        this.externalTargets = Array.isArray(targets) ? targets : [];
-    }
-
-    clearExternalTargets() {
-        this.externalTargets = null;
-    }
-
-    scanBlackholes() {
-        if (++this.scanTicker % BLACKHOLE_SCAN_INTERVAL !== 0) return;
-
-        const player = { x: Player.getX(), y: Player.getY(), z: Player.getZ() };
-        const now = Date.now();
-
-        for (const stand of World.getAllEntitiesOfType(ArmorStandEntity) || []) {
+        return [...new Map(entities.filter((entity) => {
             try {
-                const position = { x: stand.getX(), y: stand.getY(), z: stand.getZ() };
-                if (
-                    Math.abs(position.x - player.x) > BLACKHOLE_SCAN_RADIUS ||
-                    Math.abs(position.y - player.y) > BLACKHOLE_SCAN_Y_RANGE ||
-                    Math.abs(position.z - player.z) > BLACKHOLE_SCAN_RADIUS ||
-                    !this.isBlackholeHead(stand.getStackInSlot(5))
-                ) {
-                    continue;
-                }
-
-                const known = this.activeBlackholes.find((blackhole) => this.getDistanceBetween(blackhole, position).distanceFlat <= BLACKHOLE_MERGE_RADIUS);
-                if (known) Object.assign(known, position, { lastSeen: now });
-                else this.activeBlackholes.push({ ...position, lastSeen: now });
+                const name = this.getCleanEntityName(entity);
+                if (!TARGET_NAMES.some((candidate) => name.includes(candidate))) return false;
+                if (entity.toMC().isSpectator() || entity.isInvisible?.() || entity.isDead?.()) return false;
+                return this.isVisibleOrRecent(entity);
             } catch (e) {
-                console.error('V5 Combat Bot blackhole scan error: ' + e);
+                return false;
             }
-        }
-
-        this.activeBlackholes = this.activeBlackholes.filter((blackhole) => now - blackhole.lastSeen <= BLACKHOLE_MEMORY_MS);
-    }
-
-    isBlackholeHead(item) {
-        try {
-            const stack = item?.toMC ? item.toMC() : item;
-            const profile = stack?.get(DataComponents.PROFILE)?.partialProfile?.()?.toString() || '';
-            if (!profile) return false;
-
-            for (const texture of BLACKHOLE_TEXTURES) {
-                if (profile.includes(texture)) return true;
-            }
-        } catch (e) {
-            console.error('V5 Combat Bot blackhole texture error: ' + e);
-        }
-        return false;
-    }
-
-    isPositionSafe(x, y, z) {
-        return this.activeBlackholes.every((blackhole) => this.getDistanceBetween({ x, y, z }, blackhole).distanceFlat >= BLACKHOLE_AVOID_RADIUS);
+        }).map((target) => [this.getTargetUuid(target), target])).values()];
     }
 
     renderTargets() {
@@ -639,11 +469,6 @@ class Combat extends ModuleBase {
             groups.get(key).entities.push(entity);
         });
         groups.forEach(({ entities, color, thickness }) => Render3D.drawHitboxes(entities, color, thickness, false));
-        Render3D.drawFilledBoxes(
-            this.activeBlackholes.map((blackhole) => new Vec3d(blackhole.x - 0.5, blackhole.y + 0.5, blackhole.z - 0.5)),
-            new RenderColor(0, 0, 0, 150),
-            false
-        );
     }
 
     getTargetDisplayName(target) {
@@ -656,20 +481,15 @@ class Combat extends ModuleBase {
     }
 
     onEnable() {
-        this.activeBlackholes = [];
-        this.scanTicker = 0;
-        if (!this.isParentManaged) {
-            this.message(this.targetNames.length || this.enabledPresets.size ? '&aEnabled' : '&eEnabled, but no targets are configured.');
-        }
+        this.message('&aEnabled');
     }
 
     onDisable() {
-        if (!this.isParentManaged) this.message('&cDisabled');
+        this.message('&cDisabled');
 
         this.cancelPath();
         Client.stopMovement();
         Rotations.stop();
-        this.externalTargets = null;
         this.targets = [];
         this.target = null;
         this.trackedTarget = null;
@@ -677,8 +497,7 @@ class Combat extends ModuleBase {
         this.nextAttackAt = 0;
         this.blacklistedTargets.clear();
         this.visibleUntil.clear();
-        this.activeBlackholes = [];
     }
 }
 
-export const CombatBot = new Combat();
+export const WolfSoulKiller = new WolfSoulKiller();
