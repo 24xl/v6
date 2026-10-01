@@ -56,7 +56,6 @@ class CommissionMacro extends ModuleBase {
         this.commissions = [];
         this.currentCommission = null;
         this.currentMobConfig = null;
-        this.mobWhitelist = new Set();
         this.savedState = null;
         this.awaitingTabUpdate = false;
         this.ignoreTabUpdatesUntil = 0;
@@ -208,41 +207,17 @@ class CommissionMacro extends ModuleBase {
     }
 
     getTruncatedToolName() {
-        const toolInfo = this.getToolDisplay();
         const maxLen = 45;
-        let name = toolInfo.name;
+        let name = this.getToolName();
         if (name.length > maxLen) {
             name = name.substring(0, maxLen - 2) + '..';
         }
         return name;
     }
 
-    getToolDisplay() {
-        if (this.isGoblinSlayerWithWeapon()) {
-            return {
-                type: 'Weapon',
-                name: this.weapon.name,
-            };
-        }
-
-        if (this.drill) {
-            const fullName = ChatLib.removeFormatting(this.drill.item.getName());
-            if (this.isActualDrill) {
-                return {
-                    type: 'Drill',
-                    name: fullName,
-                };
-            }
-            return {
-                type: 'Pickaxe',
-                name: fullName,
-            };
-        }
-
-        return {
-            type: 'None',
-            name: 'None',
-        };
+    getToolName() {
+        if (this.isGoblinSlayerWithWeapon()) return this.weapon.name;
+        return this.drill ? ChatLib.removeFormatting(this.drill.item.getName()) : 'None';
     }
 
     isGoblinSlayerWithWeapon() {
@@ -294,7 +269,6 @@ class CommissionMacro extends ModuleBase {
         this.commissions = [];
         this.currentCommission = null;
         this.currentMobConfig = null;
-        this.mobWhitelist.clear();
         this.savedState = null;
         this.travelPurpose = null;
         this.pauseTicks = 0;
@@ -512,7 +486,7 @@ class CommissionMacro extends ModuleBase {
         if (this.avoidanceRadius <= 0) return task.waypoints;
         return task.waypoints.filter((waypoint) => {
             return !avoidEntities.some((entity) => {
-                const distance = this.getDistance(entity.getX(), entity.getY(), entity.getZ(), ...waypoint);
+                const distance = fastDistance(entity.getX(), entity.getY(), entity.getZ(), ...waypoint);
                 return distance < this.avoidanceRadius;
             });
         });
@@ -521,8 +495,8 @@ class CommissionMacro extends ModuleBase {
     getClosestWaypoint(waypoints) {
         const playerPos = { x: Player.getX(), y: Player.getY(), z: Player.getZ() };
         return waypoints.reduce((closest, current) => {
-            const closestDist = this.getDistance(playerPos.x, playerPos.y, playerPos.z, ...closest);
-            const currentDist = this.getDistance(playerPos.x, playerPos.y, playerPos.z, ...current);
+            const closestDist = fastDistance(playerPos.x, playerPos.y, playerPos.z, ...closest);
+            const currentDist = fastDistance(playerPos.x, playerPos.y, playerPos.z, ...current);
             return currentDist < closestDist ? current : closest;
         });
     }
@@ -571,13 +545,10 @@ class CommissionMacro extends ModuleBase {
             return;
         }
 
-        const mobs = CombatBot.findMob(this.currentMobConfig, this.mobWhitelist);
-        if (!mobs || mobs.length === 0) {
-            CombatBot.setExternalTargets([]);
-            return;
-        }
-
+        const mobs = CombatBot.findMob(this.currentMobConfig);
         CombatBot.setExternalTargets(mobs);
+        if (!mobs.length) return;
+
         if (!CombatBot.enabled) {
             CombatBot.toggle(true, true);
         }
@@ -727,7 +698,7 @@ class CommissionMacro extends ModuleBase {
 
         const avoidEntities = this.getAvoidanceEntities();
         const isBreached = avoidEntities.some((entity) => {
-            const distance = this.getDistance(entity.getX(), entity.getY(), entity.getZ(), ...this.currentPathWaypoint);
+            const distance = fastDistance(entity.getX(), entity.getY(), entity.getZ(), ...this.currentPathWaypoint);
             return distance < this.avoidanceRadius;
         });
 
@@ -762,10 +733,6 @@ class CommissionMacro extends ModuleBase {
 
     isSameWaypoint(a, b) {
         return a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
-    }
-
-    getDistance(x1, y1, z1, x2, y2, z2) {
-        return fastDistance(x1, y1, z1, x2, y2, z2);
     }
 
     updateCurrentPathWaypointFromResult() {

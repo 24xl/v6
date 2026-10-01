@@ -104,7 +104,6 @@ class Combat extends ModuleBase {
         this.activeBlackholes = [];
         this.scanTicker = 0;
 
-        this.attackRange = ATTACK_REACH;
         this.pathfindingThreshold = 15;
         this.attackCPS = 10;
         this.attackButton = 'Left Click';
@@ -229,7 +228,7 @@ class Combat extends ModuleBase {
             if (!position) this.setState(STATES.IDLE);
             else {
                 const distance = this._getDistanceToPlayer(position);
-                if (distance.distance <= this.attackRange && this.canSeeTarget(this.target)) this.engage(position, distance);
+                if (distance.distance <= ATTACK_REACH && this.canSeeTarget(this.target)) this.engage(position, distance);
                 else this.startPath(position);
             }
             return;
@@ -255,7 +254,7 @@ class Combat extends ModuleBase {
         }
 
         const pathThreshold = this.state === STATES.FIGHTING ? this.pathfindingThreshold + 2 : this.pathfindingThreshold;
-        if (distance.distanceFlat > pathThreshold || (distance.distance > this.attackRange && !this.canSeeTarget(this.target))) {
+        if (distance.distanceFlat > pathThreshold || (distance.distance > ATTACK_REACH && !this.canSeeTarget(this.target))) {
             this.startPath(position);
             return;
         }
@@ -306,8 +305,8 @@ class Combat extends ModuleBase {
 
     tryAttack(distance) {
         const now = Date.now();
-        if (distance > this.attackRange + 0.35 || now < this.nextAttackAt) return;
-        if (!isLookingAtEntity(this.target, this.attackRange + 0.5)) return;
+        if (distance > ATTACK_REACH + 0.35 || now < this.nextAttackAt) return;
+        if (!isLookingAtEntity(this.target, ATTACK_REACH + 0.5)) return;
 
         if (this.attackButton === 'Right Click') Client.rightClick();
         else Client.leftClick();
@@ -352,7 +351,6 @@ class Combat extends ModuleBase {
 
                 return { target: selected, goals: this.buildPathGoals(selectedPosition) };
             },
-            entityTrackDistance: 8,
             walkArrivalRadius: PATH_HANDOFF_DISTANCE,
             avoidPoints: this.activeBlackholes,
             avoidRadius: Math.ceil(BLACKHOLE_AVOID_RADIUS),
@@ -514,7 +512,7 @@ class Combat extends ModuleBase {
         }
     }
 
-    findMob(config, whitelist = null) {
+    findMob(config) {
         if (!config?.entityClass && !Array.isArray(config?.names)) return [];
 
         const names = Array.isArray(config.names)
@@ -526,11 +524,12 @@ class Combat extends ModuleBase {
         if (names && !names.length) return [];
 
         const entities = names ? World.getAllEntities() : World.getAllEntitiesOfType(config.entityClass);
+        const nametagMobs = names ? entities.filter((entity) => this.isCombatTargetCandidate(entity, true)) : [];
         const mobs = entities.filter((entity) => {
             try {
                 if (!this.isCombatTargetCandidate(entity, config.allowInvisible)) return false;
                 if (config.entityClass && !(entity.toMC() instanceof config.entityClass)) return false;
-                if (whitelist?.has(entity.getUUID()) || this.isTargetNameBlacklisted(entity)) return false;
+                if (this.isTargetNameBlacklisted(entity)) return false;
                 if (config.boundaryCheck && !config.boundaryCheck(entity.getX(), entity.getY(), entity.getZ())) return false;
                 if (config.entityCheck && !config.entityCheck(entity.toMC())) return false;
 
@@ -549,8 +548,8 @@ class Combat extends ModuleBase {
                 const name = this.getCleanEntityName(entity);
                 if (!names.some((candidate) => name.includes(candidate)) || this.isTargetNameBlacklisted(entity)) continue;
 
-                const target = entity.toMC() instanceof ArmorStandEntity ? this.resolveNametagTarget(entity, mobs) : candidates.get(this.getTargetUuid(entity));
-                if (target) targets.set(this.getTargetUuid(target), target);
+                const target = entity.toMC() instanceof ArmorStandEntity ? this.resolveNametagTarget(entity, nametagMobs) : entity;
+                if (target && candidates.has(this.getTargetUuid(target))) targets.set(this.getTargetUuid(target), target);
             } catch (e) {
                 console.error('V5 Combat Bot target scan error: ' + e);
             }
@@ -585,9 +584,7 @@ class Combat extends ModuleBase {
         const mcEntity = namedEntity.toMC();
         if (mcEntity.isRemoved?.() || namedEntity.isDead?.()) return null;
 
-        const position = this.getTargetPosition(namedEntity);
-        if (!position) return null;
-        const point = new Vec3d(position.x, position.y, position.z);
+        const point = mcEntity.position();
 
         const maxDistanceSq = NAMETAG_MOB_RANGE ** 2;
         let closest = null;
@@ -628,11 +625,7 @@ class Combat extends ModuleBase {
 
     getTargets() {
         const targets = this.externalTargets !== null ? this.externalTargets : this.targetNames.length ? this.findMob({ names: this.targetNames }) : [];
-        if (this.externalTargets === null)
-            this.enabledPresets.forEach((name) => {
-                const config = COMBAT_PRESETS[name];
-                targets.push(...this.findMob(config));
-            });
+        if (this.externalTargets === null) this.enabledPresets.forEach((name) => targets.push(...this.findMob(COMBAT_PRESETS[name])));
         return [...new Map(targets.map((target) => [this.getTargetUuid(target), target])).values()].filter((target) => !this.isTargetNameBlacklisted(target));
     }
 
