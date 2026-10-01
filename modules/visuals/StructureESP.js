@@ -48,7 +48,6 @@ class StructureESP extends ModuleBase {
         super({
             name: 'Structure ESP',
             subcategory: 'Visuals',
-            developerMode: true,
             description: 'Structure ESP for Crystal Hollows',
         });
         this.renderData = null;
