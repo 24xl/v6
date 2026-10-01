@@ -1,5 +1,5 @@
 import { BP, ClipContext, CritParticle, HappyVillagerParticle, MCHand, Vec3d } from '../../utils/Constants';
-import { calculateAngles, getDistanceToPlayerEyes, offsetPitch } from '../../utils/Math';
+import { calculateAngles, getDistanceToPlayerEyes } from '../../utils/Math';
 import { getDrills, getMineTime, getMiningSpeed, getSpeedWithCold, refuel, refreshMiningStatsIfNeeded } from '../../utils/MiningUtils';
 import { ModuleBase } from '../../utils/ModuleBase';
 import { queueNuke } from '../../utils/NukerUtils';
@@ -872,11 +872,7 @@ class Bot extends ModuleBase {
     getPrecisionMinerAim() {
         if (!this.PRECISION_MINER) return null;
         if (!this.precisionMinerAim || this.precisionMinerAim.expiresAt < Date.now()) return null;
-        const player = Player.getPlayer();
-        if (!player) return null;
-        const distance = Math.hypot(this.precisionMinerAim.x - player.getX(), this.precisionMinerAim.z - player.getZ());
-        const aim = offsetPitch(this.precisionMinerAim, 5 / Math.max(1, distance - 1));
-        return this.isPrecisionMinerAimValid(aim) ? aim : null;
+        return this.isPrecisionMinerAimValid(this.precisionMinerAim) ? this.precisionMinerAim : null;
     }
 
     isPrecisionMinerAimValid(aim) {
