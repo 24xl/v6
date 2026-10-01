@@ -9,6 +9,7 @@ import { registerSkyblockEvent } from '../../utils/SkyblockEvents';
 import { getConfigFile } from '../../utils/Utils';
 import { setItemSlot } from '../../utils/player/Inventory';
 import { OreRotations } from '../../utils/player/OreRotations';
+import { RotationModule } from '../../utils/player/Rotations';
 import { getTPS } from '../../utils/player/ServerInfo';
 import { getPickaxeAbilityStatus } from '../../utils/TabListUtils';
 import { regrab, ungrab } from '../../utils/Ungrab';
@@ -57,7 +58,6 @@ class Bot extends ModuleBase {
         this.SCAN_ONLY = false;
         this.DEBUG_MODE = false;
         this.ADDITIONAL_LAG_COMP = 0;
-        this.rotationSpeed = 0.48;
         this.sneakWhileMining = true;
         this.minimumVisibleRays = 0;
 
@@ -136,6 +136,10 @@ class Bot extends ModuleBase {
                 },
             },
         ]);
+    }
+
+    get rotationSpeed() {
+        return 0.48 * (RotationModule.ROTATION_SPEED / 400);
     }
 
     initCosts() {
@@ -432,7 +436,6 @@ class Bot extends ModuleBase {
             'Aims at the Precision Miner particle, speeds up mining mithril.',
             true
         );
-        this.addSlider('Mining Rotation Speed', 1, 100, 48, (value) => (this.rotationSpeed = value / 100), 'Rotation speed for mining targets.');
         this.addMultiToggle(
             'Fakelook',
             ['Off', 'Queued'],
