@@ -15,7 +15,7 @@ import {
     THEME,
 } from '../Utils';
 import { Button } from './Button';
-import { getComponentLayoutHeight } from './layout';
+import { getComponentLayoutHeight, isComponentVisible } from './layout';
 import { GuiState } from '../core/GuiState';
 import { setTooltip } from '../core/GuiTooltip';
 
@@ -255,6 +255,7 @@ export class Popup {
         }
 
         this.components.forEach((component) => {
+            if (!isComponentVisible(component)) return;
             if (typeof component.draw !== 'function') return;
 
             if (component instanceof Button && component.title === component.buttonText) {
@@ -358,6 +359,7 @@ export class Popup {
         if (this.statusText) currentY += 20;
 
         for (const component of this.components) {
+            if (!isComponentVisible(component)) continue;
             if (component instanceof Button && component.title === component.buttonText) {
                 const btnHeight = 36;
                 const btnWidth = contentWidth;
@@ -444,6 +446,7 @@ export class Popup {
         if (this.statusText) currentY += 20;
 
         this.components.forEach((component) => {
+            if (!isComponentVisible(component)) return;
             if (component instanceof Button && component.title === component.buttonText) {
                 currentY += 36 + 10;
                 return;
