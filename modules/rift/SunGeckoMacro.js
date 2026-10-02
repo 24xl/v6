@@ -79,8 +79,6 @@ const RIFT_SPAWN_EXIT_WAYPOINT = {
 
 const SUN_GECKO_TARGET_CONFIG = {
     names: ['Sun Gecko'],
-    checkVisibility: false,
-    boundaryCheck: () => true,
 };
 
 const SUN_GECKO_COMBAT_ORIGIN = {
@@ -418,13 +416,9 @@ class SunGecko extends ModuleBase {
     }
 
     formatHourlyRate(total) {
-        const hours = this.getActiveHours();
+        const hours = getModuleActiveHours(this.name);
         if (hours <= 0) return '0';
         return formatRoundedNumber(total / hours);
-    }
-
-    getActiveHours() {
-        return getModuleActiveHours(this.name);
     }
 
     setState(newState) {
