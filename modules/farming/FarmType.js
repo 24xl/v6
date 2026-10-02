@@ -43,12 +43,24 @@ class FarmType extends ModuleBase {
             this.selectedFarmType
         );
 
+        this.adoptRewarpStyle();
         this.adoptFarmTypeSettings();
     }
 
     setSelectedFarmType(name) {
         this.selectedFarmType = FARM_TYPES.includes(name) ? name : FARM_TYPES[0];
         writeConfigFile(SELECTED_PATH, this.selectedFarmType);
+    }
+
+    adoptRewarpStyle() {
+        const source = Categories.findItem('Modules', 'Rewarp Settings');
+        const target = Categories.findItem('Modules', 'Farm type');
+        if (!source || !target) return;
+        const index = source.components.findIndex((component) => component.title === 'Rewarp Style');
+        if (index === -1) return;
+        const [component] = source.components.splice(index, 1);
+        target.components.splice(1, 0, component);
+        Categories.dataRevision++;
     }
 
     adoptFarmTypeSettings() {
