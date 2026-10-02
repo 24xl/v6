@@ -68,8 +68,12 @@ class FarmType extends ModuleBase {
             const item = Categories.findItem('Modules', name);
             if (!item) return;
             const popup = this.addPopup(`${name} Settings`, null, 'Settings for this farm type.');
+            const prefix = name.replace(/\s+Macro$/, '');
             const components = item.components.splice(0, item.components.length);
-            components.forEach((component) => popup.addComponent(component, component.description));
+            components.forEach((component) => {
+                component.title = `${prefix} · ${component.title}`;
+                popup.addComponent(component, component.description);
+            });
             this.removeCategoryItem(name);
         });
     }
