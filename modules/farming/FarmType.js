@@ -43,7 +43,20 @@ class FarmType extends ModuleBase {
             const popup = this.addPopup(`${name} Settings`, null, 'Settings for this farm type.');
             const components = item.components.splice(0, item.components.length);
             components.forEach((component) => popup.addComponent(component, component.description));
+            this.removeCategoryItem(name);
         });
+    }
+
+    removeCategoryItem(title) {
+        const modules = Categories.categories.find((category) => category.name === 'Modules');
+        if (!modules) return;
+        modules.items.forEach((group) => {
+            if (group.type === 'separator' && Array.isArray(group.items)) {
+                const index = group.items.findIndex((item) => item.title === title);
+                if (index !== -1) group.items.splice(index, 1);
+            }
+        });
+        Categories.dataRevision++;
     }
 
     requestToggleFromUser() {
