@@ -25,6 +25,7 @@ import './farming/ADRotatingMelonMacro';
 import './farming/SShapeCropMacro';
 import './farming/WSRowMacros';
 import './farming/FarmType';
+import './farming/PestMacro';
 
 /* VISUALS */
 import './visuals/BlockVisual';
