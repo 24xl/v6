@@ -12,6 +12,12 @@ const FARM_TYPES = [
     'S-Shape Macro',
     'Forward S-Shape Cocoa Macro',
     'S-Shape Sugar Cane Macro',
+    'SDS Staircase Mushroom Macro',
+    'A/D Cactus Macro',
+    'A/D Cocoa Macro',
+    'A/D Crop Macro',
+    'AD Rotating Melon Macro',
+    'Vertical Crop Macro',
 ];
 const SELECTED_PATH = 'FarmType/selected_farm_type.json';
 
