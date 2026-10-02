@@ -3,7 +3,16 @@ import { ModuleBase } from '../../utils/ModuleBase';
 import { getModule } from '../../utils/MacroState';
 import { getConfigFile, writeConfigFile } from '../../utils/Utils';
 
-const FARM_TYPES = ['W/S Crop Macro', 'W/S Flower Macro', 'W/S Melon Macro', 'W/S Mushroom Macro', 'W/S Sugar Cane Macro'];
+const FARM_TYPES = [
+    'W/S Crop Macro',
+    'W/S Flower Macro',
+    'W/S Melon Macro',
+    'W/S Mushroom Macro',
+    'W/S Sugar Cane Macro',
+    'S-Shape Macro',
+    'Forward S-Shape Cocoa Macro',
+    'S-Shape Sugar Cane Macro',
+];
 const SELECTED_PATH = 'FarmType/selected_farm_type.json';
 
 class FarmType extends ModuleBase {
