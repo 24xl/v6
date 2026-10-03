@@ -5,6 +5,7 @@ import { readPests } from '../../../utils/TabListUtils';
 import { getLoadedPests } from '../../visuals/PestESP';
 import { farmingSettings } from '../FarmingSettings';
 import { sunsetPests } from '../SunsetPests';
+import { roofEtherwarp } from '../RoofEtherwarp';
 import { angleToPlayer } from '../../../utils/Math';
 import { getGardenPestStatus } from '../../../utils/Utils';
 import { registerSkyblockEvent } from '../../../utils/SkyblockEvents';
@@ -21,6 +22,7 @@ const STATES = {
     KILLING: 'Killing pest',
     WAITING_FOR_PLOT: 'Waiting for plot',
     SETTING_DAY: 'Setting day',
+    PATHING_TO_ROOF: 'Pathing to roof',
     CAPTURING_PARTICLES: 'Capturing particles',
     PATHING_PARTICLES: 'Pathing to particles',
     PATHING_FORWARD: 'Pathing forward',
@@ -60,11 +62,15 @@ class PestKiller {
             return false;
         }
         if (this.state === STATES.SETTING_DAY) {
-            this.findNewPlot();
+            this.findNewPlot(currentPlot);
+            return false;
+        }
+        if (this.state === STATES.PATHING_TO_ROOF) {
+            this.pathToRoof();
             return false;
         }
         if (!this.currentPlot) {
-            this.findNewPlot();
+            this.findNewPlot(currentPlot);
             return false;
         }
         if (Date.now() >= this.plotTimeoutAt) {
@@ -111,7 +117,7 @@ class PestKiller {
         return false;
     }
 
-    findNewPlot() {
+    findNewPlot(currentPlot = null) {
         const { infestedPlots } = readPests();
         let plot = infestedPlots.find((candidate) => !this.visitedPlots.has(candidate));
         if (!plot && infestedPlots.length) {
@@ -126,6 +132,10 @@ class PestKiller {
         }
         if (!sunsetPests.isDone('day')) {
             this.state = STATES.SETTING_DAY;
+            return false;
+        }
+        if (roofEtherwarp.enabled && plot === currentPlot) {
+            this.state = STATES.PATHING_TO_ROOF;
             return false;
         }
         ChatLib.command(`tptoplot ${plot}`);
@@ -150,6 +160,21 @@ class PestKiller {
     onTeleport() {
         if (!this.running || this.currentPlot === null) return;
         this.teleportedToPlot = true;
+    }
+
+    pathToRoof() {
+        if (Pathfinder.isPathing()) return;
+
+        if (!roofEtherwarp.hasRoofAbove()) {
+            this.state = STATES.PATHING_FORWARD;
+            return;
+        }
+
+        this.state = STATES.PATHING_TO_ROOF;
+        this.startPath(roofEtherwarp.climbGoals(), (success) => {
+            if (!this.running) return;
+            this.state = roofEtherwarp.hasRoofAbove() ? STATES.PATHING_TO_ROOF : STATES.PATHING_FORWARD;
+        });
     }
 
     pathToForward() {
