@@ -1,3 +1,4 @@
+import Pathfinder from '../../utils/pathfinder/PathFinder';
 import { findItemInHotbar } from '../../utils/player/Inventory';
 
 const ROOF_SCAN_MIN_OFFSET = 2;
@@ -7,6 +8,7 @@ const ROOF_SCAN_BOTTOM = 0;
 export class RoofEtherwarp {
     constructor() {
         this.enabled = false;
+        this.testToken = 0;
     }
 
     findHighestRoofBlock() {
@@ -46,6 +48,33 @@ export class RoofEtherwarp {
         const goals = [];
         for (let y = 66; y <= ROOF_SCAN_MAX_Y; y++) goals.push([x, y, z]);
         return goals;
+    }
+
+    startTestClimb(onComplete) {
+        if (Pathfinder.isPathing()) return 'already-pathing';
+
+        const roof = this.findHighestRoofBlock();
+        if (!roof) return 'no-roof';
+
+        const goals = this.climbGoals();
+        if (!goals.length) return 'no-player';
+
+        const token = ++this.testToken;
+        Pathfinder.resetPath(false);
+        Pathfinder.findPath(
+            goals,
+            (success) => {
+                if (token !== this.testToken) return;
+                onComplete(success, this.hasRoofAbove());
+            },
+            true
+        );
+        return 'started';
+    }
+
+    stopTestClimb() {
+        this.testToken++;
+        if (Pathfinder.isPathing()) Pathfinder.resetPath();
     }
 }
 

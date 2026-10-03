@@ -38,33 +38,82 @@ class PestMacro extends ModuleBase {
     }
 
     registerRoofDebugCommand() {
-        v5Command('testroof', () => {
-            const player = Player.getPlayer();
-            if (!player) return chat('&cNo player.');
+        v5Command(
+            'testroof',
+            (...args) => {
+                const action = String(args[0] ?? '').replace(/^-+/, '').toLowerCase();
+                if (action === 'go') return this.testRoofRun();
+                if (action === 'stop') return this.testRoofStop();
+                this.testRoofScan();
+            },
+            ['greedyString']
+        );
+    }
 
-            const x = Math.floor(player.getX());
-            const y = Math.floor(player.getY());
-            const z = Math.floor(player.getZ());
-            const roof = roofEtherwarp.findHighestRoofBlock();
+    testRoofScan() {
+        const player = Player.getPlayer();
+        if (!player) return chat('&cNo player.');
 
-            chat(`&bRoof scan &7at &f${x}, ${y}, ${z}&7, range &fy${y + 2} .. 76`);
-            chat(`&7Roof Etherwarp enabled: &f${roofEtherwarp.enabled ? 'yes' : 'no'}`);
-            chat(`&7AOTV in hotbar: &f${roofEtherwarp.findAotvSlot() === null ? 'no' : 'yes'}`);
+        const x = Math.floor(player.getX());
+        const y = Math.floor(player.getY());
+        const z = Math.floor(player.getZ());
+        const roof = roofEtherwarp.findHighestRoofBlock();
 
-            if (!roof) {
-                chat('&eNo roof found above you - pest killing would start from the ground.');
+        chat(`&bRoof scan &7at &f${x}, ${y}, ${z}&7, range &fy${y + 2} .. 76`);
+        chat(`&7Roof Etherwarp enabled: &f${roofEtherwarp.enabled ? 'yes' : 'no'}`);
+        chat(`&7AOTV in hotbar: &f${roofEtherwarp.findAotvSlot() === null ? 'no' : 'yes'}`);
+
+        if (!roof) {
+            chat('&eNo roof found above you - pest killing would start from the ground.');
+            chat('&7Run &f/v5 testroof go&7 to start the climb anyway.');
+            return;
+        }
+
+        const climb = roof.y - y;
+        chat(`&aHighest block: &f${roof.y} &7(${roof.name})`);
+        chat(`&7Blocks above you: &f${climb}`);
+        if (climb > 1) {
+            chat(`&7Run &f/v5 testroof go&7 to etherwarp up toward &f${roof.y}&7.`);
+        } else {
+            chat('&7You are already at or above the roof - no climb needed.');
+        }
+    }
+
+    testRoofRun() {
+        const player = Player.getPlayer();
+        if (!player) return chat('&cNo player.');
+
+        const y = Math.floor(player.getY());
+        const result = roofEtherwarp.startTestClimb((success, stillRoof) => {
+            if (!success) {
+                chat('&cTest climb failed to reach the goal.');
                 return;
             }
-
-            const climb = roof.y - y;
-            chat(`&aHighest block: &f${roof.y} &7(${roof.name})`);
-            chat(`&7Blocks above you: &f${climb}`);
-            if (climb > 1) {
-                chat(`&7Would etherwarp up the column toward &f${roof.y}&7; AOTV fires while the path is straight.`);
+            if (stillRoof) {
+                chat(`&7Arrived, roof still above. Run &f/v5 testroof go&7 again.`);
             } else {
-                chat('&7You are already at or above the roof - no climb needed.');
+                chat('&aArrived with no roof above - this is where pest killing would resume.');
             }
         });
+
+        if (result === 'no-roof') {
+            chat('&eNo roof found above you - nothing to climb.');
+            return result;
+        }
+        if (result === 'already-pathing') {
+            chat('&cAlready pathing. Use &f/v5 testroof stop&c first.');
+            return result;
+        }
+        if (result === 'no-player') return result;
+
+        chat(`&aEtherwarping up from y${y} - AOTV fires while the path is straight.`);
+        chat('&7Use &f/v5 testroof stop&7 to cancel.');
+        return result;
+    }
+
+    testRoofStop() {
+        roofEtherwarp.stopTestClimb();
+        chat('&7Test climb stopped.');
     }
 
     adoptPestSettings() {
