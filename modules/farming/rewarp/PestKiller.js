@@ -5,9 +5,10 @@ import { readPests } from '../../../utils/TabListUtils';
 import { getLoadedPests } from '../../visuals/PestESP';
 import { farmingSettings } from '../FarmingSettings';
 import { sunsetPests } from '../SunsetPests';
-import { roofEtherwarp } from '../RoofEtherwarp';
+import { pestMacro } from '../PestMacro';
 import { angleToPlayer } from '../../../utils/Math';
 import { getGardenPestStatus } from '../../../utils/Utils';
+import { findItemInHotbar, setItemSlot } from '../../../utils/player/Inventory';
 import { registerSkyblockEvent } from '../../../utils/SkyblockEvents';
 import { ParticleTypes } from '../../../utils/Constants';
 
@@ -16,7 +17,9 @@ const PEST_RANGE_SQ = 12.5 ** 2;
 const PEST_ANGLE = 45;
 const PARTICLE_SEARCH_MS = 1_000;
 const PLOT_TIMEOUT_MS = 30_000;
-const ROOF_ATTEMPTS_MAX = 4;
+const ROOF_TIMEOUT_MS = 2_000;
+const ROOF_SCAN_MIN = 2;
+const ROOF_SCAN_MAX = 20;
 const STATES = {
     SEARCHING: 'Searching',
     PATHING_PESTS: 'Pathing to pests',
@@ -41,9 +44,8 @@ class PestKiller {
         this.currentPlot = null;
         this.teleportedToPlot = false;
         this.visitedPlots = new Set();
-        this.roofAttempts = 0;
-        this.roofClimbing = false;
-        this.roofToken = -1;
+        this.roofStartedAt = 0;
+        this.roofOriginalSlot = -1;
         this.pathToken = 0;
         farmingSettings.originalSlot = Player.getHeldItemIndex();
     }
@@ -138,8 +140,10 @@ class PestKiller {
             this.state = STATES.SETTING_DAY;
             return false;
         }
-        if (roofEtherwarp.enabled && plot === currentPlot) {
+        if (pestMacro.roofEtherwarp && plot === currentPlot) {
             this.state = STATES.PATHING_TO_ROOF;
+            this.roofStartedAt = 0;
+            this.roofOriginalSlot = -1;
             return false;
         }
         ChatLib.command(`tptoplot ${plot}`);
@@ -166,39 +170,50 @@ class PestKiller {
         this.teleportedToPlot = true;
     }
 
-    stopRoofClimb() {
-        if (!this.roofClimbing) return;
-        this.roofClimbing = false;
-        this.roofAttempts = 0;
-        roofEtherwarp.stopTestClimb();
+    releaseRoofKeys() {
+        Client.setKey('rightclick', false);
+        Client.setKey('shift', false);
+        Rotations.stop();
+        if (this.roofOriginalSlot >= 0 && this.roofOriginalSlot <= 8) {
+            setItemSlot(this.roofOriginalSlot);
+            this.roofOriginalSlot = -1;
+        }
+    }
+
+    /** Non-air block anywhere in the band above the player, same as Aether's check. */
+    hasRoofAbove() {
+        const player = Player.getPlayer();
+        if (!player) return false;
+        const x = Math.floor(player.getX());
+        const z = Math.floor(player.getZ());
+        for (let y = Math.floor(player.getY()) + ROOF_SCAN_MIN; y <= Math.floor(player.getY()) + ROOF_SCAN_MAX; y++) {
+            const name = World.getBlockAt(x, y, z)?.type?.getRegistryName?.();
+            if (name && name !== 'minecraft:air') return true;
+        }
+        return false;
     }
 
     pathToRoof() {
-        if (this.roofClimbing) return;
-        if (!roofEtherwarp.hasRoofAbove() || this.roofAttempts >= ROOF_ATTEMPTS_MAX) {
-            this.roofAttempts = 0;
-            this.state = STATES.PATHING_FORWARD;
-            return;
-        }
-
-        this.roofAttempts++;
-        this.state = STATES.PATHING_TO_ROOF;
-        this.roofClimbing = roofEtherwarp.startClimbing();
-        if (!this.roofClimbing) {
-            this.state = STATES.PATHING_FORWARD;
-            return;
-        }
-        this.roofToken = roofEtherwarp.testToken;
-        roofEtherwarp.onClimbComplete = (success, stillRoof) => {
-            if (!this.running || this.roofToken !== roofEtherwarp.testToken) return;
-            if (!stillRoof) {
-                this.roofAttempts = 0;
-                this.roofClimbing = false;
+        if (this.roofOriginalSlot === -1) {
+            const slot = findItemInHotbar('Aspect of the Void');
+            if (slot === -1 || !this.hasRoofAbove()) {
                 this.state = STATES.PATHING_FORWARD;
                 return;
             }
-            this.state = STATES.PATHING_TO_ROOF;
-        };
+            this.roofStartedAt = Date.now();
+            this.roofOriginalSlot = Player.getHeldItemIndex();
+            setItemSlot(slot);
+            Client.setKey('shift', true);
+            // Holding the use key lets the game repeat the AOTV while we rise.
+            Client.setKey('rightclick', true);
+        }
+
+        Rotations.lookAtAngles(Player.getYaw(), pestMacro.roofPitch, { rotationSpeed: 0.55 });
+
+        if (!this.hasRoofAbove() || Date.now() - this.roofStartedAt > ROOF_TIMEOUT_MS) {
+            this.releaseRoofKeys();
+            this.state = STATES.PATHING_FORWARD;
+        }
     }
 
     pathToForward() {
@@ -332,7 +347,7 @@ class PestKiller {
     stop() {
         if (!this.running) return;
         this.running = false;
-        this.stopRoofClimb();
+        this.releaseRoofKeys();
         this.stopPath();
         Rotations.stop();
         Client.unpressKeys();

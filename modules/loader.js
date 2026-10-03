@@ -27,7 +27,6 @@ import './farming/WSRowMacros';
 import './farming/FarmType';
 import './farming/PestMacro';
 import './farming/SunsetPests';
-import './farming/RoofEtherwarp';
 
 /* VISUALS */
 import './visuals/BlockVisual';
