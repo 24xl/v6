@@ -42,6 +42,8 @@ class PestKiller {
         this.teleportedToPlot = false;
         this.visitedPlots = new Set();
         this.roofAttempts = 0;
+        this.roofClimbing = false;
+        this.roofToken = -1;
         this.pathToken = 0;
         farmingSettings.originalSlot = Player.getHeldItemIndex();
     }
@@ -164,9 +166,15 @@ class PestKiller {
         this.teleportedToPlot = true;
     }
 
-    pathToRoof() {
-        if (Pathfinder.isPathing()) return;
+    stopRoofClimb() {
+        if (!this.roofClimbing) return;
+        this.roofClimbing = false;
+        this.roofAttempts = 0;
+        roofEtherwarp.stopTestClimb();
+    }
 
+    pathToRoof() {
+        if (this.roofClimbing) return;
         if (!roofEtherwarp.hasRoofAbove() || this.roofAttempts >= ROOF_ATTEMPTS_MAX) {
             this.roofAttempts = 0;
             this.state = STATES.PATHING_FORWARD;
@@ -175,10 +183,22 @@ class PestKiller {
 
         this.roofAttempts++;
         this.state = STATES.PATHING_TO_ROOF;
-        this.startPath(roofEtherwarp.climbGoals(roofEtherwarp.findHighestRoofBlock()?.y), (success) => {
-            if (!this.running) return;
-            this.state = roofEtherwarp.hasRoofAbove() ? STATES.PATHING_TO_ROOF : STATES.PATHING_FORWARD;
-        });
+        this.roofClimbing = roofEtherwarp.startClimbing();
+        if (!this.roofClimbing) {
+            this.state = STATES.PATHING_FORWARD;
+            return;
+        }
+        this.roofToken = roofEtherwarp.testToken;
+        roofEtherwarp.onClimbComplete = (success, stillRoof) => {
+            if (!this.running || this.roofToken !== roofEtherwarp.testToken) return;
+            if (!stillRoof) {
+                this.roofAttempts = 0;
+                this.roofClimbing = false;
+                this.state = STATES.PATHING_FORWARD;
+                return;
+            }
+            this.state = STATES.PATHING_TO_ROOF;
+        };
     }
 
     pathToForward() {
@@ -312,6 +332,7 @@ class PestKiller {
     stop() {
         if (!this.running) return;
         this.running = false;
+        this.stopRoofClimb();
         this.stopPath();
         Rotations.stop();
         Client.unpressKeys();
