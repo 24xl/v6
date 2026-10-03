@@ -18,8 +18,6 @@ const PEST_ANGLE = 45;
 const PARTICLE_SEARCH_MS = 1_000;
 const PLOT_TIMEOUT_MS = 30_000;
 const ROOF_TIMEOUT_MS = 2_000;
-const ROOF_SCAN_MIN = 2;
-const ROOF_SCAN_MAX = 20;
 const STATES = {
     SEARCHING: 'Searching',
     PATHING_PESTS: 'Pathing to pests',
@@ -144,6 +142,7 @@ class PestKiller {
             this.state = STATES.PATHING_TO_ROOF;
             this.roofStartedAt = 0;
             this.roofOriginalSlot = -1;
+            this.plotTimeoutAt = Date.now() + PLOT_TIMEOUT_MS;
             return false;
         }
         ChatLib.command(`tptoplot ${plot}`);
@@ -180,23 +179,10 @@ class PestKiller {
         }
     }
 
-    /** Non-air block anywhere in the band above the player, same as Aether's check. */
-    hasRoofAbove() {
-        const player = Player.getPlayer();
-        if (!player) return false;
-        const x = Math.floor(player.getX());
-        const z = Math.floor(player.getZ());
-        for (let y = Math.floor(player.getY()) + ROOF_SCAN_MIN; y <= Math.floor(player.getY()) + ROOF_SCAN_MAX; y++) {
-            const name = World.getBlockAt(x, y, z)?.type?.getRegistryName?.();
-            if (name && name !== 'minecraft:air') return true;
-        }
-        return false;
-    }
-
     pathToRoof() {
         if (this.roofOriginalSlot === -1) {
             const slot = findItemInHotbar('Aspect of the Void');
-            if (slot === -1 || !this.hasRoofAbove()) {
+            if (slot === -1) {
                 this.state = STATES.PATHING_FORWARD;
                 return;
             }
@@ -204,13 +190,13 @@ class PestKiller {
             this.roofOriginalSlot = Player.getHeldItemIndex();
             setItemSlot(slot);
             Client.setKey('shift', true);
-            // Holding the use key lets the game repeat the AOTV while we rise.
+            // Holding use lets the game repeat the AOTV while we rise.
             Client.setKey('rightclick', true);
         }
 
         Rotations.lookAtAngles(Player.getYaw(), pestMacro.roofPitch, { rotationSpeed: 0.55 });
 
-        if (!this.hasRoofAbove() || Date.now() - this.roofStartedAt > ROOF_TIMEOUT_MS) {
+        if (Date.now() - this.roofStartedAt > ROOF_TIMEOUT_MS) {
             this.releaseRoofKeys();
             this.state = STATES.PATHING_FORWARD;
         }

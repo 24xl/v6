@@ -24,9 +24,9 @@ class PestMacro extends ModuleBase {
         this.roofPitch = -52;
 
         this.addToggle(
-            'Enable Sunset Pests',
+            'Sunset Pests',
             (value) => (sunsetPests.enableSunsetPests = !!value),
-            'Sets garden time to Day before each infested-plot teleport, and back to Night once pest killing finishes.'
+            'Changes the time for the sunset enchant bonus.'
         );
 
         const roofPopup = this.addPopup('Roof Etherwarp Settings', null, 'Climbs to the roof with Aspect of the Void.');
