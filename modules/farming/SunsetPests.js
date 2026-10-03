@@ -3,10 +3,9 @@ import { clickSlot, closeInventory, getGuiName, stripItemFormatting } from '../.
 
 const MENU_NAME = 'Garden Time';
 const SELECT_LORE = 'Click to select!';
-const DAY_SLOT = 12;
-const NIGHT_SLOT = 14;
+const DAY_SLOT = 11;
+const NIGHT_SLOT = 13;
 const OPEN_TIMEOUT_MS = 4_000;
-const CLOSE_TIMEOUT_MS = 2_000;
 
 const STATES = {
     IDLE: 'Idle',
@@ -66,7 +65,6 @@ class SunsetPests extends ModuleBase {
 
     closeMenu() {
         if (Client.isInGui()) closeInventory();
-        if (Date.now() - this.openedAt < CLOSE_TIMEOUT_MS) return false;
         return this.reset();
     }
 
