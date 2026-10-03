@@ -193,21 +193,19 @@ class PestKiller {
             this.roofCasting = false;
             setItemSlot(slot);
             Client.setKey('shift', true);
-            // Aether aims first and waits for the rotation to land, then fires. Holding
-            // use straight away sends the first AOTV out at the old pitch, so only start
-            // holding once we are actually looking at the roof. The game repeats the
-            // cast from there, which is what carries us up.
-            Rotations.onComplete(() => {
-                if (this.state !== STATES.PATHING_TO_ROOF || this.roofCasting) return;
-                this.roofCasting = true;
-                // The cast window starts now, not on entry, so a slow rotation cannot
-                // spend the whole budget before the first AOTV goes out.
-                this.roofStartedAt = Date.now();
-                Client.setKey('rightclick', true);
-            }, 'roof-aotv');
         }
 
-        Rotations.lookAtAngles(Player.getYaw(), -pestMacro.getRoofPitch(), { rotationSpeed: 0.55 });
+        const targetPitch = -pestMacro.getRoofPitch();
+        Rotations.lookAtAngles(Player.getYaw(), targetPitch, { rotationSpeed: 0.55, precision: 0.35 });
+
+        // Aether rotates, waits for the rotation to land, and only then fires. Reading the
+        // player's own pitch is what we trust here: Rotations.update() returns early
+        // whenever a path rotation is active, so a completion callback can silently never
+        // arrive. If the camera has not arrived, we do not fire.
+        if (!this.roofCasting && Math.abs(Player.getPitch() - targetPitch) <= 1) {
+            this.roofCasting = true;
+            Client.setKey('rightclick', true);
+        }
 
         if (Date.now() - this.roofStartedAt > ROOF_TIMEOUT_MS) {
             this.releaseRoofKeys();
