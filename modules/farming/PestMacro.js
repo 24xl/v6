@@ -21,7 +21,8 @@ class PestMacro extends ModuleBase {
         });
 
         this.roofEtherwarp = false;
-        this.roofPitch = -52;
+        this.roofPitch = 52;
+        this.roofPitchSlider = null;
 
         this.addToggle(
             'Sunset Pests',
@@ -42,22 +43,34 @@ class PestMacro extends ModuleBase {
             ),
             'Replaces the plot teleport with an AOTV climb to the roof.'
         );
-        roofPopup.addComponent(
-            new Slider(
-                'Pitch',
-                0,
-                -90,
-                0,
-                0,
-                undefined,
-                undefined,
-                this.roofPitch,
-                (value) => (this.roofPitch = Math.round(value))
-            ),
-            'Upward angle for the AOTV. -52 is a common roof angle.'
+        this.roofPitchSlider = new Slider(
+            'Pitch',
+            0,
+            90,
+            0,
+            0,
+            undefined,
+            undefined,
+            this.roofPitch,
+            (value) => (this.roofPitch = this.normalizeRoofPitch(value))
         );
+        roofPopup.addComponent(this.roofPitchSlider, 'Upward angle for the AOTV. 52 is a common roof angle.');
 
         this.adoptPestSettings();
+    }
+
+    normalizeRoofPitch(value) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) return 52;
+        return Math.max(0, Math.min(90, Math.abs(Math.round(numeric))));
+    }
+
+    getRoofPitch() {
+        // Read the slider rather than the mirrored field: loadSettings writes
+        // component.value directly, so the callback never fires on load.
+        const source = this.roofPitchSlider ? this.roofPitchSlider.value : this.roofPitch;
+        this.roofPitch = this.normalizeRoofPitch(source);
+        return this.roofPitch;
     }
 
     adoptPestSettings() {

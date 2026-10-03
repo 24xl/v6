@@ -142,6 +142,7 @@ class PestKiller {
             this.state = STATES.PATHING_TO_ROOF;
             this.roofStartedAt = 0;
             this.roofOriginalSlot = -1;
+            this.roofCasting = false;
             this.plotTimeoutAt = Date.now() + PLOT_TIMEOUT_MS;
             return false;
         }
@@ -170,6 +171,7 @@ class PestKiller {
     }
 
     releaseRoofKeys() {
+        this.roofCasting = false;
         Client.setKey('rightclick', false);
         Client.setKey('shift', false);
         Rotations.stop();
@@ -188,13 +190,24 @@ class PestKiller {
             }
             this.roofStartedAt = Date.now();
             this.roofOriginalSlot = Player.getHeldItemIndex();
+            this.roofCasting = false;
             setItemSlot(slot);
             Client.setKey('shift', true);
-            // Holding use lets the game repeat the AOTV while we rise.
-            Client.setKey('rightclick', true);
+            // Aether aims first and waits for the rotation to land, then fires. Holding
+            // use straight away sends the first AOTV out at the old pitch, so only start
+            // holding once we are actually looking at the roof. The game repeats the
+            // cast from there, which is what carries us up.
+            Rotations.onComplete(() => {
+                if (this.state !== STATES.PATHING_TO_ROOF || this.roofCasting) return;
+                this.roofCasting = true;
+                // The cast window starts now, not on entry, so a slow rotation cannot
+                // spend the whole budget before the first AOTV goes out.
+                this.roofStartedAt = Date.now();
+                Client.setKey('rightclick', true);
+            }, 'roof-aotv');
         }
 
-        Rotations.lookAtAngles(Player.getYaw(), pestMacro.roofPitch, { rotationSpeed: 0.55 });
+        Rotations.lookAtAngles(Player.getYaw(), -pestMacro.getRoofPitch(), { rotationSpeed: 0.55 });
 
         if (Date.now() - this.roofStartedAt > ROOF_TIMEOUT_MS) {
             this.releaseRoofKeys();
