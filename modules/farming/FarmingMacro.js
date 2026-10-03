@@ -12,6 +12,7 @@ import { rewarpHandler } from './rewarp/RewarpHandler';
 import { rewarpSettings } from './rewarp/RewarpSettings';
 import { getNearbyPest } from '../visuals/PestESP';
 import { loadoutHandler } from './LoadoutHandler';
+import { sunsetPests } from './SunsetPests';
 import { registerSkyblockEvent } from '../../utils/SkyblockEvents';
 
 const MAX_PEST_TRACK_DISTANCE = 14;
@@ -236,6 +237,7 @@ export class FarmingMacro extends ModuleBase {
             setItemSlot(this.farmingSlot);
             return;
         }
+        if (!sunsetPests.isDone('night')) return;
         this.mode = FARMING;
         this.startFarming(player);
     }

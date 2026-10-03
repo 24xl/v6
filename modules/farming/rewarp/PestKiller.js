@@ -4,6 +4,7 @@ import { Rotations } from '../../../utils/player/Rotations';
 import { readPests } from '../../../utils/TabListUtils';
 import { getLoadedPests } from '../../visuals/PestESP';
 import { farmingSettings } from '../FarmingSettings';
+import { sunsetPests } from '../SunsetPests';
 import { angleToPlayer } from '../../../utils/Math';
 import { getGardenPestStatus } from '../../../utils/Utils';
 import { registerSkyblockEvent } from '../../../utils/SkyblockEvents';
@@ -19,6 +20,7 @@ const STATES = {
     PATHING_PESTS: 'Pathing to pests',
     KILLING: 'Killing pest',
     WAITING_FOR_PLOT: 'Waiting for plot',
+    SETTING_DAY: 'Setting day',
     CAPTURING_PARTICLES: 'Capturing particles',
     PATHING_PARTICLES: 'Pathing to particles',
     PATHING_FORWARD: 'Pathing forward',
@@ -55,6 +57,10 @@ class PestKiller {
         if (this.state === STATES.WAITING_FOR_PLOT) {
             if (!this.teleportedToPlot) return false;
             this.state = STATES.PATHING_FORWARD;
+            return false;
+        }
+        if (this.state === STATES.SETTING_DAY) {
+            this.findNewPlot();
             return false;
         }
         if (!this.currentPlot) {
@@ -113,9 +119,15 @@ class PestKiller {
             plot = infestedPlots[0];
         }
         if (!plot) return;
-        this.currentPlot = plot;
-        this.teleportedToPlot = false;
-        this.visitedPlots.add(plot);
+        if (this.state !== STATES.SETTING_DAY) {
+            this.currentPlot = plot;
+            this.teleportedToPlot = false;
+            this.visitedPlots.add(plot);
+        }
+        if (!sunsetPests.isDone('day')) {
+            this.state = STATES.SETTING_DAY;
+            return false;
+        }
         ChatLib.command(`tptoplot ${plot}`);
         this.plotTimeoutAt = Date.now() + PLOT_TIMEOUT_MS;
         this.state = STATES.WAITING_FOR_PLOT;

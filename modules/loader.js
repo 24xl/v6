@@ -26,6 +26,7 @@ import './farming/SShapeCropMacro';
 import './farming/WSRowMacros';
 import './farming/FarmType';
 import './farming/PestMacro';
+import './farming/SunsetPests';
 
 /* VISUALS */
 import './visuals/BlockVisual';
