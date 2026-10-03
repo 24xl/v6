@@ -16,6 +16,7 @@ const PEST_RANGE_SQ = 12.5 ** 2;
 const PEST_ANGLE = 45;
 const PARTICLE_SEARCH_MS = 1_000;
 const PLOT_TIMEOUT_MS = 30_000;
+const ROOF_ATTEMPTS_MAX = 4;
 const STATES = {
     SEARCHING: 'Searching',
     PATHING_PESTS: 'Pathing to pests',
@@ -40,6 +41,7 @@ class PestKiller {
         this.currentPlot = null;
         this.teleportedToPlot = false;
         this.visitedPlots = new Set();
+        this.roofAttempts = 0;
         this.pathToken = 0;
         farmingSettings.originalSlot = Player.getHeldItemIndex();
     }
@@ -165,13 +167,15 @@ class PestKiller {
     pathToRoof() {
         if (Pathfinder.isPathing()) return;
 
-        if (!roofEtherwarp.hasRoofAbove()) {
+        if (!roofEtherwarp.hasRoofAbove() || this.roofAttempts >= ROOF_ATTEMPTS_MAX) {
+            this.roofAttempts = 0;
             this.state = STATES.PATHING_FORWARD;
             return;
         }
 
+        this.roofAttempts++;
         this.state = STATES.PATHING_TO_ROOF;
-        this.startPath(roofEtherwarp.climbGoals(), (success) => {
+        this.startPath(roofEtherwarp.climbGoals(roofEtherwarp.findHighestRoofBlock()?.y), (success) => {
             if (!this.running) return;
             this.state = roofEtherwarp.hasRoofAbove() ? STATES.PATHING_TO_ROOF : STATES.PATHING_FORWARD;
         });

@@ -4,6 +4,8 @@ import { findItemInHotbar } from '../../utils/player/Inventory';
 const ROOF_SCAN_MIN_OFFSET = 2;
 const ROOF_SCAN_MAX_Y = 76;
 const ROOF_SCAN_BOTTOM = 0;
+const CLIMB_OVERSHOOT = 12;
+const CLIMB_MAX_GOALS = 40;
 
 export class RoofEtherwarp {
     constructor() {
@@ -40,13 +42,22 @@ export class RoofEtherwarp {
         return aotv === -1 ? null : aotv;
     }
 
-    climbGoals() {
+    /**
+     * Vertical column from just above the player up past the roof.
+     * Goals must never start below the player or Pathfinder reports the
+     * destination reached on the first tick and nothing moves. The top
+     * overshoots the roof so the run is longer than AOTE_MIN_GAIN, since
+     * AOTV is refused on paths shorter than that.
+     */
+    climbGoals(roofY) {
         const player = Player.getPlayer();
         if (!player) return [];
         const x = Math.floor(player.getX());
         const z = Math.floor(player.getZ());
+        const bottom = Math.floor(player.getY()) + 1;
+        const top = Math.max(roofY + CLIMB_OVERSHOOT, bottom + 1);
         const goals = [];
-        for (let y = 66; y <= ROOF_SCAN_MAX_Y; y++) goals.push([x, y, z]);
+        for (let y = bottom; y <= top && goals.length < CLIMB_MAX_GOALS; y++) goals.push([x, y, z]);
         return goals;
     }
 
@@ -56,7 +67,7 @@ export class RoofEtherwarp {
         const roof = this.findHighestRoofBlock();
         if (!roof) return 'no-roof';
 
-        const goals = this.climbGoals();
+        const goals = this.climbGoals(roof.y);
         if (!goals.length) return 'no-player';
 
         const token = ++this.testToken;
