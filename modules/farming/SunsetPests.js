@@ -21,15 +21,10 @@ class SunsetPests extends ModuleBase {
             subcategory: 'Farming',
             description: 'Sets garden time to Day before plot teleports and back to Night when farming resumes.',
             showEnabledToggle: false,
+            hideInModules: true,
         });
 
         this.enableSunsetPests = true;
-        this.addToggle(
-            'Enable Sunset Pests',
-            (value) => (this.enableSunsetPests = !!value),
-            'Sets garden time to Day before each infested-plot teleport, and back to Night once pest killing finishes.'
-        );
-
         this.state = STATES.IDLE;
         this.pendingTime = null;
         this.openedAt = 0;

@@ -1,5 +1,6 @@
 import { Categories } from '../../gui/categories/CategorySystem';
 import { ModuleBase } from '../../utils/ModuleBase';
+import { sunsetPests } from './SunsetPests';
 
 const SETTING_MOVES = [
     ['Rewarp Settings', 'Auto Philip Bonus Settings', 'Farming Settings'],
@@ -16,6 +17,12 @@ class PestMacro extends ModuleBase {
             description: 'Pest control settings for farming.',
             showEnabledToggle: false,
         });
+
+        this.addToggle(
+            'Enable Sunset Pests',
+            (value) => (sunsetPests.enableSunsetPests = !!value),
+            'Sets garden time to Day before each infested-plot teleport, and back to Night once pest killing finishes.'
+        );
 
         this.adoptPestSettings();
     }
