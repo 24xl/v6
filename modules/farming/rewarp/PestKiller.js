@@ -10,6 +10,7 @@ import { angleToPlayer } from '../../../utils/Math';
 import { getGardenPestStatus } from '../../../utils/Utils';
 import { findItemInHotbar, setItemSlot } from '../../../utils/player/Inventory';
 import { registerSkyblockEvent } from '../../../utils/SkyblockEvents';
+import { getLookingAt } from '../../../utils/Raytrace';
 import { ParticleTypes } from '../../../utils/Constants';
 
 const ANGRY_VILLAGER = ParticleTypes.ANGRY_VILLAGER;
@@ -18,6 +19,12 @@ const PEST_ANGLE = 45;
 const PARTICLE_SEARCH_MS = 1_000;
 const PLOT_TIMEOUT_MS = 30_000;
 const ROOF_TIMEOUT_MS = 2_000;
+// How far the climb raycasts when looking for something solid. getLookingAt uses vanilla
+// Entity.pick(distance), not the crosshair hitResult, so this is not capped at reach.
+const ROOF_LOOK_DISTANCE = 24;
+// Highest block that can be placed in a Hypixel SkyBlock garden, so standing on top of it
+// puts the player's feet at 77. FarmingMacro.isPestColumnClear already scans to this 76.
+const GARDEN_MAX_PLACEABLE_Y = 76;
 // Aim first, then sneak, then cast. Same order as aether, and the only way to know the
 // rotation actually landed is to read the player's own pitch back.
 const ROOF_STAGES = {
@@ -221,9 +228,34 @@ class PestKiller {
             this.roofStage = ROOF_STAGES.CASTING;
         }
 
-        if (Date.now() - this.roofStartedAt > ROOF_TIMEOUT_MS) {
+        if (this.roofStage !== ROOF_STAGES.CASTING) return;
+
+        // Stop as soon as there is nothing solid in front of us, instead of always waiting
+        // out the timeout. getLookingAt returns null for air, so that means we can see past
+        // whatever we were aiming through.
+        const cleared = getLookingAt(ROOF_LOOK_DISTANCE) === null;
+
+        // The garden cannot be built above 76, so feet at 77 means we are on the top surface
+        // no matter what the ray says. This is what guarantees the climb ends.
+        const atCeiling = Player.getY() >= GARDEN_MAX_PLACEABLE_Y + 1;
+
+        if (cleared || atCeiling) {
             this.releaseRoofKeys();
             this.state = STATES.PATHING_FORWARD;
+            return;
+        }
+
+        if (Date.now() - this.roofStartedAt > ROOF_TIMEOUT_MS) {
+            this.releaseRoofKeys();
+            const plot = this.currentPlot;
+            if (!plot) {
+                this.state = STATES.PATHING_FORWARD;
+                return;
+            }
+            // The climb did not get us up there, so do the plot teleport we replaced.
+            ChatLib.command(`tptoplot ${plot}`);
+            this.plotTimeoutAt = Date.now() + PLOT_TIMEOUT_MS;
+            this.state = STATES.WAITING_FOR_PLOT;
         }
     }
 
