@@ -18,6 +18,13 @@ const PEST_ANGLE = 45;
 const PARTICLE_SEARCH_MS = 1_000;
 const PLOT_TIMEOUT_MS = 30_000;
 const ROOF_TIMEOUT_MS = 2_000;
+// Aim first, then sneak, then cast. Same order as aether, and the only way to know the
+// rotation actually landed is to read the player's own pitch back.
+const ROOF_STAGES = {
+    AIMING: 'Aiming',
+    SNEAKING: 'Sneaking',
+    CASTING: 'Casting',
+};
 const STATES = {
     SEARCHING: 'Searching',
     PATHING_PESTS: 'Pathing to pests',
@@ -143,6 +150,7 @@ class PestKiller {
             this.roofStartedAt = 0;
             this.roofOriginalSlot = -1;
             this.roofCasting = false;
+            this.roofStage = ROOF_STAGES.AIMING;
             this.plotTimeoutAt = Date.now() + PLOT_TIMEOUT_MS;
             return false;
         }
@@ -172,6 +180,7 @@ class PestKiller {
 
     releaseRoofKeys() {
         this.roofCasting = false;
+        this.roofStage = ROOF_STAGES.AIMING;
         Client.setKey('rightclick', false);
         Client.setKey('shift', false);
         Rotations.stop();
@@ -190,21 +199,26 @@ class PestKiller {
             }
             this.roofStartedAt = Date.now();
             this.roofOriginalSlot = Player.getHeldItemIndex();
-            this.roofCasting = false;
+            this.roofStage = ROOF_STAGES.AIMING;
             setItemSlot(slot);
-            Client.setKey('shift', true);
         }
 
+        // This is exactly what /v5 rotations rotateTo calls: the shared smooth rotation
+        // manager, at the current yaw and our configured pitch. No options, same as the
+        // command, so there is nothing left to tune here.
         const targetPitch = -pestMacro.getRoofPitch();
-        Rotations.lookAtAngles(Player.getYaw(), targetPitch, { rotationSpeed: 0.55, precision: 0.35 });
+        Rotations.lookAtAngles(Player.getYaw(), targetPitch);
 
-        // Aether rotates, waits for the rotation to land, and only then fires. Reading the
-        // player's own pitch is what we trust here: Rotations.update() returns early
-        // whenever a path rotation is active, so a completion callback can silently never
-        // arrive. If the camera has not arrived, we do not fire.
-        if (!this.roofCasting && Math.abs(Player.getPitch() - targetPitch) <= 1) {
-            this.roofCasting = true;
+        if (this.roofStage === ROOF_STAGES.AIMING) {
+            // Only sneak once the camera has genuinely arrived at the pitch.
+            if (Math.abs(Player.getPitch() - targetPitch) <= 1) {
+                this.roofStage = ROOF_STAGES.SNEAKING;
+                this.roofStartedAt = Date.now();
+                Client.setKey('shift', true);
+            }
+        } else if (this.roofStage === ROOF_STAGES.SNEAKING) {
             Client.setKey('rightclick', true);
+            this.roofStage = ROOF_STAGES.CASTING;
         }
 
         if (Date.now() - this.roofStartedAt > ROOF_TIMEOUT_MS) {
