@@ -348,15 +348,15 @@ class AutoExperiments extends ModuleBase {
 
         // A Bazaar rejection never raises the XP level, so the level check below never
         // fires and the bottle gets clicked over and over. This now stops exactly like the
-        // bits stop below: close the GUI, clear the target, same message, and idle until the
-        // table is reopened. Clearing boughtXP matters because it is set when the click is
-        // sent rather than when the purchase works, which is what kept that path unreachable.
+        // coins stop below: close the GUI, clear the target, same message, and idle until
+        // the table is reopened. Clearing boughtXP matters because it is set when the click
+        // is sent rather than when the purchase works, which kept that path unreachable.
         if (this.xpPurchaseBlocked) {
             this.xpPurchaseBlocked = false;
             this.buyXpTargetLevel = 0;
             this.boughtXP = false;
             closeInventory();
-            return this.message('Not enough bits!');
+            return this.message('Not enough coins!');
         }
 
         const currentLevel = this.extractXpLevel(items[SLOTS.GRAND_BOTTLE]);
@@ -367,7 +367,7 @@ class AutoExperiments extends ModuleBase {
                 return this.startReopenSequence();
             }
             closeInventory();
-            return this.message('Not enough bits!');
+            return this.message('Not enough coins!');
         }
 
         const slot = this.buyXpTargetLevel <= 100 ? SLOTS.GRAND_BOTTLE : SLOTS.TITANIC_BOTTLE;
