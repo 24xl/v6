@@ -29,7 +29,6 @@ import './farming/PestMacro';
 import './farming/SunsetPests';
 
 /* VISUALS */
-import './visuals/BlockBreakParticles';
 import './visuals/BlockVisual';
 import './visuals/ESP';
 import './visuals/GIF';
