@@ -18,6 +18,10 @@ import { registerSkyblockEvent } from '../../utils/SkyblockEvents';
 const MAX_PEST_TRACK_DISTANCE = 14;
 const PEST_STALL_GRACE_TICKS = 20;
 const GUI_RESUME_GRACE_TICKS = 5;
+// Opening a GUI force-releases the attack key: closeInventory() calls
+// keyAttack.setDown(false) and unpressKeys() calls KeyMapping.releaseAll(). Re-arm the
+// click for a few ticks after any GUI closes, or the macro walks with the mouse up.
+const CLICK_RESUME_TICKS = 5;
 const SPRAY_CHECK_COOLDOWN_MS = 5_000;
 const SPRAY_RESTORE_DELAY_TICKS = 3;
 const TAB_CHECK_GRACE_MS = 5_000;
@@ -81,6 +85,8 @@ export class FarmingMacro extends ModuleBase {
         this.sprayonatorAction = null;
         this.mode = FARMING;
         this.stallGraceTicks = 0;
+        this.clickResumeTicks = 0;
+        this.wasInGui = false;
         ungrab();
         this.startDelayTicks = 1;
         const player = Player.getPlayer();
@@ -117,10 +123,28 @@ export class FarmingMacro extends ModuleBase {
         if (!player) return;
 
         if (Client.isInGui() && this.mode !== REWARPING) {
+            this.wasInGui = true;
             this.stationaryTicks = 0;
             this.stallGraceTicks = Math.max(this.stallGraceTicks, GUI_RESUME_GRACE_TICKS);
+            this.clickResumeTicks = 0;
             return;
         }
+
+        // Arm on the closing edge only, otherwise this would re-press every tick forever.
+        if (this.wasInGui) {
+            this.wasInGui = false;
+            this.clickResumeTicks = CLICK_RESUME_TICKS;
+        }
+
+        // The GUI just closed, so the attack key was released behind our back: closing one
+        // calls keyAttack.setDown(false) and unpressKeys() calls KeyMapping.releaseAll().
+        // Renew it, otherwise handleFarming can walk forever believing leftclick is down
+        // while the game has it released.
+        if (this.clickResumeTicks > 0) {
+            this.clickResumeTicks--;
+            Client.setKey('leftclick', true);
+        }
+
         if (Mousemat.active) return;
 
         switch (this.mode) {

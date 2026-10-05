@@ -23,6 +23,7 @@ class PestMacro extends ModuleBase {
         this.roofEtherwarp = false;
         this.roofPitch = 52;
         this.roofPitchSlider = null;
+        this.roofEtherwarpToggle = null;
 
         this.addToggle(
             'Sunset Pests',
@@ -31,18 +32,16 @@ class PestMacro extends ModuleBase {
         );
 
         const roofPopup = this.addPopup('Roof Etherwarp Settings', null, 'Climbs to the roof with Aspect of the Void.');
-        roofPopup.addComponent(
-            new ToggleButton(
-                'Roof Etherwarp',
-                0,
-                0,
-                undefined,
-                undefined,
-                (value) => (this.roofEtherwarp = !!value),
-                this.roofEtherwarp
-            ),
-            'Replaces the plot teleport with an AOTV climb to the roof.'
+        this.roofEtherwarpToggle = new ToggleButton(
+            'Roof Etherwarp',
+            0,
+            0,
+            undefined,
+            undefined,
+            (value) => (this.roofEtherwarp = !!value),
+            this.roofEtherwarp
         );
+        roofPopup.addComponent(this.roofEtherwarpToggle, 'Replaces the plot teleport with an AOTV climb to the roof.');
         this.roofPitchSlider = new Slider(
             'Pitch',
             0,
@@ -63,6 +62,13 @@ class PestMacro extends ModuleBase {
         const numeric = Number(value);
         if (!Number.isFinite(numeric)) return 52;
         return Math.max(0, Math.min(90, Math.abs(Math.round(numeric))));
+    }
+
+    isRoofEtherwarpEnabled() {
+        // Read the toggle, not the mirrored field. loadSettings assigns component.enabled
+        // directly and never fires the callback, so a saved-on Roof Etherwarp shows as ON in
+        // the GUI while this field stays false and the roof gate never fires.
+        return this.roofEtherwarpToggle ? this.roofEtherwarpToggle.enabled : this.roofEtherwarp;
     }
 
     getRoofPitch() {

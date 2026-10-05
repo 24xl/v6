@@ -146,13 +146,24 @@ class PestKiller {
         if (this.state !== STATES.SETTING_DAY) {
             this.currentPlot = plot;
             this.teleportedToPlot = false;
+            this.committedScoreboardPlot = undefined;
             this.visitedPlots.add(plot);
         }
         if (!sunsetPests.isDone('day')) {
             this.state = STATES.SETTING_DAY;
             return false;
         }
-        if (pestMacro.roofEtherwarp && plot === currentPlot) {
+        // Read the toggle live: a saved-on Roof Etherwarp used to read as false here.
+        // Latch the scoreboard plot once we commit to it. Comparing against currentPlot on
+        // every pass compared the tab list's plot against the scoreboard's, two separately
+        // refreshed sources, so a refresh landing mid-tick silently skipped the roof and
+        // fell through to tptoplot. That was the intermittent skip.
+        if (this.committedScoreboardPlot === undefined) this.committedScoreboardPlot = currentPlot;
+        // Compare against the latched value, so a scoreboard refresh landing mid-tick cannot
+        // disagree with the tab list and skip the roof. An unknown plot still falls through
+        // to tptoplot, which is the safe original behaviour.
+        const onThisPlot = plot === this.committedScoreboardPlot;
+        if (pestMacro.isRoofEtherwarpEnabled() && onThisPlot) {
             this.state = STATES.PATHING_TO_ROOF;
             this.roofStartedAt = 0;
             this.roofOriginalSlot = -1;
@@ -197,13 +208,25 @@ class PestKiller {
         }
     }
 
+    // Every way out of the climb that is not a successful arrival ends here: do the plot
+    // teleport the roof gate replaced, so a failed climb can never skip the plot.
+    fallbackToPlotTeleport() {
+        this.releaseRoofKeys();
+        const plot = this.currentPlot;
+        if (!plot) {
+            this.state = STATES.PATHING_FORWARD;
+            return false;
+        }
+        ChatLib.command(`tptoplot ${plot}`);
+        this.plotTimeoutAt = Date.now() + PLOT_TIMEOUT_MS;
+        this.state = STATES.WAITING_FOR_PLOT;
+        return false;
+    }
+
     pathToRoof() {
         if (this.roofOriginalSlot === -1) {
             const slot = findItemInHotbar('Aspect of the Void');
-            if (slot === -1) {
-                this.state = STATES.PATHING_FORWARD;
-                return;
-            }
+            if (slot === -1) return this.fallbackToPlotTeleport();
             this.roofStartedAt = Date.now();
             this.roofOriginalSlot = Player.getHeldItemIndex();
             this.roofStage = ROOF_STAGES.AIMING;
@@ -228,6 +251,12 @@ class PestKiller {
             this.roofStage = ROOF_STAGES.CASTING;
         }
 
+        // The timeout is checked before the stage guard on purpose. Guarding first meant a
+        // climb stuck in AIMING returned here forever and the backstop could never fire.
+        if (Date.now() - this.roofStartedAt > ROOF_TIMEOUT_MS) {
+            return this.fallbackToPlotTeleport();
+        }
+
         if (this.roofStage !== ROOF_STAGES.CASTING) return;
 
         // Stop as soon as there is nothing solid in front of us, instead of always waiting
@@ -243,19 +272,6 @@ class PestKiller {
             this.releaseRoofKeys();
             this.state = STATES.PATHING_FORWARD;
             return;
-        }
-
-        if (Date.now() - this.roofStartedAt > ROOF_TIMEOUT_MS) {
-            this.releaseRoofKeys();
-            const plot = this.currentPlot;
-            if (!plot) {
-                this.state = STATES.PATHING_FORWARD;
-                return;
-            }
-            // The climb did not get us up there, so do the plot teleport we replaced.
-            ChatLib.command(`tptoplot ${plot}`);
-            this.plotTimeoutAt = Date.now() + PLOT_TIMEOUT_MS;
-            this.state = STATES.WAITING_FOR_PLOT;
         }
     }
 
