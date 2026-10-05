@@ -1,6 +1,5 @@
 import { ModuleBase } from '../../utils/ModuleBase';
 import { v5Command } from '../../utils/V5Commands';
-import { chat } from '../../utils/Chat';
 
 // Block break debris renders as a TerrainParticle in current Minecraft. It was called
 // BlockParticle before the rename, so both are matched to survive a version change.
