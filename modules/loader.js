@@ -85,3 +85,4 @@ import './other/AutoFusionRepeat';
 import './other/RatMacro';
 import './other/PeltMacro';
 import './other/PeltQOL';
+import './visuals/BlockBreakParticles';
