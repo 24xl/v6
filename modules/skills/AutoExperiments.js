@@ -50,7 +50,6 @@ class AutoExperiments extends ModuleBase {
         this.reopeningStarted = false;
         this.buyXpTargetLevel = 0;
         this.boughtXP = false;
-        this.xpPurchaseBlocked = false;
         this.state = STATES.WAITING;
         this.superpairsRewardsClaimed = false;
         this.superpairsCards = new Map();
@@ -58,13 +57,6 @@ class AutoExperiments extends ModuleBase {
         this.superpairsCurrentKey = null;
 
         this.on('tick', () => this.onTick());
-
-        this.on('chat', (event) => {
-            const msg = (event.message?.getString?.() ?? '').toLowerCase();
-            // Substring so it covers '[Bazaar] You cannot afford this!' and any
-            // reworded variant. Lowercased to match the lore check in renewExperiments().
-            if (msg.includes('cannot afford this!')) this.xpPurchaseBlocked = true;
-        });
 
         this.addSlider(
             'Action Delay (ms)',
@@ -177,10 +169,7 @@ class AutoExperiments extends ModuleBase {
 
         if (this.renewRequired(items)) return this.renewExperiments(items);
 
-        if (this.buyXpTargetLevel > 0) {
-            this.xpPurchaseBlocked = false;
-            return this._clickSlot(SLOTS.BOTTLE_MENU);
-        }
+        if (this.buyXpTargetLevel > 0) return this._clickSlot(SLOTS.BOTTLE_MENU);
 
         if (this.onCooldown(items[SLOTS.SUPERPAIRS])) {
             closeInventory();
@@ -344,18 +333,6 @@ class AutoExperiments extends ModuleBase {
 
     handleBuyingXp(items) {
         if (this.buyXpTargetLevel === 0) return;
-
-        // A Bazaar rejection never raises the XP level, so the level check below never
-        // fires and the bottle gets clicked forever. Give up the same way the bits stop
-        // does. Clearing boughtXP matters: it is set when the click is sent rather than
-        // when the purchase works, which is what made this path unreachable before.
-        if (this.xpPurchaseBlocked) {
-            this.xpPurchaseBlocked = false;
-            this.buyXpTargetLevel = 0;
-            this.boughtXP = false;
-            closeInventory();
-            return this.message('Cannot afford XP bottles!');
-        }
 
         const currentLevel = this.extractXpLevel(items[SLOTS.GRAND_BOTTLE]);
         if (currentLevel >= this.buyXpTargetLevel) {
@@ -547,7 +524,6 @@ class AutoExperiments extends ModuleBase {
         this.lastClickTime = Date.now();
         this.buyXpTargetLevel = 0;
         this.boughtXP = false;
-        this.xpPurchaseBlocked = false;
         this.state = STATES.WAITING;
         this.maxEnchanting = false;
         this.superpairsRewardsClaimed = false;
