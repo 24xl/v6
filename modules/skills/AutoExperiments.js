@@ -60,11 +60,10 @@ class AutoExperiments extends ModuleBase {
         this.on('tick', () => this.onTick());
 
         this.on('chat', (event) => {
-            // getString() on a TextComponent is only parts[0], so it misses anything past
-            // the first styled segment. unformattedText is the whole line.
-            const message = event?.message;
-            const raw = message?.getUnformattedText?.() ?? message?.unformattedText ?? '';
-            if (String(raw).toLowerCase().includes('cannot afford this!')) this.xpPurchaseBlocked = true;
+            const msg = (event.message?.getString?.() ?? '').toLowerCase();
+            // Substring so it covers '[Bazaar] You cannot afford this!' and any
+            // reworded variant. Lowercased to match the lore check in renewExperiments().
+            if (msg.includes('cannot afford this!')) this.xpPurchaseBlocked = true;
         });
 
         this.addSlider(
@@ -347,16 +346,15 @@ class AutoExperiments extends ModuleBase {
         if (this.buyXpTargetLevel === 0) return;
 
         // A Bazaar rejection never raises the XP level, so the level check below never
-        // fires and the bottle gets clicked over and over. This now stops exactly like the
-        // bits stop below: close the GUI, clear the target, same message, and idle until the
-        // table is reopened. Clearing boughtXP matters because it is set when the click is
-        // sent rather than when the purchase works, which is what kept that path unreachable.
+        // fires and the bottle gets clicked forever. Give up the same way the bits stop
+        // does. Clearing boughtXP matters: it is set when the click is sent rather than
+        // when the purchase works, which is what made this path unreachable before.
         if (this.xpPurchaseBlocked) {
             this.xpPurchaseBlocked = false;
             this.buyXpTargetLevel = 0;
             this.boughtXP = false;
             closeInventory();
-            return this.message('Not enough bits!');
+            return this.message('Cannot afford XP bottles!');
         }
 
         const currentLevel = this.extractXpLevel(items[SLOTS.GRAND_BOTTLE]);
