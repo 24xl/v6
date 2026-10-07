@@ -122,23 +122,17 @@ export class FarmingMacro extends ModuleBase {
         const player = Player.getPlayer();
         if (!player) return;
 
-        if (Client.isInGui()) {
+        if (Client.isInGui() && this.mode !== REWARPING) {
             this.wasInGui = true;
+            this.stationaryTicks = 0;
+            this.stallGraceTicks = Math.max(this.stallGraceTicks, GUI_RESUME_GRACE_TICKS);
             this.clickResumeTicks = 0;
-            if (this.mode !== REWARPING) {
-                this.stationaryTicks = 0;
-                this.stallGraceTicks = Math.max(this.stallGraceTicks, GUI_RESUME_GRACE_TICKS);
-                return;
-            }
+            return;
         }
 
         // Arm on the closing edge only, otherwise this would re-press every tick forever.
-        // First RELEASE: the game dropped the attack key behind our back while V5 believed it
-        // was held, so blind re-press leaves the state stale and the macro walks without
-        // breaking crops after any GUI closes mid-rewarp.
-        if (this.wasInGui && !Client.isInGui()) {
+        if (this.wasInGui) {
             this.wasInGui = false;
-            Client.setKey('leftclick', false);
             this.clickResumeTicks = CLICK_RESUME_TICKS;
         }
 
