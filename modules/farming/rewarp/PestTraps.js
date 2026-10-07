@@ -9,7 +9,6 @@ import { rewarpSettings } from './RewarpSettings';
 import { angleToPlayer } from '../../../utils/Math';
 import { stripTabFormatting, getTabListNames } from '../../../utils/TabListUtils';
 import { getGardenPestStatus } from '../../../utils/Utils';
-import { getLoadedPests } from '../../visuals/PestESP';
 import { registerSkyblockEvent } from '../../../utils/SkyblockEvents';
 
 const cleanText = (value) => ChatLib.removeFormatting(String(value ?? '')).trim();
@@ -26,7 +25,7 @@ const APPROACH_DISTANCE = 3;
 const APPROACH_TIMEOUT_MS = 25_000;
 const RELEASE_WAIT_MS = 1_500;
 const SCAN_GATHER_MS = 8_000;
-const RELEASE_KILL_RANGE_SQ = 12 ** 2;
+const REOPEN_HOLD_COOLDOWN_MS = 400;
 const AIM_PRECISION = 3;
 const PEST_TRAPS_RE = /^Pest Traps:\s*(\d+)\s*\/\s*\d+$/;
 const FULL_TRAPS_RE = /^Full Traps:\s*(.*)$/;
@@ -76,7 +75,8 @@ class PestTraps {
         }
         if (!pestKiller.running || Date.now() < this.nextScanAt) return;
         this.nextScanAt = Date.now() + SCAN_INTERVAL_MS;
-        if (this.isAllFull()) this.queued = true;
+        const { fullIds } = this.readTab();
+        if (fullIds.length > 0) this.queued = true;
     }
 
     readTab() {
@@ -108,11 +108,6 @@ class PestTraps {
         return match ? Number(match[1]) : null;
     }
 
-    isAllFull() {
-        const { placed, fullIds } = this.readTab();
-        return placed > 0 && fullIds.length === placed;
-    }
-
     wantToRun() {
         const enabled = rewarpSettings.isPestTrapsEnabled();
         const plot = this.plotFromSetting();
@@ -120,10 +115,9 @@ class PestTraps {
             console.log('[PestTraps] skipped:', JSON.stringify({ enabled, plot }));
             return false;
         }
-        const { placed, fullIds } = this.readTab();
-        const allFull = placed > 0 && fullIds.length === placed;
-        console.log('[PestTraps] check:', JSON.stringify({ enabled, plot, placed, fullIds, allFull }));
-        this.queued = allFull;
+        const { fullIds } = this.readTab();
+        console.log('[PestTraps] check:', JSON.stringify({ enabled, plot, fullIds }));
+        this.queued = fullIds.length > 0;
         return this.queued;
     }
 
@@ -138,12 +132,12 @@ class PestTraps {
         this.clearedIds = new Set();
         this.plotArrived = false;
 
-        const { placed, fullIds } = this.readTab();
-        if (placed === 0 || fullIds.length !== placed) return this.finish(true);
+        const { fullIds } = this.readTab();
+        if (!fullIds.length) return this.finish(true);
         this.trapIds = [...fullIds].sort((a, b) => a - b);
         this.plot = this.plotFromSetting();
         if (this.plot === null) return this.finish(true);
-        if (!farmingSettings.selectVacuum()) return this.finish(true);
+        farmingSettings.selectVacuum();
 
         chat(`&fPest traps full (${this.trapIds.join(', ')}) - clearing.`);
 
@@ -218,7 +212,9 @@ class PestTraps {
     matchesStand(stand, id) {
         if (stand.isDead?.()) return false;
         const name = cleanText(stand.getName?.()).toLowerCase();
-        return name.endsWith('#' + id) || name.includes('trap #' + id);
+        if (!name.includes('trap')) return false;
+        const match = name.match(/#\s*([1-3])\b/);
+        return !!match && Number(match[1]) === id;
     }
 
     beginApproach() {
@@ -321,17 +317,13 @@ class PestTraps {
             Client.setKey('rightclick', false);
             return this.nextStand();
         }
-        const released = getLoadedPests().find((pest) => {
-            const dx = pest.getX() - Player.getX();
-            const dy = pest.getY() - Player.getY();
-            const dz = pest.getZ() - Player.getZ();
-            return dx * dx + dy * dy + dz * dz <= RELEASE_KILL_RANGE_SQ;
-        });
-        if (!released) {
+        if (Client.isInGui()) {
             Client.setKey('rightclick', false);
+            closeInventory();
+            this.nextHoldAt = Date.now() + REOPEN_HOLD_COOLDOWN_MS;
             return false;
         }
-        Rotations.lookAtVector(released, { precision: 5 });
+        if (Date.now() < this.nextHoldAt) return false;
         Client.setKey('rightclick', true);
         return false;
     }
