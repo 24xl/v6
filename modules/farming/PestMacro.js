@@ -9,6 +9,7 @@ const SETTING_MOVES = [
     ['Farming Settings', 'Kill nearby pests while farming', 'Pest macro'],
     ['Farming Settings', 'Sprayonator While Farming', 'Pest macro'],
     ['Rewarp Settings', 'Pest Killer Settings', 'Pest macro'],
+    ['Rewarp Settings', 'Pest Trap Settings', 'Pest macro'],
 ];
 
 class PestMacro extends ModuleBase {

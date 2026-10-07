@@ -1,6 +1,7 @@
 import { ModuleBase } from '../../../utils/ModuleBase';
 import { Slider } from '../../../gui/components/Slider';
 import { ToggleButton } from '../../../gui/components/Toggle';
+import { TextInput } from '../../../gui/components/TextInput';
 import { MultiToggle } from '../../../gui/components/Dropdown';
 import { stripItemFormatting } from '../../../utils/player/Inventory';
 import { findTabListIndex, getTabListNames, readVisitors } from '../../../utils/TabListUtils';
@@ -26,6 +27,8 @@ class RewarpSettings extends ModuleBase {
         this.philipContactMethod = '/call (recommended)';
         this.pestKiller = false;
         this.pestThreshold = 5;
+        this.pestTraps = false;
+        this.trapPlot = '';
 
         this.addMultiToggle(
             'Rewarp Style',
@@ -99,6 +102,16 @@ class RewarpSettings extends ModuleBase {
                 this.pestThreshold = Math.round(value);
             }),
             'Starts Pest Killer at this many alive pests.'
+        );
+
+        const trapPopup = this.addPopup('Pest Trap Settings', null, 'Clears full pest traps after Pest Killer finishes.');
+        trapPopup.addComponent(
+            new ToggleButton('Enable Pest Traps', 0, 0, undefined, undefined, (value) => (this.pestTraps = !!value), this.pestTraps),
+            'When all placed traps are full, teleports to the trap plot and releases them before returning to farm.'
+        );
+        trapPopup.addComponent(
+            new TextInput('Trap Plot', 0, 0, 0, 0, this.trapPlot, (value) => (this.trapPlot = String(value).trim())),
+            'Number of the garden plot containing your pest traps.'
         );
     }
 

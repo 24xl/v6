@@ -4,6 +4,7 @@ import { visitorMacro } from './VisitorMacro';
 import { rewarpSettings } from './RewarpSettings';
 import Pathfinder from '../../../utils/pathfinder/PathFinder';
 import { pestKiller } from './PestKiller';
+import { pestTraps } from './PestTraps';
 import { loadoutHandler } from '../LoadoutHandler';
 import { farmingDelays } from '../FarmingDelays';
 import { registerSkyblockEvent } from '../../../utils/SkyblockEvents';
@@ -14,6 +15,7 @@ const PHASES = {
     LANDING_AT_BARN: 'Landing at barn',
     DECIDING: 'Determining',
     RUNNING: 'Running task',
+    TRAPS: 'Clearing traps',
     REWARP: 'Rewarping',
     RETURNING: 'Returning',
 };
@@ -37,6 +39,7 @@ class RewarpHandler {
         this.rewarpAttempts = 0;
         this.returnStarted = false;
         this.returnResult = null;
+        this.trapsDone = false;
 
         const runVisitor = rewarpSettings.shouldRunVisitorMacro();
         this.runVisitor = runVisitor;
@@ -55,6 +58,7 @@ class RewarpHandler {
         visitorMacro.stop();
         philipMacro.stop();
         pestKiller.stop();
+        pestTraps.stop();
         if (this.returnStarted && Pathfinder.isPathing()) Pathfinder.resetPath();
     }
 
@@ -90,10 +94,20 @@ class RewarpHandler {
                 }
             }
             if (!this.task) {
-                if (this.resumeAfterTasks) return this.macro.finishRewarp(Player.getPlayer());
-                this.phase = this.runPestKiller && !rewarpSettings.looping && !rewarpSettings.hybrid ? PHASES.RETURNING : PHASES.REWARP;
+                if (this.runPestKiller && !this.trapsDone && pestTraps.wantToRun()) {
+                    this.trapsDone = true;
+                    this.nextActionAt = 0;
+                    pestTraps.begin();
+                    this.phase = PHASES.TRAPS;
+                } else if (this.resumeAfterTasks) {
+                    return this.macro.finishRewarp(Player.getPlayer());
+                } else {
+                    this.phase = this.runPestKiller && !rewarpSettings.looping && !rewarpSettings.hybrid ? PHASES.RETURNING : PHASES.REWARP;
+                }
             }
         }
+
+        if (this.phase === PHASES.TRAPS && pestTraps.tick(player)) this.phase = PHASES.DECIDING;
 
         if (this.phase === PHASES.RUNNING && this.task.tick()) this.phase = PHASES.DECIDING;
         if (this.phase === PHASES.RETURNING) return this.returnToStart();
