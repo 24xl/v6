@@ -50,7 +50,6 @@ class AutoExperiments extends ModuleBase {
         this.reopeningStarted = false;
         this.buyXpTargetLevel = 0;
         this.boughtXP = false;
-        this.xpPurchaseBlocked = false;
         this.state = STATES.WAITING;
         this.superpairsRewardsClaimed = false;
         this.superpairsCards = new Map();
@@ -58,14 +57,6 @@ class AutoExperiments extends ModuleBase {
         this.superpairsCurrentKey = null;
 
         this.on('tick', () => this.onTick());
-
-        this.on('chat', (event) => {
-            // getString() on a TextComponent is only parts[0], so it misses anything past
-            // the first styled segment. unformattedText is the whole line.
-            const message = event?.message;
-            const raw = message?.getUnformattedText?.() ?? message?.unformattedText ?? '';
-            if (String(raw).toLowerCase().includes('cannot afford this!')) this.xpPurchaseBlocked = true;
-        });
 
         this.addSlider(
             'Action Delay (ms)',
@@ -178,10 +169,7 @@ class AutoExperiments extends ModuleBase {
 
         if (this.renewRequired(items)) return this.renewExperiments(items);
 
-        if (this.buyXpTargetLevel > 0) {
-            this.xpPurchaseBlocked = false;
-            return this._clickSlot(SLOTS.BOTTLE_MENU);
-        }
+        if (this.buyXpTargetLevel > 0) return this._clickSlot(SLOTS.BOTTLE_MENU);
 
         if (this.onCooldown(items[SLOTS.SUPERPAIRS])) {
             closeInventory();
@@ -346,19 +334,6 @@ class AutoExperiments extends ModuleBase {
     handleBuyingXp(items) {
         if (this.buyXpTargetLevel === 0) return;
 
-        // A Bazaar rejection never raises the XP level, so the level check below never
-        // fires and the bottle gets clicked over and over. This now stops exactly like the
-        // coins stop below: close the GUI, clear the target, same message, and idle until
-        // the table is reopened. Clearing boughtXP matters because it is set when the click
-        // is sent rather than when the purchase works, which kept that path unreachable.
-        if (this.xpPurchaseBlocked) {
-            this.xpPurchaseBlocked = false;
-            this.buyXpTargetLevel = 0;
-            this.boughtXP = false;
-            closeInventory();
-            return this.message('Not enough coins!');
-        }
-
         const currentLevel = this.extractXpLevel(items[SLOTS.GRAND_BOTTLE]);
         if (currentLevel >= this.buyXpTargetLevel) {
             this.buyXpTargetLevel = 0;
@@ -367,7 +342,7 @@ class AutoExperiments extends ModuleBase {
                 return this.startReopenSequence();
             }
             closeInventory();
-            return this.message('Not enough coins!');
+            return this.message('Not enough bits!');
         }
 
         const slot = this.buyXpTargetLevel <= 100 ? SLOTS.GRAND_BOTTLE : SLOTS.TITANIC_BOTTLE;
@@ -549,7 +524,6 @@ class AutoExperiments extends ModuleBase {
         this.lastClickTime = Date.now();
         this.buyXpTargetLevel = 0;
         this.boughtXP = false;
-        this.xpPurchaseBlocked = false;
         this.state = STATES.WAITING;
         this.maxEnchanting = false;
         this.superpairsRewardsClaimed = false;
