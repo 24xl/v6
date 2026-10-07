@@ -4,7 +4,6 @@ import { ArmorStandEntity } from '../../../utils/Constants';
 import { clickItem, closeInventory } from '../../../utils/player/Inventory';
 import { Rotations } from '../../../utils/player/Rotations';
 import { farmingSettings } from '../FarmingSettings';
-import { pestKiller } from './PestKiller';
 import { rewarpSettings } from './RewarpSettings';
 import { angleToPlayer } from '../../../utils/Math';
 import { stripTabFormatting, getTabListNames } from '../../../utils/TabListUtils';
@@ -15,7 +14,6 @@ const cleanText = (value) => ChatLib.removeFormatting(String(value ?? '')).trim(
 
 const TRAP_BOX_COLOR = new RenderColor(0, 255, 0, 120);
 
-const SCAN_INTERVAL_MS = 1_000;
 const TELEPORT_TIMEOUT_MS = 10_000;
 const AIM_TIMEOUT_MS = 2_500;
 const OPEN_TIMEOUT_MS = 3_000;
@@ -46,13 +44,9 @@ const STATES = {
 class PestTraps {
     constructor() {
         this.running = false;
-        this.queued = false;
         this.state = STATES.IDLE;
-        this.nextScanAt = 0;
         this.nextActionAt = 0;
         this.pathToken = 0;
-
-        register('tick', () => this.pollTab());
 
         register('postRenderWorld', () => {
             if (!this.running || !this.stands?.length) return;
@@ -66,17 +60,6 @@ class PestTraps {
         registerSkyblockEvent('plotteleport', () => {
             if (this.running && this.state === STATES.TELEPORTING) this.plotArrived = true;
         });
-    }
-
-    pollTab() {
-        if (!rewarpSettings.isPestTrapsEnabled() || this.plotFromSetting() === null) {
-            this.queued = false;
-            return;
-        }
-        if (!pestKiller.running || Date.now() < this.nextScanAt) return;
-        this.nextScanAt = Date.now() + SCAN_INTERVAL_MS;
-        const { fullIds } = this.readTab();
-        if (fullIds.length > 0) this.queued = true;
     }
 
     readTab() {
@@ -108,22 +91,8 @@ class PestTraps {
         return match ? Number(match[1]) : null;
     }
 
-    wantToRun() {
-        const enabled = rewarpSettings.isPestTrapsEnabled();
-        const plot = this.plotFromSetting();
-        if (!enabled || plot === null) {
-            console.log('[PestTraps] skipped:', JSON.stringify({ enabled, plot }));
-            return false;
-        }
-        const { fullIds } = this.readTab();
-        console.log('[PestTraps] check:', JSON.stringify({ enabled, plot, fullIds }));
-        this.queued = fullIds.length > 0;
-        return this.queued;
-    }
-
-    begin() {
+    start() {
         this.running = true;
-        this.queued = false;
         this.state = STATES.IDLE;
         this.pathToken = 0;
         this.standAttempts = 0;
@@ -132,19 +101,31 @@ class PestTraps {
         this.clearedIds = new Set();
         this.plotArrived = false;
 
+        const enabled = rewarpSettings.isPestTrapsEnabled();
+        const plot = this.plotFromSetting();
+        if (!enabled || plot === null) {
+            this.running = false;
+            return false;
+        }
         const { fullIds } = this.readTab();
-        if (!fullIds.length) return this.finish(true);
+        console.log('[PestTraps] start:', JSON.stringify({ enabled, plot, fullIds }));
+        if (!fullIds.length) {
+            this.running = false;
+            return false;
+        }
         this.trapIds = [...fullIds].sort((a, b) => a - b);
-        this.plot = this.plotFromSetting();
-        if (this.plot === null) return this.finish(true);
+        this.plot = plot;
         farmingSettings.selectVacuum();
 
         chat(`&fPest traps full (${this.trapIds.join(', ')}) - clearing.`);
 
         const { currentPlot } = getGardenPestStatus();
-        if (currentPlot === this.plot) return this.transition(STATES.LANDING);
+        if (currentPlot === this.plot) {
+            this.transition(STATES.LANDING);
+            return;
+        }
         ChatLib.command(`tptoplot ${this.plot}`);
-        return this.transition(STATES.TELEPORTING, TELEPORT_TIMEOUT_MS);
+        this.transition(STATES.TELEPORTING, TELEPORT_TIMEOUT_MS);
     }
 
     tick(player) {
