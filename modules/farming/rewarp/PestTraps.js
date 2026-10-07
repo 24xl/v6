@@ -1,5 +1,6 @@
 import Pathfinder from '../../../utils/pathfinder/PathFinder';
 import { chat } from '../../../utils/Chat';
+import { ArmorStandEntity } from '../../../utils/Constants';
 import { clickItem, closeInventory } from '../../../utils/player/Inventory';
 import { Rotations } from '../../../utils/player/Rotations';
 import { farmingSettings } from '../FarmingSettings';
@@ -11,6 +12,8 @@ import { getGardenPestStatus } from '../../../utils/Utils';
 import { registerSkyblockEvent } from '../../../utils/SkyblockEvents';
 
 const cleanText = (value) => ChatLib.removeFormatting(String(value ?? '')).trim();
+
+const TRAP_BOX_COLOR = new RenderColor(0, 255, 0, 120);
 
 const SCAN_INTERVAL_MS = 1_000;
 const TELEPORT_TIMEOUT_MS = 10_000;
@@ -48,6 +51,15 @@ class PestTraps {
         this.pathToken = 0;
 
         register('tick', () => this.pollTab());
+
+        register('postRenderWorld', () => {
+            if (!this.running || !this.stands?.length) return;
+            const mc = [];
+            for (const entry of this.stands) {
+                if (!entry.stand?.isDead?.()) mc.push(entry.stand.toMC());
+            }
+            if (mc.length) Render3D.drawHitboxes(mc, TRAP_BOX_COLOR, 5, false);
+        });
 
         registerSkyblockEvent('plotteleport', () => {
             if (this.running && this.state === STATES.TELEPORTING) this.plotArrived = true;
