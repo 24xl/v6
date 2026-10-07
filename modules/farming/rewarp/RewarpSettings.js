@@ -105,14 +105,28 @@ class RewarpSettings extends ModuleBase {
         );
 
         const trapPopup = this.addPopup('Pest Trap Settings', null, 'Clears full pest traps after Pest Killer finishes.');
-        trapPopup.addComponent(
-            new ToggleButton('Enable Pest Traps', 0, 0, undefined, undefined, (value) => (this.pestTraps = !!value), this.pestTraps),
-            'When all placed traps are full, teleports to the trap plot and releases them before returning to farm.'
+        this.pestTrapsToggle = new ToggleButton(
+            'Enable Pest Traps',
+            0,
+            0,
+            undefined,
+            undefined,
+            (value) => (this.pestTraps = !!value),
+            this.pestTraps
         );
-        trapPopup.addComponent(
-            new TextInput('Trap Plot', 0, 0, 0, 0, this.trapPlot, (value) => (this.trapPlot = String(value).trim())),
-            'Number of the garden plot containing your pest traps.'
-        );
+        trapPopup.addComponent(this.pestTrapsToggle, 'When all placed traps are full, teleports to the trap plot and releases them before returning to farm.');
+        this.trapPlotInput = new TextInput('Trap Plot', 0, 0, 0, 0, this.trapPlot, (value) => (this.trapPlot = String(value).trim()));
+        trapPopup.addComponent(this.trapPlotInput, 'Number of the garden plot containing your pest traps.');
+    }
+
+    isPestTrapsEnabled() {
+        // loadSettings assigns component.enabled directly without firing the callback, so a
+        // saved-on toggle would leave the mirrored field false while the GUI shows it ON.
+        return this.pestTrapsToggle ? this.pestTrapsToggle.enabled : this.pestTraps;
+    }
+
+    getTrapPlot() {
+        return this.trapPlotInput ? String(this.trapPlotInput.text ?? '').trim() : this.trapPlot;
     }
 
     addRewarpButtons(...buttons) {

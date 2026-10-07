@@ -55,7 +55,7 @@ class PestTraps {
     }
 
     pollTab() {
-        if (!rewarpSettings.pestTraps || this.plotFromSetting() === null) {
+        if (!rewarpSettings.isPestTrapsEnabled() || this.plotFromSetting() === null) {
             this.queued = false;
             return;
         }
@@ -88,7 +88,7 @@ class PestTraps {
     }
 
     plotFromSetting() {
-        const input = String(rewarpSettings.trapPlot ?? '').trim();
+        const input = String(rewarpSettings.getTrapPlot() ?? '').trim();
         const match = input.match(/^\s*(\d{1,2})\s*$/);
         return match ? Number(match[1]) : null;
     }
@@ -99,8 +99,16 @@ class PestTraps {
     }
 
     wantToRun() {
-        if (!rewarpSettings.pestTraps || this.plotFromSetting() === null) return false;
-        this.queued = this.isAllFull();
+        const enabled = rewarpSettings.isPestTrapsEnabled();
+        const plot = this.plotFromSetting();
+        if (!enabled || plot === null) {
+            console.log('[PestTraps] skipped:', JSON.stringify({ enabled, plot }));
+            return false;
+        }
+        const { placed, fullIds } = this.readTab();
+        const allFull = placed > 0 && fullIds.length === placed;
+        console.log('[PestTraps] check:', JSON.stringify({ enabled, plot, placed, fullIds, allFull }));
+        this.queued = allFull;
         return this.queued;
     }
 
