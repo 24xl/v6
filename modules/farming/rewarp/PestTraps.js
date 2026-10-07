@@ -9,6 +9,7 @@ import { rewarpSettings } from './RewarpSettings';
 import { angleToPlayer } from '../../../utils/Math';
 import { stripTabFormatting, getTabListNames } from '../../../utils/TabListUtils';
 import { getGardenPestStatus } from '../../../utils/Utils';
+import { getLoadedPests } from '../../visuals/PestESP';
 import { registerSkyblockEvent } from '../../../utils/SkyblockEvents';
 
 const cleanText = (value) => ChatLib.removeFormatting(String(value ?? '')).trim();
@@ -24,6 +25,8 @@ const STAND_ATTEMPTS = 1;
 const APPROACH_DISTANCE = 3;
 const APPROACH_TIMEOUT_MS = 25_000;
 const RELEASE_WAIT_MS = 1_500;
+const SCAN_GATHER_MS = 8_000;
+const RELEASE_KILL_RANGE_SQ = 12 ** 2;
 const AIM_PRECISION = 3;
 const PEST_TRAPS_RE = /^Pest Traps:\s*(\d+)\s*\/\s*\d+$/;
 const FULL_TRAPS_RE = /^Full Traps:\s*(.*)$/;
@@ -132,6 +135,7 @@ class PestTraps {
         this.standAttempts = 0;
         this.standIndex = 0;
         this.cleared = 0;
+        this.clearedIds = new Set();
         this.plotArrived = false;
 
         const { placed, fullIds } = this.readTab();
@@ -166,6 +170,7 @@ class PestTraps {
                     return false;
                 }
                 Client.setKey('shift', false);
+                this.scanDeadline = Date.now() + SCAN_GATHER_MS;
                 return this.transition(STATES.SCANNING);
             case STATES.SCANNING:
                 return this.beginScan();
@@ -181,15 +186,17 @@ class PestTraps {
             case STATES.CLOSING:
                 return this.tickClose();
             case STATES.WAITING_DEATH:
-                if (Date.now() >= this.nextActionAt) this.nextStand();
-                return false;
+                return this.tickWaitDeath();
         }
         return false;
     }
 
     beginScan() {
         this.stands = this.findTrapStands();
-        if (!this.stands.length) return this.finish();
+        if (!this.stands.length) {
+            if (Date.now() < this.scanDeadline) return false;
+            return this.finish();
+        }
         this.standIndex = 0;
         this.standAttempts = 0;
         this.currentStand = this.stands[0];
@@ -201,6 +208,7 @@ class PestTraps {
         const all = World.getAllEntitiesOfType(ArmorStandEntity) || [];
         const result = [];
         for (const id of this.trapIds) {
+            if (this.clearedIds?.has(id)) continue;
             const match = all.find((entity) => this.matchesStand(entity, id));
             if (match) result.push({ stand: match, id });
         }
@@ -214,6 +222,7 @@ class PestTraps {
     }
 
     beginApproach() {
+        farmingSettings.selectVacuum();
         const entry = this.currentStand;
         if (!entry) return this.failStand();
         if (entry.stand.distanceTo(Player.getPlayer()) < APPROACH_DISTANCE) return this.startAim(entry);
@@ -293,6 +302,7 @@ class PestTraps {
             return this.failStand();
         }
         this.cleared++;
+        if (this.currentStand?.id !== undefined) this.clearedIds.add(this.currentStand.id);
         closeInventory();
         return this.transition(STATES.CLOSING);
     }
@@ -302,14 +312,43 @@ class PestTraps {
             closeInventory();
             return false;
         }
+        farmingSettings.selectVacuum();
         return this.transition(STATES.WAITING_DEATH, RELEASE_WAIT_MS);
+    }
+
+    tickWaitDeath() {
+        if (Date.now() >= this.nextActionAt) {
+            Client.setKey('rightclick', false);
+            return this.nextStand();
+        }
+        const released = getLoadedPests().find((pest) => {
+            const dx = pest.getX() - Player.getX();
+            const dy = pest.getY() - Player.getY();
+            const dz = pest.getZ() - Player.getZ();
+            return dx * dx + dy * dy + dz * dz <= RELEASE_KILL_RANGE_SQ;
+        });
+        if (!released) {
+            Client.setKey('rightclick', false);
+            return false;
+        }
+        Rotations.lookAtVector(released, { precision: 5 });
+        Client.setKey('rightclick', true);
+        return false;
     }
 
     nextStand() {
         this.standAttempts = 0;
-        this.standIndex++;
-        if (this.standIndex >= this.stands.length) return this.finish();
-        this.currentStand = this.stands[this.standIndex];
+        this.scanDeadline = Date.now() + SCAN_GATHER_MS;
+        this.stands = this.findTrapStands();
+        if (!this.stands.length) {
+            if (Date.now() < this.scanDeadline) {
+                this.state = STATES.SCANNING;
+                return false;
+            }
+            return this.finish();
+        }
+        this.standIndex = 0;
+        this.currentStand = this.stands[0];
         return this.beginApproach();
     }
 
