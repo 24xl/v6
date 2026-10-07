@@ -147,6 +147,19 @@ export class FarmingMacro extends ModuleBase {
 
         if (Mousemat.active) return;
 
+        if (this.mode === REWARPING) {
+            // Never leave a break held while the rewarper is doing its own thing (roof climb,
+            // trap emptying, return). Farming is the only thing that should break crops.
+            if (Client.isKeyDown('leftclick')) {
+                const now = Date.now();
+                if (this._leftProbeAt === undefined || now > this._leftProbeAt) {
+                    this._leftProbeAt = now + 2000;
+                    console.log('[V5] probe left held phase=' + (rewarpHandler.phase ?? '?'));
+                }
+            }
+            Client.setKey('leftclick', false);
+        }
+
         switch (this.mode) {
             case FARMING:
                 return this.handleFarming(player);
