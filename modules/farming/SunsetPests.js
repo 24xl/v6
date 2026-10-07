@@ -44,23 +44,29 @@ class SunsetPests extends ModuleBase {
     }
 
     clickTarget() {
+        if (this.attemptClick()) return false;
+
+        // Any failure waits out the open window instead of bailing early. reset() closes the
+        // GUI, so a failed/timeout attempt can never strand farming with the menu open.
+        if (Date.now() - this.openedAt > OPEN_TIMEOUT_MS) return this.reset();
+        return false;
+    }
+
+    attemptClick() {
         const container = Player.getContainer();
-        if (!container || !getGuiName()?.includes(MENU_NAME)) {
-            if (Date.now() - this.openedAt > OPEN_TIMEOUT_MS) return this.reset();
-            return false;
-        }
+        if (!container || !getGuiName()?.includes(MENU_NAME)) return false;
 
         const slot = this.pendingTime === 'day' ? DAY_SLOT : NIGHT_SLOT;
         const item = container.getStackInSlot(slot);
-        if (!item) return this.reset();
+        if (!item) return false;
 
         const lore = item.getLore?.() || [];
-        if (!lore.some((line) => stripItemFormatting(String(line)).includes(SELECT_LORE))) return this.reset();
+        if (!lore.some((line) => stripItemFormatting(String(line)).includes(SELECT_LORE))) return false;
 
         clickSlot(slot, false, 'LEFT');
         this.state = STATES.CLOSING;
         this.openedAt = Date.now();
-        return false;
+        return true;
     }
 
     closeMenu() {
@@ -69,6 +75,7 @@ class SunsetPests extends ModuleBase {
     }
 
     reset() {
+        if (Client.isInGui()) closeInventory();
         this.state = STATES.IDLE;
         this.pendingTime = null;
         return true;
