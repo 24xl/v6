@@ -9,6 +9,7 @@ import { rewarpSettings } from './RewarpSettings';
 import { angleToPlayer } from '../../../utils/Math';
 import { stripTabFormatting, getTabListNames } from '../../../utils/TabListUtils';
 import { getGardenPestStatus } from '../../../utils/Utils';
+import { getLoadedPests } from '../../visuals/PestESP';
 import { registerSkyblockEvent } from '../../../utils/SkyblockEvents';
 
 const cleanText = (value) => ChatLib.removeFormatting(String(value ?? '')).trim();
@@ -21,11 +22,11 @@ const AIM_TIMEOUT_MS = 2_500;
 const OPEN_TIMEOUT_MS = 3_000;
 const OPEN_ATTEMPTS = 2;
 const STAND_ATTEMPTS = 1;
-const APPROACH_DISTANCE = 3;
 const APPROACH_TIMEOUT_MS = 25_000;
 const RELEASE_WAIT_MS = 1_500;
 const SCAN_GATHER_MS = 8_000;
 const REOPEN_HOLD_COOLDOWN_MS = 400;
+const RELEASE_KILL_RANGE_SQ = 12 ** 2;
 const AIM_PRECISION = 3;
 const PEST_TRAPS_RE = /^Pest Traps:\s*(\d+)\s*\/\s*\d+$/;
 const FULL_TRAPS_RE = /^Full Traps:\s*(.*)$/;
@@ -221,8 +222,9 @@ class PestTraps {
         farmingSettings.selectVacuum();
         const entry = this.currentStand;
         if (!entry) return this.failStand();
-        if (entry.stand.distanceTo(Player.getPlayer()) < APPROACH_DISTANCE) return this.startAim(entry);
-
+        // Always walk onto the target stand's own block instead of clicking from wherever we
+        // are: when traps are placed close together a point-blank click could open a
+        // neighbouring cleared trap. Standing on the target block makes it the nearest entity.
         this.transition(STATES.APPROACHING, APPROACH_TIMEOUT_MS);
         const token = ++this.pathToken;
         Pathfinder.resetPath(false);
@@ -324,8 +326,32 @@ class PestTraps {
             return false;
         }
         if (Date.now() < this.nextHoldAt) return false;
+        // Aim the vacuum at a released pest, never at the trap's hitbox, so holding
+        // right-click vacuums the pests without reopening the trap GUI.
+        const pest = this.nearestReleasedPest();
+        if (!pest) {
+            Client.setKey('rightclick', false);
+            return false;
+        }
+        Rotations.lookAtVector(pest, { precision: 5 });
         Client.setKey('rightclick', true);
         return false;
+    }
+
+    nearestReleasedPest() {
+        let nearest = null;
+        let best = Infinity;
+        for (const pest of getLoadedPests()) {
+            const dx = pest.getX() - Player.getX();
+            const dy = pest.getY() - Player.getY();
+            const dz = pest.getZ() - Player.getZ();
+            const d = dx * dx + dy * dy + dz * dz;
+            if (d <= RELEASE_KILL_RANGE_SQ && d < best) {
+                best = d;
+                nearest = pest;
+            }
+        }
+        return nearest;
     }
 
     nextStand() {
