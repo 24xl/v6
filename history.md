@@ -73,7 +73,8 @@ After the `5.2.2-r29` tag we shipped **42 more commits into the same release ass
 - **QuietNetwork**: silently swallows `Connect*` / connection-timeout stack traces from background threads (Noam/anti-RAT data downloads) — the blocker logic is untouched, it just stops printing. Loaded last in `loader.js`, IIFE-scoped (a top-level `var Thread` crashed Rhino load once).
 
 ### AutoExperiments
-- **Re-added** the "Not enough coins" afford system, then **fully reverted to upstream vanilla** (user decision) — current file is byte-identical to `V5-Client/V5` `upstream/main`.
+- **Upstream base + our coins system**: base is now upstream `main` at `208cd70` (Action Delay default 250ms, slider 50–500, upstream's lore-based `cannot afford this!` renewal handling).
+- 🍴 **Our "Not enough coins" system restored on top**: chat catch of the Bazaar rejection (`cannot afford this!` full-line via `getUnformattedText`) → `xpPurchaseBlocked` → clean stop with **"Not enough coins!"** instead of the silent infinite bottle retry; upstream's `'Not enough bits!'` renamed to `'Not enough coins!'`. Proved innocent: the earlier experiments bug was server-side, not our code.
 
 ---
 
