@@ -352,10 +352,11 @@ class PestTraps {
 
     nextStand() {
         this.standAttempts = 0;
-        this.scanDeadline = Date.now() + SCAN_GATHER_MS;
+        const pending = this.trapIds.some((id) => !this.clearedIds?.has(id));
+        if (pending) this.scanDeadline = Date.now() + SCAN_GATHER_MS;
         this.stands = this.findTrapStands();
         if (!this.stands.length) {
-            if (Date.now() < this.scanDeadline) {
+            if (pending && Date.now() < this.scanDeadline) {
                 this.state = STATES.SCANNING;
                 return false;
             }
