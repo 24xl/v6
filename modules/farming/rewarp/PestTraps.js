@@ -112,12 +112,8 @@ class PestTraps {
     wantToRun() {
         const enabled = rewarpSettings.isPestTrapsEnabled();
         const plot = this.plotFromSetting();
-        if (!enabled || plot === null) {
-            console.log('[PestTraps] skipped:', JSON.stringify({ enabled, plot }));
-            return false;
-        }
+        if (!enabled || plot === null) return false;
         const { fullIds } = this.readTab();
-        console.log('[PestTraps] check:', JSON.stringify({ enabled, plot, fullIds }));
         this.queued = fullIds.length > 0;
         return this.queued;
     }
