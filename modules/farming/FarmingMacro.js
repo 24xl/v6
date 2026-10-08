@@ -26,6 +26,11 @@ const GUI_RESUME_GRACE_TICKS = 5;
 // so a closed loadout/islandtime/npc-sell GUI can never leave the macro walking with the
 // attack released, and we never break the roof (pests) or the ground (trap clearing).
 const FARM_CLICK_WINDOW_MS = 1000;
+// While a GUI is open, updatePosition() never runs, so the player standing still inside
+// the GUI reads as a row-end to the stationary tracker and the macro advances lanes
+// mid-row and walks without breaking. After any GUI close, shield the lane logic for
+// this many ticks and re-baseline the movement so farming resumes exactly where it was.
+const GUI_RESUME_SHIELD_TICKS = 15;
 const SPRAY_CHECK_COOLDOWN_MS = 5_000;
 const SPRAY_RESTORE_DELAY_TICKS = 3;
 const TAB_CHECK_GRACE_MS = 5_000;
@@ -90,6 +95,7 @@ export class FarmingMacro extends ModuleBase {
         this.mode = FARMING;
         this.stallGraceTicks = 0;
         this.resumeClickUntil = 0;
+        this.guiResumeTicks = 0;
         this.wasInGui = false;
         ungrab();
         this.startDelayTicks = 1;
@@ -133,11 +139,15 @@ export class FarmingMacro extends ModuleBase {
             return;
         }
 
-        // Arm the re-click window on the GUI-close edge. The press itself only fires in
-        // handleFarming at the about-to-farm point, and only while a farming tool is held.
+        // Arm the re-click window and the lane-logic shield on the GUI-close edge. Standing
+        // still in the GUI read as a row-end, so re-baseline movement and hold the current
+        // lane instead of advancing mid-row.
         if (this.wasInGui) {
             this.wasInGui = false;
             this.resumeClickUntil = Date.now() + FARM_CLICK_WINDOW_MS;
+            this.guiResumeTicks = GUI_RESUME_SHIELD_TICKS;
+            this.stationaryTicks = 0;
+            this.updatePosition(player);
         }
 
         if (Mousemat.active) return;
@@ -192,7 +202,10 @@ export class FarmingMacro extends ModuleBase {
 
         if (player.getAbilities().flying) return this.hold('shift');
 
-        if (this.stallGraceTicks > 0) {
+        if (this.guiResumeTicks > 0) {
+            this.guiResumeTicks--;
+            this.updatePosition(player);
+        } else if (this.stallGraceTicks > 0) {
             this.stallGraceTicks--;
             this.updatePosition(player);
         } else {
@@ -269,6 +282,7 @@ export class FarmingMacro extends ModuleBase {
         }
         if (!sunsetPests.isDone('night')) return;
         this.resumeClickUntil = Date.now() + FARM_CLICK_WINDOW_MS;
+        this.guiResumeTicks = GUI_RESUME_SHIELD_TICKS;
         this.mode = FARMING;
         this.startFarming(player);
     }
