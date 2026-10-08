@@ -21,7 +21,11 @@ const GUI_RESUME_GRACE_TICKS = 5;
 // Opening a GUI force-releases the attack key: closeInventory() calls
 // keyAttack.setDown(false) and unpressKeys() calls KeyMapping.releaseAll(). Re-arm the
 // click for a few ticks after any GUI closes, or the macro walks with the mouse up.
-const CLICK_RESUME_TICKS = 5;
+// Re-assert the break for this long after a GUI closes or a rewarp returns to farming.
+// The press only fires at the about-to-farm point, and only while a farming tool is held,
+// so a closed loadout/islandtime/npc-sell GUI can never leave the macro walking with the
+// attack released, and we never break the roof (pests) or the ground (trap clearing).
+const FARM_CLICK_WINDOW_MS = 1000;
 const SPRAY_CHECK_COOLDOWN_MS = 5_000;
 const SPRAY_RESTORE_DELAY_TICKS = 3;
 const TAB_CHECK_GRACE_MS = 5_000;
@@ -85,7 +89,7 @@ export class FarmingMacro extends ModuleBase {
         this.sprayonatorAction = null;
         this.mode = FARMING;
         this.stallGraceTicks = 0;
-        this.clickResumeTicks = 0;
+        this.resumeClickUntil = 0;
         this.wasInGui = false;
         ungrab();
         this.startDelayTicks = 1;
@@ -126,23 +130,14 @@ export class FarmingMacro extends ModuleBase {
             this.wasInGui = true;
             this.stationaryTicks = 0;
             this.stallGraceTicks = Math.max(this.stallGraceTicks, GUI_RESUME_GRACE_TICKS);
-            this.clickResumeTicks = 0;
             return;
         }
 
-        // Arm on the closing edge only, otherwise this would re-press every tick forever.
+        // Arm the re-click window on the GUI-close edge. The press itself only fires in
+        // handleFarming at the about-to-farm point, and only while a farming tool is held.
         if (this.wasInGui) {
             this.wasInGui = false;
-            this.clickResumeTicks = CLICK_RESUME_TICKS;
-        }
-
-        // The GUI just closed, so the attack key was released behind our back: closing one
-        // calls keyAttack.setDown(false) and unpressKeys() calls KeyMapping.releaseAll().
-        // Renew it, otherwise handleFarming can walk forever believing leftclick is down
-        // while the game has it released.
-        if (this.clickResumeTicks > 0) {
-            this.clickResumeTicks--;
-            Client.setKey('leftclick', true);
+            this.resumeClickUntil = Date.now() + FARM_CLICK_WINDOW_MS;
         }
 
         if (Mousemat.active) return;
@@ -202,6 +197,11 @@ export class FarmingMacro extends ModuleBase {
             this.updatePosition(player);
         } else {
             this.updateFarmState(player);
+        }
+        // GUI closed recently: re-assert the break only at the true point of farming and
+        // only while a farming tool is held, so we never break the roof or the ground.
+        if (this.resumeClickUntil > Date.now() && this.isFarmingTool()) {
+            Client.setKey('leftclick', true);
         }
         this.invokeFarmState();
     }
@@ -268,6 +268,7 @@ export class FarmingMacro extends ModuleBase {
             return;
         }
         if (!sunsetPests.isDone('night')) return;
+        this.resumeClickUntil = Date.now() + FARM_CLICK_WINDOW_MS;
         this.mode = FARMING;
         this.startFarming(player);
     }
@@ -387,6 +388,13 @@ export class FarmingMacro extends ModuleBase {
         ['a', 'd', 'w', 's', 'shift'].forEach((movement) => Client.setKey(movement, key.includes(movement)));
         Client.setKey('leftclick', true);
         Client.setKey('sprint', false);
+    }
+
+    // True only for actual farming tools, so a re-click can never happen while a vacuum
+    // or AOTV is held during pest work, the roof climb, or trap clearing.
+    isFarmingTool() {
+        const name = ChatLib.removeFormatting(String(Player.getInventory()?.getStackInSlot(Player.getHeldItemIndex())?.getName?.() ?? '')).toLowerCase();
+        return ['hoe', 'dicer', 'cutter', 'knife', 'chopper'].some((keyword) => name.includes(keyword));
     }
 
     saveRewarpPoint(name) {

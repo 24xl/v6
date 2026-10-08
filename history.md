@@ -69,6 +69,10 @@ After the `5.2.2-r29` tag we shipped **42 more commits into the same release ass
 - **SunsetPests stranded-menu fix**: any time-menu failure closes the GUI before returning — farming can't stand still with the menu open
 - GUI-rehold break (add then revert) — removed after it broke direction remembering
 
+### Farming loop (🍴)
+- **Pest trap first-try open**: 350ms settle after aim-lock before the first open click, 3 attempts at 500ms inside a 4.5s window, plus quiet open-failure console diagnostics (stripped once proven) - a full trap should open on the first stand visit.
+- **Gated break re-click after GUI close**: after loadout / islandtime / NPC-sell GUIs close (and on any rewarper hand-back to farming), re-assert leftclick for 1s - but only at the about-to-farm point and only while a farming tool is held, so it never breaks the roof (pests) or the ground (trap clearing).
+
 ### Console / misc (🍴)
 - **QuietNetwork**: silently swallows `Connect*` / connection-timeout stack traces from background threads (Noam/anti-RAT data downloads) — the blocker logic is untouched, it just stops printing. Loaded last in `loader.js`, IIFE-scoped (a top-level `var Thread` crashed Rhino load once).
 

@@ -19,8 +19,8 @@ const TRAP_BOX_COLOR = new RenderColor(0, 255, 0, 120);
 const SCAN_INTERVAL_MS = 1_000;
 const TELEPORT_TIMEOUT_MS = 10_000;
 const AIM_TIMEOUT_MS = 2_500;
-const OPEN_TIMEOUT_MS = 3_000;
-const OPEN_ATTEMPTS = 2;
+const OPEN_TIMEOUT_MS = 4_500;
+const OPEN_ATTEMPTS = 3;
 const STAND_ATTEMPTS = 1;
 const APPROACH_TIMEOUT_MS = 25_000;
 const RELEASE_WAIT_MS = 1_500;
@@ -261,26 +261,44 @@ class PestTraps {
         Client.unpressKeys();
         this.transition(STATES.OPENING);
         this.openDeadline = Date.now() + OPEN_TIMEOUT_MS;
-        this.nextOpenClickAt = 0;
+        // Settle for a moment after the camera stops before the first click: clicking
+        // on the same tick the aim locks can land while the player is still drifting
+        // and the click gets swallowed.
+        this.nextOpenClickAt = Date.now() + 350;
         this.openAttempts = 0;
         return false;
     }
 
     tickOpen() {
-        if (Date.now() >= this.openDeadline) return this.failStand();
+        if (Date.now() >= this.openDeadline) {
+            this.logOpenFailure('deadline');
+            return this.failStand();
+        }
         if (Client.isInGui()) {
             if (!this.hasReleaseButton()) {
                 closeInventory();
+                this.logOpenFailure('no-release');
                 return this.failStand();
             }
+            console.log(`[PestTraps] opened #${this.currentStand?.id} on attempt ${this.openAttempts || 1}`);
             return this.transition(STATES.RELEASING);
         }
-        if (this.openAttempts >= OPEN_ATTEMPTS) return this.failStand();
+        if (this.openAttempts >= OPEN_ATTEMPTS) {
+            this.logOpenFailure('attempts');
+            return this.failStand();
+        }
         if (Date.now() < this.nextOpenClickAt) return false;
-        this.nextOpenClickAt = Date.now() + 350;
+        this.nextOpenClickAt = Date.now() + 500;
         this.openAttempts++;
         Client.rightClick();
         return false;
+    }
+
+    logOpenFailure(reason) {
+        let angle = '?';
+        if (this.currentStand?.stand) angle = Number(angleToPlayer(this.currentStand.stand).distance).toFixed(2);
+        const held = cleanText(Player.getInventory()?.getStackInSlot(Player.getHeldItemIndex())?.getName?.() ?? '');
+        console.log(`[PestTraps] open fail #${this.currentStand?.id} reason=${reason} attempts=${this.openAttempts} angle=${angle} inGui=${Client.isInGui()} item=${held}`);
     }
 
     hasReleaseButton() {
