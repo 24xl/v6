@@ -123,6 +123,17 @@ class Finder {
             walkArrivalRadius = options.walkArrivalRadius ?? 2;
         }
 
+        // Resolve walk goals to the block stood on. F3/feet coords are one higher (air),
+        // which the native pathfinder can never stand on (PR #123 covered the /v5 path
+        // command only; direct findPath callers were still broken).
+        if (!isFly && Array.isArray(end)) {
+            end = end.map((point) =>
+                Array.isArray(point) && point.length >= 3 && point.every((value) => Number.isFinite(value))
+                    ? this.resolveWalkPoint(point[0], point[1], point[2])
+                    : point
+            );
+        }
+
         this.recalculateScheduleId++;
         this.currentEnd = end;
         this.currentStarts = startPoints;
