@@ -17,6 +17,15 @@ const REDSTONE_BLOCK = 'minecraft:redstone_block';
 const TARGET_GREEN = new RenderColor(0, 255, 0, 120);
 const DECOY_RED = new RenderColor(255, 0, 0, 120);
 
+// Control aim deadband and lead clamps. The rotation engine is designed for settling on a
+// target - re-issuing every tick at a moving point makes it chase and shake. Issue only
+// when the skeleton has drifted past the deadband AND enough time passed since the last
+// nudge, so every move is a small smooth step the engine fully completes.
+const AIM_DEADBAND_DEGREES = 2.5;
+const LEAD_MAX_BLOCKS = 1.6;
+const MASTERY_MAX_RANGE = 18;
+const MASTERY_SCAN_MS = 150;
+
 const TESTS = {
     NONE: 'none',
     CONTROL: 'control',
@@ -61,18 +70,18 @@ class DojoMacro extends ModuleBase {
         super({
             name: 'Dojo Macro',
             subcategory: 'Combat',
-            description: 'Auto-completes every Crimson Isle Dojo test. Control/Mastery/Discipline base logic from OdinClient (skies-starred); Force, Stamina, Swiftness and Tenacity added here. Control + Mastery use the V5 rotation engine with a hard target lock.',
+            description: 'Auto-completes every Crimson Isle Dojo test. Control/Mastery/Discipline base logic from OdinClient (skies-starred); Force, Stamina, Swiftness and Tenacity added here. Smooth deadband aiming on the V5 rotation engine with a hard target lock.',
         });
 
         this.test = TESTS.NONE;
         this.targetEntity = null;
         this.targetUuid = null;
-        this.lastSkeletonPos = null;
-        this.skeletonVelX = 0;
-        this.skeletonVelZ = 0;
+        this.lastAimAt = 0;
+        this.lastAimPos = null;
         this.lastSwing = 0;
         this.masteryBlocks = [];
         this.lockedBlock = null;
+        this.firedBlock = null;
         this.firingState = 0;
         this.firingTimer = 0;
         this.drawing = false;
@@ -80,6 +89,8 @@ class DojoMacro extends ModuleBase {
         this.lastStaminaThink = 0;
         this.staminaTarget = null;
         this.jumpUntil = 0;
+        this.shootDelay = 600;
+        this.aimRefreshMs = 160;
 
         this.addToggle('Test of Control', (v) => (this.enableControl = !!v), 'Aim at the moving skeleton (locked target, green box).', true);
         this.addToggle('&cTest of Force', (v) => (this.enableForce = !!v), 'Knock zombies into the lava. WIP.', true);
@@ -90,7 +101,7 @@ class DojoMacro extends ModuleBase {
         this.addToggle('&cTest of Tenacity', (v) => (this.enableTenacity = !!v), 'Dodge the ghast fireballs. WIP.', true);
         this.addToggle('Discipline Auto Attack', (v) => (this.disciplineAutoAttack = !!v), 'Left-click the zombie after selecting the right sword.', true);
         this.addSlider('Mastery Shoot Delay (ms)', 0, 2000, 600, (v) => (this.shootDelay = Math.round(v)), 'Shoot when a locked target has less than this much time left.');
-        this.addSlider('Control Prediction Ticks', 1, 20, 5, (v) => (this.controlPredictionTicks = Math.round(v)), 'How many ticks ahead to predict the skeleton movement.');
+        this.addSlider('Control Aim Refresh (ms)', 80, 400, 160, (v) => (this.aimRefreshMs = Math.round(v)), 'How often the rotation engine may nudge toward the skeleton (low = smoother).');
 
         this.on('tick', () => this.tick());
         this.on('worldUnload', () => this.resetTest(true));
@@ -119,6 +130,10 @@ class DojoMacro extends ModuleBase {
         this.targetEntity = null;
         this.targetUuid = null;
         this.lockedBlock = null;
+        this.firedBlock = null;
+        this.lastAimPos = null;
+        this.lastAimAt = 0;
+        Rotations.stop();
         ungrab();
         if (type === TESTS.MASTERY) this.selectBow();
     }
@@ -128,6 +143,8 @@ class DojoMacro extends ModuleBase {
         this.targetEntity = null;
         this.targetUuid = null;
         this.lockedBlock = null;
+        this.firedBlock = null;
+        this.lastAimPos = null;
         this.masteryBlocks = [];
         this.firingState = 0;
         this.firingTimer = 0;
@@ -182,32 +199,46 @@ class DojoMacro extends ModuleBase {
     }
 
     // ---- Test of Control ----
-    // Two-tier: a hard UUID lock so a replica that spawns mid-test can never steal the
-    // aim, driven by the V5 rotation engine every tick (same one the roof AOTV climb uses).
+    // A hard UUID lock (a replica can never steal the aim) driven by the V5 rotation
+    // engine in small smooth nudges: only when the skeleton drifts past the deadband AND
+    // the refresh time has elapsed. Nothing is issued - and no target means no aim at all.
     control() {
         const target = this.lockedTarget();
-        if (!target) return;
-
-        const cx = target.getX();
-        const cy = target.getY();
-        const cz = target.getZ();
-        if (this.lastSkeletonPos) {
-            this.skeletonVelX = cx - this.lastSkeletonPos.x;
-            this.skeletonVelZ = cz - this.lastSkeletonPos.z;
+        if (!target) {
+            Rotations.stop();
+            this.lastAimPos = null;
+            return;
         }
-        this.lastSkeletonPos = { x: cx, y: cy, z: cz };
 
-        const aim = Rotations.getAimPoint(target) || { x: cx, y: cy + 2.4, z: cz };
-        Rotations.lookAtVector(
-            { x: aim.x + this.skeletonVelX * this.controlPredictionTicks, y: aim.y, z: aim.z + this.skeletonVelZ * this.controlPredictionTicks },
-            { precision: 2 }
-        );
+        const aim = Rotations.getAimPoint(target);
+        if (!aim) {
+            this.lastAimPos = null;
+            return;
+        }
+
+        if (this.lastAimPos) {
+            const leadX = Math.max(-LEAD_MAX_BLOCKS, Math.min(LEAD_MAX_BLOCKS, aim.x - this.lastAimPos.x));
+            const leadZ = Math.max(-LEAD_MAX_BLOCKS, Math.min(LEAD_MAX_BLOCKS, aim.z - this.lastAimPos.z));
+            aim.x += leadX;
+            aim.z += leadZ;
+        }
+
+        const angles = this.anglesFromPoint(aim.x, aim.y, aim.z);
+        if (!angles) return;
+        const drift = Math.hypot(this.normalizeAngle(angles.yaw - Player.getYaw()), angles.pitch - Player.getPitch());
+        if (drift < AIM_DEADBAND_DEGREES) return;
+        if (Date.now() - this.lastAimAt < this.aimRefreshMs) return;
+
+        this.lastAimAt = Date.now();
+        this.lastAimPos = { x: aim.x, y: aim.y, z: aim.z };
+        Rotations.lookAtVector(aim, { precision: 1.5 });
     }
 
     lockedTarget() {
         if (this.targetEntity && !this.targetEntity.isDead?.()) return this.targetEntity;
         this.targetEntity = null;
         this.targetUuid = null;
+        this.lastAimPos = null;
 
         const player = Player.getPlayer();
         let best = null;
@@ -223,7 +254,7 @@ class DojoMacro extends ModuleBase {
         if (!best) return null;
         this.targetEntity = best;
         this.targetUuid = String(best.getUUID?.() ?? '');
-        this.lastSkeletonPos = null;
+        this.lastAimPos = null;
         return best;
     }
 
@@ -254,13 +285,14 @@ class DojoMacro extends ModuleBase {
     }
 
     // ---- Test of Mastery ----
-    // Locks onto a single yellow block (the one with the soonest expiry = about to turn red
-    // for 32 pts) and always releases the bow: on the expiry threshold OR when the block is
-    // already gone/red, so the draw can never get stuck.
+    // Selection picks ONE block (soonest to turn red, nearest tiebreak, within range,
+    // never the just-fired one) and aims at it a single time - blocks do not move, so it
+    // is never re-aimed. Release always happens on the expiry threshold OR when the block
+    // goes red/gone, so the draw can never get stuck writing.
     mastery() {
         const now = Date.now();
         this.masteryBlocks = this.masteryBlocks.filter((block) => block.expiry > now && registryAt(block.x, block.y, block.z) === YELLOW_WOOL);
-
+        if (this.firedBlock && registryAt(this.firedBlock.x, this.firedBlock.y, this.firedBlock.z) !== YELLOW_WOOL) this.firedBlock = null;
         if (this.lockedBlock && registryAt(this.lockedBlock.x, this.lockedBlock.y, this.lockedBlock.z) !== YELLOW_WOOL) {
             this.releaseBow();
             this.lockedBlock = null;
@@ -279,24 +311,47 @@ class DojoMacro extends ModuleBase {
         if (!this.lockedBlock) {
             if (now >= this.lastMasteryScan) {
                 this.scanMastery();
-                this.lastMasteryScan = now + 125;
+                this.lastMasteryScan = now + MASTERY_SCAN_MS;
             }
-            this.lockedBlock = this.masteryBlocks.reduce((a, b) => (a && a.expiry <= b.expiry ? a : b), null);
+            this.lockedBlock = this.pickMasteryTarget();
             if (!this.lockedBlock) return;
+            const block = this.lockedBlock;
+            Rotations.lookAtVector({ x: block.x + 0.5, y: block.y + 1.1, z: block.z + 0.5 });
+            const bowSlot = findItemInHotbar('Bow');
+            if (bowSlot >= 0 && Player.getHeldItemIndex() !== bowSlot) setItemSlot(bowSlot);
+            return;
         }
 
         const block = this.lockedBlock;
-        Rotations.lookAtVector({ x: block.x + 0.5, y: block.y + 1.1, z: block.z + 0.5 });
-        const bowSlot = findItemInHotbar('Bow');
-        if (bowSlot >= 0 && Player.getHeldItemIndex() !== bowSlot) setItemSlot(bowSlot);
         if (!this.drawing) {
             Client.setKey('rightclick', true);
             this.drawing = true;
         }
-
         if (block.expiry - now >= this.shootDelay) return;
+
         this.releaseBow();
+        this.firedBlock = { x: block.x, y: block.y, z: block.z };
         this.lockedBlock = null;
+    }
+
+    pickMasteryTarget() {
+        const px = Player.getX();
+        const pz = Player.getZ();
+        let best = null;
+        for (const block of this.masteryBlocks) {
+            const dx = block.x + 0.5 - px;
+            const dz = block.z + 0.5 - pz;
+            if (dx * dx + dz * dz > MASTERY_MAX_RANGE * MASTERY_MAX_RANGE) continue;
+            if (this.firedBlock && this.firedBlock.x === block.x && this.firedBlock.y === block.y && this.firedBlock.z === block.z) continue;
+            if (!best) {
+                best = block;
+                continue;
+            }
+            const dBest = (best.x + 0.5 - px) * (best.x + 0.5 - px) + (best.z + 0.5 - pz) * (best.z + 0.5 - pz);
+            const dBlock = dx * dx + dz * dz;
+            if (block.expiry < best.expiry || (block.expiry === best.expiry && dBlock < dBest)) best = block;
+        }
+        return best;
     }
 
     releaseBow() {
@@ -508,6 +563,16 @@ class DojoMacro extends ModuleBase {
     }
 
     // ---- helpers ----
+    anglesFromPoint(x, y, z) {
+        const player = Player.getPlayer();
+        if (!player) return null;
+        const dx = x - player.getX();
+        const dy = y - player.getEyePosition().y();
+        const dz = z - player.getZ();
+        if (dx === 0 && dz === 0) return { yaw: Player.getYaw(), pitch: (Math.atan2(-dy, Math.hypot(dx, dz)) * 180) / Math.PI };
+        return { yaw: (Math.atan2(-dx, dz) * 180) / Math.PI, pitch: (Math.atan2(-dy, Math.hypot(dx, dz)) * 180) / Math.PI };
+    }
+
     directionKeys(dx, dz) {
         const yaw = (Player.getYaw() * Math.PI) / 180;
         const velX = -Math.sin(yaw);
