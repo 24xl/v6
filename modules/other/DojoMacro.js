@@ -9,6 +9,7 @@ const SkeletonType = net.minecraft.world.entity.monster.skeleton.Skeleton;
 const WitherSkeletonType = net.minecraft.world.entity.monster.skeleton.WitherSkeleton;
 const SmallFireballType = net.minecraft.world.entity.projectile.SmallFireball;
 const FireballType = net.minecraft.world.entity.projectile.Fireball;
+const ArrowType = net.minecraft.world.entity.projectile.AbstractArrow;
 
 const YELLOW_WOOL = 'minecraft:yellow_wool';
 const RED_WOOL = 'minecraft:red_wool';
@@ -21,6 +22,9 @@ const DECOY_RED = new RenderColor(255, 0, 0, 120);
 const MASTERY_MAX_RANGE = 18;
 const MASTERY_SCAN_MS = 150;
 const POST_FIRE_HOLDOFF_MS = 450;
+const MIN_CHARGE_MS = 700;
+const CONTROL_PREDICTION_TICKS = 5;
+const CONTROL_LOOK_MS = 40;
 const GROUND_RADIUS = 8;
 const ATTACK_RANGE_SQ = 3.2 ** 2;
 
@@ -76,21 +80,27 @@ class DojoMacro extends ModuleBase {
         super({
             name: 'Dojo Macro',
             subcategory: 'Combat',
-            description: 'v1.8 - Auto-completes every Crimson Isle Dojo test. Control (native smooth trackEntity + hard UUID lock + WASD edge recovery) and Mastery (fires on red wool, one locked target) are polished; the "-" tests are WIP.',
+            description: 'v1.9 - Control follows Odin aiming + home-block lava recovery; Mastery hard-locks one target and fires only on red wool with a full charge; "-" tests are WIP.',
         });
-        console.log('[V5] DojoMacro v1.8 active');
+        console.log('[V5] DojoMacro v1.9 active');
 
         this.test = TESTS.NONE;
         this.targetEntity = null;
         this.targetUuid = null;
-        this.trackedUuid = null;
+        this.lastSkeletonPos = null;
+        this.skeletonVelX = 0;
+        this.skeletonVelZ = 0;
+        this.lookCooldown = 0;
         this.lastSwing = 0;
+        this.home = null;
         this.masteryBlocks = [];
         this.lockedBlock = null;
         this.firedBlock = null;
         this.firingState = 0;
         this.firingTimer = 0;
         this.drawing = false;
+        this.drawStartedAt = 0;
+        this.goneTicks = 0;
         this.lastMasteryScan = 0;
         this.lockPendingUntil = 0;
         this.lastGroundMap = null;
@@ -99,11 +109,10 @@ class DojoMacro extends ModuleBase {
         this.lastStaminaThink = 0;
         this.staminaTarget = null;
         this.jumpUntil = 0;
-        this.shootDelay = 600;
 
-        this.addToggle('Test of Control', (v) => (this.enableControl = !!v), 'Lock onto the moving skeleton; smooth follow; WASD dodge while keeping the stare.', true);
+        this.addToggle('Test of Control', (v) => (this.enableControl = !!v), 'Odin-style predict-aim every 40ms; walks home when pushed.', true);
         this.addToggle('- Test of Force', (v) => (this.enableForce = !!v), 'Knock zombies into the lava. WIP.', true);
-        this.addToggle('Test of Mastery', (v) => (this.enableMastery = !!v), 'One locked target, fires when it turns red wool.', true);
+        this.addToggle('Test of Mastery', (v) => (this.enableMastery = !!v), 'One hard-locked target; fires only on red wool at full charge.', true);
         this.addToggle('- Test of Discipline', (v) => (this.enableDiscipline = !!v), 'Ground-paths to the nearest zombie and hits it with the right sword. WIP.', true);
         this.addToggle('- Test of Stamina', (v) => (this.enableStamina = !!v), 'Steer through the wall gaps. WIP.', true);
         this.addToggle('- Test of Swiftness', (v) => (this.enableSwiftness = !!v), 'Follow the green wool snake. WIP.', true);
@@ -136,10 +145,11 @@ class DojoMacro extends ModuleBase {
         this.test = type;
         this.targetEntity = null;
         this.targetUuid = null;
-        this.trackedUuid = null;
+        this.lastSkeletonPos = null;
         this.lockedBlock = null;
         this.firedBlock = null;
         this.staminaTarget = null;
+        if (type === TESTS.CONTROL) this.home = { x: Math.floor(Player.getX()), z: Math.floor(Player.getZ()) };
         Rotations.stop();
         ungrab();
         if (type === TESTS.MASTERY) this.selectBow();
@@ -149,13 +159,15 @@ class DojoMacro extends ModuleBase {
         this.test = TESTS.NONE;
         this.targetEntity = null;
         this.targetUuid = null;
-        this.trackedUuid = null;
+        this.lastSkeletonPos = null;
         this.lockedBlock = null;
         this.firedBlock = null;
         this.masteryBlocks = [];
         this.firingState = 0;
         this.firingTimer = 0;
         this.drawing = false;
+        this.goneTicks = 0;
+        this.home = null;
         this.humanPauseUntil = 0;
         Rotations.stop();
         Client.setKey('rightclick', false);
@@ -247,8 +259,20 @@ class DojoMacro extends ModuleBase {
         };
     }
 
+    refreshGroundMap() {
+        const now = Date.now();
+        if (now - this.lastGroundMapAt >= 250) {
+            this.lastGroundMap = this.groundMap();
+            this.lastGroundMapAt = now;
+        }
+    }
+
     playerCell() {
         return `${Math.floor(Player.getX())},${Math.floor(Player.getZ())}`;
+    }
+
+    isPlayerOnEdge() {
+        return this.lastGroundMap?.edges?.has(this.playerCell()) ?? false;
     }
 
     moveToward(x, z) {
@@ -269,23 +293,11 @@ class DojoMacro extends ModuleBase {
         this.pressKeys(keys);
     }
 
-    refreshGroundMap() {
-        const now = Date.now();
-        if (now - this.lastGroundMapAt >= 250) {
-            this.lastGroundMap = this.groundMap();
-            this.lastGroundMapAt = now;
-        }
-    }
-
-    isPlayerOnEdge() {
-        return this.lastGroundMap?.edges?.has(this.playerCell()) ?? false;
-    }
-
     isThreatened() {
         const player = Player.getPlayer();
         for (const entity of World.getAllEntities() || []) {
             const mc = entityClass(entity);
-            if (!(mc instanceof FireballType) && !(mc instanceof SmallFireballType)) continue;
+            if (!(mc instanceof FireballType) && !(mc instanceof SmallFireballType) && !(mc instanceof ArrowType)) continue;
             if (entity.isDead?.()) continue;
             if (distanceSq(entity, player) <= 6.5 * 6.5) return true;
         }
@@ -293,39 +305,44 @@ class DojoMacro extends ModuleBase {
     }
 
     // ---- Test of Control ----
-    // Aim = our engine's native tracking, engaged ONCE per locked skeleton (smooth follow
-    // every render frame). Nothing tracks until a target exists. While following, if we sit
-    // on an edge or a fireball is incoming, WASD back toward the center WITHOUT losing the
-    // stare - the mob is ignored.
+    // Odin-faithful: each tick pick the nearest non-decoy skeleton, predict its position by
+    // velocity and aim through our rotation engine at 40ms cadence. The block we started on
+    // is "home" - when pushed by mobs/arrows or standing on an edge, WASD back to home while
+    // keep aiming, so we never fall into the lava.
     control() {
-        const target = this.lockedTarget();
+        const target = this.nearestSkeletonTarget();
         if (!target) {
             Rotations.stop();
-            this.trackedUuid = null;
+            this.lastSkeletonPos = null;
             this.pressKeys('');
             return;
         }
-        if (this.trackedUuid !== this.targetUuid) {
-            Rotations.trackEntity(target, { precision: 2 });
-            this.trackedUuid = this.targetUuid;
+
+        const cx = target.getX();
+        const cy = target.getY();
+        const cz = target.getZ();
+        if (this.lastSkeletonPos) {
+            this.skeletonVelX = cx - this.lastSkeletonPos.x;
+            this.skeletonVelZ = cz - this.lastSkeletonPos.z;
+        }
+        this.lastSkeletonPos = { x: cx, y: cy, z: cz };
+        if (Date.now() - this.lookCooldown >= CONTROL_LOOK_MS) {
+            this.lookCooldown = Date.now();
+            Rotations.lookAtVector(
+                { x: cx + this.skeletonVelX * CONTROL_PREDICTION_TICKS, y: cy + 2.5, z: cz + this.skeletonVelZ * CONTROL_PREDICTION_TICKS },
+                { precision: 3 }
+            );
         }
 
         this.refreshGroundMap();
-        if (this.isPlayerOnEdge() || this.isThreatened()) {
-            const center = this.lastGroundMap.center;
-            if (center) this.moveToward(center.x, center.z);
-            else this.pressKeys('');
+        if (this.isThreatened() || (this.home && this.isPlayerOnEdge())) {
+            this.moveToward(this.home.x, this.home.z);
         } else {
             this.pressKeys('');
         }
     }
 
-    lockedTarget() {
-        if (this.targetEntity && !this.targetEntity.isDead?.()) return this.targetEntity;
-        this.targetEntity = null;
-        this.targetUuid = null;
-        this.trackedUuid = null;
-
+    nearestSkeletonTarget() {
         const player = Player.getPlayer();
         let best = null;
         let bestDist = Infinity;
@@ -337,9 +354,8 @@ class DojoMacro extends ModuleBase {
                 best = entity;
             }
         }
-        if (!best) return null;
-        this.targetEntity = best;
-        this.targetUuid = String(best.getUUID?.() ?? '');
+        this.targetEntity = best || null;
+        this.targetUuid = best ? String(best.getUUID?.() ?? '') : null;
         return best;
     }
 
@@ -370,9 +386,9 @@ class DojoMacro extends ModuleBase {
     }
 
     // ---- Test of Mastery ----
-    // One locked target, nothing else can be aimed; fires when the block actually turns RED
-    // wool (32 pts) - no expiry guessing, no re-pick of the just-fired block, and a holdoff
-    // after firing so the shot resolves before the next lock.
+    // A locked block is held HARD: nothing else can be aimed until it fires (turns red wool
+    // while fully charged) or is genuinely gone for 3 consecutive reads. No switching on a
+    // transient green/network read, no partial-charge shots that fall short.
     mastery() {
         const now = Date.now();
         this.masteryBlocks = this.masteryBlocks.filter((block) => {
@@ -382,13 +398,6 @@ class DojoMacro extends ModuleBase {
         if (this.firedBlock) {
             const id = registryAt(this.firedBlock.x, this.firedBlock.y, this.firedBlock.z);
             if (id !== YELLOW_WOOL && id !== RED_WOOL) this.firedBlock = null;
-        }
-        if (this.lockedBlock) {
-            const id = registryAt(this.lockedBlock.x, this.lockedBlock.y, this.lockedBlock.z);
-            if (id !== YELLOW_WOOL && id !== RED_WOOL) {
-                if (this.drawing) this.releaseBow();
-                this.lockedBlock = null;
-            }
         }
 
         if (this.firingState === 1) {
@@ -411,23 +420,53 @@ class DojoMacro extends ModuleBase {
             this.lockedBlock = this.pickMasteryTarget();
             if (!this.lockedBlock) return;
             const block = this.lockedBlock;
+            if (registryAt(block.x, block.y, block.z) === RED_WOOL) {
+                // already red as we lock it - skip cleanly rather than waste a weak shot
+                this.firedBlock = { x: block.x, y: block.y, z: block.z };
+                this.lockedBlock = null;
+                this.lockPendingUntil = now + POST_FIRE_HOLDOFF_MS;
+                return;
+            }
             Rotations.lookAtVector({ x: block.x + 0.5, y: block.y + 1.1, z: block.z + 0.5 });
             const bowSlot = findItemInHotbar('Bow');
             if (bowSlot >= 0 && Player.getHeldItemIndex() !== bowSlot) setItemSlot(bowSlot);
+            this.goneTicks = 0;
             return;
         }
 
         const block = this.lockedBlock;
+        const id = registryAt(block.x, block.y, block.z);
+        if (id === RED_WOOL) {
+            if (now - this.drawStartedAt >= MIN_CHARGE_MS) {
+                this.releaseBow();
+                this.firedBlock = { x: block.x, y: block.y, z: block.z };
+                this.lockedBlock = null;
+                this.goneTicks = 0;
+                this.lockPendingUntil = now + POST_FIRE_HOLDOFF_MS;
+                return;
+            }
+            this.draw();
+            return;
+        }
+        if (id === YELLOW_WOOL) {
+            this.goneTicks = 0;
+            this.draw();
+            return;
+        }
+        this.goneTicks++;
+        if (this.goneTicks >= 3) {
+            if (this.drawing) this.releaseBow();
+            this.lockedBlock = null;
+            this.goneTicks = 0;
+        }
+    }
+
+    draw() {
+        if (!this.drawing) this.drawStartedAt = Date.now();
         if (!this.drawing) {
             Client.setKey('rightclick', true);
             this.drawing = true;
         }
-        if (registryAt(block.x, block.y, block.z) !== RED_WOOL) return;
-
-        this.releaseBow();
-        this.firedBlock = { x: block.x, y: block.y, z: block.z };
-        this.lockedBlock = null;
-        this.lockPendingUntil = now + POST_FIRE_HOLDOFF_MS;
     }
 
     pickMasteryTarget() {
@@ -496,13 +535,10 @@ class DojoMacro extends ModuleBase {
     }
 
     // ---- Test of Discipline ----
-    // Maps the platform ground, marks the edges, then WASD-paths (no camera aiming) to the
-    // closest safe zombie, and only rotates to face + strike it with the matching sword when
-    // in range.
     discipline() {
         const player = Player.getPlayer();
         this.refreshGroundMap();
-        const ground = this.lastGroundMap || { cells: this.groundMap().cells, edges: new Set(), center: null };
+        const ground = this.lastGroundMap || { cells: new Set(), edges: new Set(), center: null };
 
         let best = null;
         let bestDist = 12 * 12;

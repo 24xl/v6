@@ -59,6 +59,7 @@ class FishOnMCMacro extends ModuleBase {
 
         this.on('packetReceived', (packet) => {
             if (this.state !== STATES.FISHING) return;
+            if (typeof packet?.text !== 'function') return;
 
             const actionBar = String(packet.text().getString());
             let position = -1;
@@ -75,6 +76,7 @@ class FishOnMCMacro extends ModuleBase {
 
         this.on('packetReceived', (packet) => {
             if (this.state !== STATES.FISHING) return;
+            if (typeof packet?.text !== 'function') return;
 
             const title = String(packet.text().getString());
             if (title === 'BITE!') Client.rightClick();
