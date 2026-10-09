@@ -270,35 +270,20 @@ class PestTraps {
     }
 
     tickOpen() {
-        if (Date.now() >= this.openDeadline) {
-            this.logOpenFailure('deadline');
-            return this.failStand();
-        }
+        if (Date.now() >= this.openDeadline) return this.failStand();
         if (Client.isInGui()) {
             if (!this.hasReleaseButton()) {
                 closeInventory();
-                this.logOpenFailure('no-release');
                 return this.failStand();
             }
-            console.log(`[PestTraps] opened #${this.currentStand?.id} on attempt ${this.openAttempts || 1}`);
             return this.transition(STATES.RELEASING);
         }
-        if (this.openAttempts >= OPEN_ATTEMPTS) {
-            this.logOpenFailure('attempts');
-            return this.failStand();
-        }
+        if (this.openAttempts >= OPEN_ATTEMPTS) return this.failStand();
         if (Date.now() < this.nextOpenClickAt) return false;
         this.nextOpenClickAt = Date.now() + 500;
         this.openAttempts++;
         Client.rightClick();
         return false;
-    }
-
-    logOpenFailure(reason) {
-        let angle = '?';
-        if (this.currentStand?.stand) angle = Number(angleToPlayer(this.currentStand.stand).distance).toFixed(2);
-        const held = cleanText(Player.getInventory()?.getStackInSlot(Player.getHeldItemIndex())?.getName?.() ?? '');
-        console.log(`[PestTraps] open fail #${this.currentStand?.id} reason=${reason} attempts=${this.openAttempts} angle=${angle} inGui=${Client.isInGui()} item=${held}`);
     }
 
     hasReleaseButton() {
