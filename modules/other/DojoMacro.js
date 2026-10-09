@@ -11,20 +11,18 @@ const SmallFireballType = net.minecraft.world.entity.projectile.SmallFireball;
 const FireballType = net.minecraft.world.entity.projectile.Fireball;
 
 const YELLOW_WOOL = 'minecraft:yellow_wool';
+const RED_WOOL = 'minecraft:red_wool';
 const GREEN_WOOL = 'minecraft:green_wool';
 const REDSTONE_BLOCK = 'minecraft:redstone_block';
 
 const TARGET_GREEN = new RenderColor(0, 255, 0, 120);
 const DECOY_RED = new RenderColor(255, 0, 0, 120);
 
-// Control aim deadband and lead clamps. The rotation engine is designed for settling on a
-// target - re-issuing every tick at a moving point makes it chase and shake. Issue only
-// when the skeleton has drifted past the deadband AND enough time passed since the last
-// nudge, so every move is a small smooth step the engine fully completes.
-const AIM_DEADBAND_DEGREES = 2.5;
-const LEAD_MAX_BLOCKS = 1.6;
 const MASTERY_MAX_RANGE = 18;
 const MASTERY_SCAN_MS = 150;
+const POST_FIRE_HOLDOFF_MS = 450;
+const GROUND_RADIUS = 8;
+const ATTACK_RANGE_SQ = 3.2 ** 2;
 
 const TESTS = {
     NONE: 'none',
@@ -64,20 +62,28 @@ const isSkeleton = (entity) => {
     const mc = entityClass(entity);
     return mc instanceof WitherSkeletonType || mc instanceof SkeletonType;
 };
+const isSolid = (x, y, z) => {
+    const id = registryAt(x, y, z);
+    return id !== 'minecraft:air' && id !== 'minecraft:cave_air' && id !== 'minecraft:lava';
+};
+const isPassable = (x, y, z) => {
+    const id = registryAt(x, y, z);
+    return id === 'minecraft:air' || id === 'minecraft:cave_air';
+};
 
 class DojoMacro extends ModuleBase {
     constructor() {
         super({
             name: 'Dojo Macro',
             subcategory: 'Combat',
-            description: 'Auto-completes every Crimson Isle Dojo test. Control/Mastery/Discipline base logic from OdinClient (skies-starred); Force, Stamina, Swiftness and Tenacity added here. Smooth deadband aiming on the V5 rotation engine with a hard target lock.',
+            description: 'v1.8 - Auto-completes every Crimson Isle Dojo test. Control (native smooth trackEntity + hard UUID lock + WASD edge recovery) and Mastery (fires on red wool, one locked target) are polished; the "-" tests are WIP.',
         });
+        console.log('[V5] DojoMacro v1.8 active');
 
         this.test = TESTS.NONE;
         this.targetEntity = null;
         this.targetUuid = null;
-        this.lastAimAt = 0;
-        this.lastAimPos = null;
+        this.trackedUuid = null;
         this.lastSwing = 0;
         this.masteryBlocks = [];
         this.lockedBlock = null;
@@ -86,22 +92,23 @@ class DojoMacro extends ModuleBase {
         this.firingTimer = 0;
         this.drawing = false;
         this.lastMasteryScan = 0;
+        this.lockPendingUntil = 0;
+        this.lastGroundMap = null;
+        this.lastGroundMapAt = 0;
+        this.humanPauseUntil = 0;
         this.lastStaminaThink = 0;
         this.staminaTarget = null;
         this.jumpUntil = 0;
         this.shootDelay = 600;
-        this.aimRefreshMs = 160;
 
-        this.addToggle('Test of Control', (v) => (this.enableControl = !!v), 'Aim at the moving skeleton (locked target, green box).', true);
-        this.addToggle('&cTest of Force', (v) => (this.enableForce = !!v), 'Knock zombies into the lava. WIP.', true);
-        this.addToggle('Test of Mastery', (v) => (this.enableMastery = !!v), 'Shoot the wool targets (one locked target at a time).', true);
-        this.addToggle('Test of Discipline', (v) => (this.enableDiscipline = !!v), 'Attack with the matching sword. WIP movement.', true);
-        this.addToggle('&cTest of Stamina', (v) => (this.enableStamina = !!v), 'Steer through the wall gaps. WIP.', true);
-        this.addToggle('&cTest of Swiftness', (v) => (this.enableSwiftness = !!v), 'Follow the green wool snake. WIP.', true);
-        this.addToggle('&cTest of Tenacity', (v) => (this.enableTenacity = !!v), 'Dodge the ghast fireballs. WIP.', true);
+        this.addToggle('Test of Control', (v) => (this.enableControl = !!v), 'Lock onto the moving skeleton; smooth follow; WASD dodge while keeping the stare.', true);
+        this.addToggle('- Test of Force', (v) => (this.enableForce = !!v), 'Knock zombies into the lava. WIP.', true);
+        this.addToggle('Test of Mastery', (v) => (this.enableMastery = !!v), 'One locked target, fires when it turns red wool.', true);
+        this.addToggle('- Test of Discipline', (v) => (this.enableDiscipline = !!v), 'Ground-paths to the nearest zombie and hits it with the right sword. WIP.', true);
+        this.addToggle('- Test of Stamina', (v) => (this.enableStamina = !!v), 'Steer through the wall gaps. WIP.', true);
+        this.addToggle('- Test of Swiftness', (v) => (this.enableSwiftness = !!v), 'Follow the green wool snake. WIP.', true);
+        this.addToggle('- Test of Tenacity', (v) => (this.enableTenacity = !!v), 'Dodge the ghast fireballs. WIP.', true);
         this.addToggle('Discipline Auto Attack', (v) => (this.disciplineAutoAttack = !!v), 'Left-click the zombie after selecting the right sword.', true);
-        this.addSlider('Mastery Shoot Delay (ms)', 0, 2000, 600, (v) => (this.shootDelay = Math.round(v)), 'Shoot when a locked target has less than this much time left.');
-        this.addSlider('Control Aim Refresh (ms)', 80, 400, 160, (v) => (this.aimRefreshMs = Math.round(v)), 'How often the rotation engine may nudge toward the skeleton (low = smoother).');
 
         this.on('tick', () => this.tick());
         this.on('worldUnload', () => this.resetTest(true));
@@ -129,10 +136,10 @@ class DojoMacro extends ModuleBase {
         this.test = type;
         this.targetEntity = null;
         this.targetUuid = null;
+        this.trackedUuid = null;
         this.lockedBlock = null;
         this.firedBlock = null;
-        this.lastAimPos = null;
-        this.lastAimAt = 0;
+        this.staminaTarget = null;
         Rotations.stop();
         ungrab();
         if (type === TESTS.MASTERY) this.selectBow();
@@ -142,13 +149,14 @@ class DojoMacro extends ModuleBase {
         this.test = TESTS.NONE;
         this.targetEntity = null;
         this.targetUuid = null;
+        this.trackedUuid = null;
         this.lockedBlock = null;
         this.firedBlock = null;
-        this.lastAimPos = null;
         this.masteryBlocks = [];
         this.firingState = 0;
         this.firingTimer = 0;
         this.drawing = false;
+        this.humanPauseUntil = 0;
         Rotations.stop();
         Client.setKey('rightclick', false);
         Client.getMinecraft().options.keyJump?.setDown?.(false);
@@ -198,47 +206,125 @@ class DojoMacro extends ModuleBase {
         return (World.getAllEntities() || []).filter((entity) => isSkeleton(entity) && !entity.isDead?.());
     }
 
+    // ---- movement core (WASD only, never rotates the camera) ----
+    groundMap() {
+        const px = Math.floor(Player.getX());
+        const py = Math.floor(Player.getY());
+        const pz = Math.floor(Player.getZ());
+        const floorY = py - 1;
+        const cells = new Set();
+        const edges = new Set();
+        let minX = px, maxX = px, minZ = pz, maxZ = pz;
+        for (let x = px - GROUND_RADIUS; x <= px + GROUND_RADIUS; x++) {
+            for (let z = pz - GROUND_RADIUS; z <= pz + GROUND_RADIUS; z++) {
+                if (!isSolid(x, floorY, z)) continue;
+                if (!isPassable(x, floorY + 1, z)) continue;
+                if (!isPassable(x, floorY + 2, z)) continue;
+                cells.add(`${x},${z}`);
+            }
+        }
+        const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+        const walkable = (x, z) => cells.has(`${x},${z}`);
+        for (const key of cells) {
+            const parts = key.split(',');
+            const x = Number(parts[0]);
+            const z = Number(parts[1]);
+            for (const [dx, dz] of dirs) {
+                if (!walkable(x + dx, z + dz)) {
+                    edges.add(key);
+                    break;
+                }
+            }
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (z < minZ) minZ = z;
+            if (z > maxZ) maxZ = z;
+        }
+        return {
+            cells,
+            edges,
+            center: cells.size ? { x: Math.round((minX + maxX) / 2), z: Math.round((minZ + maxZ) / 2) } : null,
+        };
+    }
+
+    playerCell() {
+        return `${Math.floor(Player.getX())},${Math.floor(Player.getZ())}`;
+    }
+
+    moveToward(x, z) {
+        const player = Player.getPlayer();
+        const dx = x + 0.5 - player.getX();
+        const dz = z + 0.5 - player.getZ();
+        const yaw = (player.getYaw() * Math.PI) / 180;
+        const fX = -Math.sin(yaw);
+        const fZ = Math.cos(yaw);
+        const forward = dx * fX + dz * fZ;
+        const side = dx * fZ - dz * fX;
+        let keys = '';
+        if (Math.abs(side) > Math.abs(forward)) keys = side > 0.15 ? 'd' : side < -0.15 ? 'a' : '';
+        else keys = forward > 0.15 ? 'w' : forward < -0.15 ? 's' : '';
+        const now = Date.now();
+        if (keys && now < this.humanPauseUntil) keys = '';
+        else if (keys && Math.random() < 0.06) this.humanPauseUntil = now + 60 + Math.random() * 120;
+        this.pressKeys(keys);
+    }
+
+    refreshGroundMap() {
+        const now = Date.now();
+        if (now - this.lastGroundMapAt >= 250) {
+            this.lastGroundMap = this.groundMap();
+            this.lastGroundMapAt = now;
+        }
+    }
+
+    isPlayerOnEdge() {
+        return this.lastGroundMap?.edges?.has(this.playerCell()) ?? false;
+    }
+
+    isThreatened() {
+        const player = Player.getPlayer();
+        for (const entity of World.getAllEntities() || []) {
+            const mc = entityClass(entity);
+            if (!(mc instanceof FireballType) && !(mc instanceof SmallFireballType)) continue;
+            if (entity.isDead?.()) continue;
+            if (distanceSq(entity, player) <= 6.5 * 6.5) return true;
+        }
+        return false;
+    }
+
     // ---- Test of Control ----
-    // A hard UUID lock (a replica can never steal the aim) driven by the V5 rotation
-    // engine in small smooth nudges: only when the skeleton drifts past the deadband AND
-    // the refresh time has elapsed. Nothing is issued - and no target means no aim at all.
+    // Aim = our engine's native tracking, engaged ONCE per locked skeleton (smooth follow
+    // every render frame). Nothing tracks until a target exists. While following, if we sit
+    // on an edge or a fireball is incoming, WASD back toward the center WITHOUT losing the
+    // stare - the mob is ignored.
     control() {
         const target = this.lockedTarget();
         if (!target) {
             Rotations.stop();
-            this.lastAimPos = null;
+            this.trackedUuid = null;
+            this.pressKeys('');
             return;
         }
-
-        const aim = Rotations.getAimPoint(target);
-        if (!aim) {
-            this.lastAimPos = null;
-            return;
+        if (this.trackedUuid !== this.targetUuid) {
+            Rotations.trackEntity(target, { precision: 2 });
+            this.trackedUuid = this.targetUuid;
         }
 
-        if (this.lastAimPos) {
-            const leadX = Math.max(-LEAD_MAX_BLOCKS, Math.min(LEAD_MAX_BLOCKS, aim.x - this.lastAimPos.x));
-            const leadZ = Math.max(-LEAD_MAX_BLOCKS, Math.min(LEAD_MAX_BLOCKS, aim.z - this.lastAimPos.z));
-            aim.x += leadX;
-            aim.z += leadZ;
+        this.refreshGroundMap();
+        if (this.isPlayerOnEdge() || this.isThreatened()) {
+            const center = this.lastGroundMap.center;
+            if (center) this.moveToward(center.x, center.z);
+            else this.pressKeys('');
+        } else {
+            this.pressKeys('');
         }
-
-        const angles = this.anglesFromPoint(aim.x, aim.y, aim.z);
-        if (!angles) return;
-        const drift = Math.hypot(this.normalizeAngle(angles.yaw - Player.getYaw()), angles.pitch - Player.getPitch());
-        if (drift < AIM_DEADBAND_DEGREES) return;
-        if (Date.now() - this.lastAimAt < this.aimRefreshMs) return;
-
-        this.lastAimAt = Date.now();
-        this.lastAimPos = { x: aim.x, y: aim.y, z: aim.z };
-        Rotations.lookAtVector(aim, { precision: 1.5 });
     }
 
     lockedTarget() {
         if (this.targetEntity && !this.targetEntity.isDead?.()) return this.targetEntity;
         this.targetEntity = null;
         this.targetUuid = null;
-        this.lastAimPos = null;
+        this.trackedUuid = null;
 
         const player = Player.getPlayer();
         let best = null;
@@ -254,7 +340,6 @@ class DojoMacro extends ModuleBase {
         if (!best) return null;
         this.targetEntity = best;
         this.targetUuid = String(best.getUUID?.() ?? '');
-        this.lastAimPos = null;
         return best;
     }
 
@@ -285,17 +370,25 @@ class DojoMacro extends ModuleBase {
     }
 
     // ---- Test of Mastery ----
-    // Selection picks ONE block (soonest to turn red, nearest tiebreak, within range,
-    // never the just-fired one) and aims at it a single time - blocks do not move, so it
-    // is never re-aimed. Release always happens on the expiry threshold OR when the block
-    // goes red/gone, so the draw can never get stuck writing.
+    // One locked target, nothing else can be aimed; fires when the block actually turns RED
+    // wool (32 pts) - no expiry guessing, no re-pick of the just-fired block, and a holdoff
+    // after firing so the shot resolves before the next lock.
     mastery() {
         const now = Date.now();
-        this.masteryBlocks = this.masteryBlocks.filter((block) => block.expiry > now && registryAt(block.x, block.y, block.z) === YELLOW_WOOL);
-        if (this.firedBlock && registryAt(this.firedBlock.x, this.firedBlock.y, this.firedBlock.z) !== YELLOW_WOOL) this.firedBlock = null;
-        if (this.lockedBlock && registryAt(this.lockedBlock.x, this.lockedBlock.y, this.lockedBlock.z) !== YELLOW_WOOL) {
-            this.releaseBow();
-            this.lockedBlock = null;
+        this.masteryBlocks = this.masteryBlocks.filter((block) => {
+            const id = registryAt(block.x, block.y, block.z);
+            return id === YELLOW_WOOL || id === RED_WOOL;
+        });
+        if (this.firedBlock) {
+            const id = registryAt(this.firedBlock.x, this.firedBlock.y, this.firedBlock.z);
+            if (id !== YELLOW_WOOL && id !== RED_WOOL) this.firedBlock = null;
+        }
+        if (this.lockedBlock) {
+            const id = registryAt(this.lockedBlock.x, this.lockedBlock.y, this.lockedBlock.z);
+            if (id !== YELLOW_WOOL && id !== RED_WOOL) {
+                if (this.drawing) this.releaseBow();
+                this.lockedBlock = null;
+            }
         }
 
         if (this.firingState === 1) {
@@ -307,6 +400,8 @@ class DojoMacro extends ModuleBase {
             this.firingTimer = 0;
             return;
         }
+
+        if (now < this.lockPendingUntil) return;
 
         if (!this.lockedBlock) {
             if (now >= this.lastMasteryScan) {
@@ -327,11 +422,12 @@ class DojoMacro extends ModuleBase {
             Client.setKey('rightclick', true);
             this.drawing = true;
         }
-        if (block.expiry - now >= this.shootDelay) return;
+        if (registryAt(block.x, block.y, block.z) !== RED_WOOL) return;
 
         this.releaseBow();
         this.firedBlock = { x: block.x, y: block.y, z: block.z };
         this.lockedBlock = null;
+        this.lockPendingUntil = now + POST_FIRE_HOLDOFF_MS;
     }
 
     pickMasteryTarget() {
@@ -343,13 +439,25 @@ class DojoMacro extends ModuleBase {
             const dz = block.z + 0.5 - pz;
             if (dx * dx + dz * dz > MASTERY_MAX_RANGE * MASTERY_MAX_RANGE) continue;
             if (this.firedBlock && this.firedBlock.x === block.x && this.firedBlock.y === block.y && this.firedBlock.z === block.z) continue;
+            const isRed = registryAt(block.x, block.y, block.z) === RED_WOOL;
             if (!best) {
                 best = block;
                 continue;
             }
-            const dBest = (best.x + 0.5 - px) * (best.x + 0.5 - px) + (best.z + 0.5 - pz) * (best.z + 0.5 - pz);
-            const dBlock = dx * dx + dz * dz;
-            if (block.expiry < best.expiry || (block.expiry === best.expiry && dBlock < dBest)) best = block;
+            const bestRed = registryAt(best.x, best.y, best.z) === RED_WOOL;
+            if (isRed !== bestRed) {
+                if (isRed) best = block;
+                continue;
+            }
+            if (block.expiry < best.expiry) {
+                best = block;
+                continue;
+            }
+            if (block.expiry === best.expiry) {
+                const bestD = (best.x + 0.5 - px) * (best.x + 0.5 - px) + (best.z + 0.5 - pz) * (best.z + 0.5 - pz);
+                const blockD = dx * dx + dz * dz;
+                if (blockD < bestD) best = block;
+            }
         }
         return best;
     }
@@ -373,7 +481,8 @@ class DojoMacro extends ModuleBase {
                     const bx = baseX + x;
                     const by = baseY + y;
                     const bz = baseZ + z;
-                    if (registryAt(bx, by, bz) !== YELLOW_WOOL) continue;
+                    const id = registryAt(bx, by, bz);
+                    if (id !== YELLOW_WOOL && id !== RED_WOOL) continue;
                     const duplicate = this.masteryBlocks.some((block) => block.x === bx && block.y === by && block.z === bz);
                     if (!duplicate) this.masteryBlocks.push({ x: bx, y: by, z: bz, expiry: now + 3500 });
                 }
@@ -387,32 +496,48 @@ class DojoMacro extends ModuleBase {
     }
 
     // ---- Test of Discipline ----
+    // Maps the platform ground, marks the edges, then WASD-paths (no camera aiming) to the
+    // closest safe zombie, and only rotates to face + strike it with the matching sword when
+    // in range.
     discipline() {
         const player = Player.getPlayer();
-        let best = null;
-        let bestDist = 7 * 7;
-        for (const zombie of this.zombies()) {
-            const dx = zombie.getX() - player.getX();
-            const dy = zombie.getY() + 1.2 - player.getEyePosition().y();
-            const dz = zombie.getZ() - player.getZ();
-            const dist = Math.hypot(dx, dy, dz);
-            if (dist > 6) continue;
-            const targetYaw = (Math.atan2(-dx, dz) * 180) / Math.PI;
-            const targetPitch = (Math.atan2(-dy, Math.hypot(dx, dz)) * 180) / Math.PI;
-            const yawDiff = Math.abs(this.normalizeAngle(targetYaw - player.getYaw()));
-            const pitchDiff = Math.abs(targetPitch - player.getPitch());
-            if (yawDiff >= 20 || pitchDiff >= 35) continue;
-            if (dist * dist >= bestDist) continue;
-            bestDist = dist * dist;
-            best = zombie;
-        }
-        if (!best) return;
+        this.refreshGroundMap();
+        const ground = this.lastGroundMap || { cells: this.groundMap().cells, edges: new Set(), center: null };
 
-        const sword = SWORD_BY_HELMET[headRegistry(best)];
-        if (!sword) return;
-        const slot = this.findSlotByRegistry(sword);
-        if (slot === -1) return;
-        if (Player.getHeldItemIndex() !== slot) setItemSlot(slot);
+        let best = null;
+        let bestDist = 12 * 12;
+        for (const zombie of this.zombies()) {
+            if (!SWORD_BY_HELMET[headRegistry(zombie)]) continue;
+            const cell = `${Math.floor(zombie.getX())},${Math.floor(zombie.getZ())}`;
+            if (!ground.cells.has(cell) || ground.edges.has(cell)) continue;
+            const dx = zombie.getX() - player.getX();
+            const dz = zombie.getZ() - player.getZ();
+            const d = dx * dx + dz * dz;
+            if (d < bestDist) {
+                bestDist = d;
+                best = zombie;
+            }
+        }
+
+        const playerCell = this.playerCell();
+        if (ground.edges.has(playerCell)) {
+            if (ground.center) this.moveToward(ground.center.x, ground.center.z);
+            else this.pressKeys('');
+            return;
+        }
+        if (!best) {
+            this.pressKeys('');
+            return;
+        }
+
+        if (bestDist > ATTACK_RANGE_SQ) {
+            this.moveToward(best.getX(), best.getZ());
+            return;
+        }
+
+        Rotations.lookAtVector({ x: best.getX(), y: best.getY() + 1.0, z: best.getZ() }, { precision: 5 });
+        const swordSlot = this.findSlotByRegistry(SWORD_BY_HELMET[headRegistry(best)]);
+        if (swordSlot >= 0 && Player.getHeldItemIndex() !== swordSlot) setItemSlot(swordSlot);
         if (this.disciplineAutoAttack && Date.now() - this.lastSwing >= 250) {
             Client.leftClick();
             this.lastSwing = Date.now();
@@ -441,12 +566,7 @@ class DojoMacro extends ModuleBase {
             this.pressKeys('');
             return;
         }
-        Rotations.lookAtVector({ x: target.x + 0.5, y: Player.getY() + 1.0, z: target.z + 0.5 }, { precision: 5 });
-        const dx = target.x + 0.5 - Player.getX();
-        const dz = target.z + 0.5 - Player.getZ();
-        const facing = this.directionKeys(dx, dz);
-        const keys = facing.forward ? 'w' : facing.backward ? 's' : '';
-        this.pressKeys(keys);
+        this.moveToward(target.x, target.z);
         if (target.y > Player.getY() + 0.2 && Player.getPlayer().onGround?.() && Date.now() >= this.jumpUntil) {
             Client.getMinecraft().options.keyJump.setDown(true);
             this.jumpUntil = Date.now() + 300;
@@ -470,7 +590,7 @@ class DojoMacro extends ModuleBase {
                     let solidCount = 0;
                     let holeY = null;
                     for (let y = py; y <= py + 3; y++) {
-                        if (registryAt(bx, y, bz) !== 'minecraft:air') {
+                        if (isSolid(bx, y, bz)) {
                             solidCount++;
                         } else if (y > py) {
                             holeY = y;
@@ -515,11 +635,7 @@ class DojoMacro extends ModuleBase {
             this.pressKeys('');
             return;
         }
-        Rotations.lookAtVector({ x: target.x + 0.5, y: Player.getY() + 1.0, z: target.z + 0.5 }, { precision: 5 });
-        const dx = target.x + 0.5 - Player.getX();
-        const dz = target.z + 0.5 - Player.getZ();
-        const keys = this.directionKeys(dx, dz);
-        this.pressKeys(keys.forward ? 'w' : keys.backward ? 's' : (keys.right ? 'd' : 'a'));
+        this.moveToward(target.x, target.z);
         if (target.y > Player.getY() + 0.2 && Player.getPlayer().onGround?.() && Date.now() >= this.jumpUntil) {
             Client.getMinecraft().options.keyJump.setDown(true);
             this.jumpUntil = Date.now() + 300;
@@ -551,37 +667,10 @@ class DojoMacro extends ModuleBase {
         const awayX = player.getX() - nearest.getX();
         const awayZ = player.getZ() - nearest.getZ();
         const length = Math.hypot(awayX, awayZ) || 1;
-        const yaw = (player.getYaw() * Math.PI) / 180;
-        const velX = -Math.sin(yaw);
-        const velZ = Math.cos(yaw);
-
-        const sideScore = (awayX * velZ - awayZ * velX) / length;
-        const forwardScore = (awayX * velX + awayZ * velZ) / length;
-        const norm = sideScore > 0.15 ? 'd' : sideScore < -0.15 ? 'a' : '';
-        const fwd = forwardScore > 0.15 ? 'w' : forwardScore < -0.15 ? 's' : '';
-        this.pressKeys(Math.abs(sideScore) >= Math.abs(forwardScore) && norm ? norm : fwd || (Math.random() > 0.5 ? 'a' : 'd'));
+        this.moveToward(player.getX() + (awayX / length) * 3, player.getZ() + (awayZ / length) * 3);
     }
 
     // ---- helpers ----
-    anglesFromPoint(x, y, z) {
-        const player = Player.getPlayer();
-        if (!player) return null;
-        const dx = x - player.getX();
-        const dy = y - player.getEyePosition().y();
-        const dz = z - player.getZ();
-        if (dx === 0 && dz === 0) return { yaw: Player.getYaw(), pitch: (Math.atan2(-dy, Math.hypot(dx, dz)) * 180) / Math.PI };
-        return { yaw: (Math.atan2(-dx, dz) * 180) / Math.PI, pitch: (Math.atan2(-dy, Math.hypot(dx, dz)) * 180) / Math.PI };
-    }
-
-    directionKeys(dx, dz) {
-        const yaw = (Player.getYaw() * Math.PI) / 180;
-        const velX = -Math.sin(yaw);
-        const velZ = Math.cos(yaw);
-        const forward = dx * velX + dz * velZ;
-        const side = dx * velZ - dz * velX;
-        return { forward: forward > 0.2, backward: forward < -0.2, right: side > 0.2, left: side < -0.2 };
-    }
-
     normalizeAngle(angle) {
         let normalized = angle % 360;
         if (normalized > 180) normalized -= 360;
