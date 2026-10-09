@@ -21,3 +21,15 @@ There is no package manifest, build step, or automated test runner. Do not attem
 You should run prettier formatting before completion.
 
 The user will provide feedback on the results.
+
+## Documentation / Markdown files
+
+Where the `.md` files live and how to treat them:
+
+- `README.md`, `changelog.md`, `AGENTS.md` (repo root) — public repo docs, dev-side only.
+- `modules/**/*.md` (e.g. `modules/farming/TODO.MD`) — dev notes, never client-facing.
+- `history.md`, `future_plans.md` — **PRIVATE notes, T8-local only, gitignored**. Never commit,
+  push, or reference them from any repo file. Update them during release work but leave them
+  uncommitted on T8 disk.
+- The released `V5-Mojmap.zip` must contain **ZERO `.md` files**. Always verify `md files inside: 0`
+  (excluding any `*.md` recursively during the zip build) before uploading to the release.
