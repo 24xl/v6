@@ -1,3 +1,26 @@
+
+/* FIRST: install the background-thread network-noise handler before any module can throw
+   (Noam/anti-RAT data downloads fail on boot and print full connect stack traces). */
+(() => {
+    try {
+        const JThread = Java.type('java.lang.Thread');
+        const THandler = Java.type('java.lang.Thread$UncaughtExceptionHandler');
+        JThread.setDefaultUncaughtExceptionHandler(
+            Java.extend(THandler, {
+                uncaughtException(thread, err) {
+                    const name = String(err?.getClass?.()?.getName?.() ?? '');
+                    const text = String(err ?? '');
+                    if (name.includes('Connect') || /connect\s*timeout|connection\s*timed\s*out/i.test(text)) return;
+                    err?.printStackTrace?.();
+                },
+            })
+        );
+        console.log('[QuietNetwork] handler active');
+    } catch (error) {
+        // best-effort: if the handler can't be installed, nothing changes
+    }
+})();
+
 /* MINING */
 import './mining/CommissionMacro';
 import './mining/ExcavatorMacro';
@@ -85,4 +108,3 @@ import './other/AutoFusionRepeat';
 import './other/RatMacro';
 import './other/PeltMacro';
 import './other/PeltQOL';
-import './other/QuietNetwork';
