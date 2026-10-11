@@ -15,11 +15,16 @@ const GUI_TIMEOUT = 10_000;
 const STUCK_RETRY_DELAY = 1_000;
 const REFRESH_MS = 60_000;
 const FAIL_RETRY_MS = 30_000;
-const BUY_TIERS = [1, 2, 3];
 const SELL_TIER = 5;
-const ROMAN = ['I', 'II', 'III', 'IV', 'V'];
-const bookId = (level) => `ENCHANTMENT_REJUVENATE_${level}`;
-const bookName = (level) => `Rejuvenate ${ROMAN[level - 1]}`;
+const MAX_CLAIMS = 8;
+const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+const BOOK_LIMIT = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x'];
+const BOOKS = [
+    { key: 'rejuvenate', idPrefix: 'ENCHANTMENT_REJUVENATE_', name: 'Rejuvenate', names: ['Rejuvenate'], buyTiers: [1, 2, 3], required: 10 },
+    { key: 'ultimate_wisdom', idPrefix: 'ENCHANTMENT_ULTIMATE_WISDOM_', name: 'Wisdom', names: ['Wisdom', 'Ultimate Wisdom'], buyTiers: [1, 2], required: 27 },
+];
+const bookId = (book, level) => `${book.idPrefix}${level}`;
+const bookName = (book, level) => `${book.name} ${ROMAN[level - 1]}`;
 const unitsFor = (input) => 2 ** (SELL_TIER - input);
 
 const clean = (value) =>
@@ -30,19 +35,34 @@ const clean = (value) =>
 const lore = (item) => (item?.getLore?.() ?? []).map((line) => ChatLib.removeFormatting(String(line)).trim());
 const formatCoins = (value) => {
     const unit = [
+        { minimum: 1e9, suffix: 'B' },
         { minimum: 1e6, suffix: 'M' },
         { minimum: 1e3, suffix: 'K' },
-    ].find(({ minimum }) => Math.abs(value) >= minimum);
+    ].find((entry) => Math.abs(value) >= entry.minimum);
     return unit ? `${(value / unit.minimum).toFixed(2)}${unit.suffix}` : Math.round(value).toLocaleString();
 };
 const bidPrice = (product) => Number(product?.quick_status?.sellPrice) || 0;
 const askPrice = (product) => Number(product?.quick_status?.buyPrice) || 0;
-const rejuvLevel = (item) => {
-    for (const line of lore(item)) {
-        const match = line.match(/^Rejuvenate\s+(I|II|III|IV|V|VI|VII|VIII|IX|X)$/i);
-        if (match) return ROMAN.indexOf(match[1].toUpperCase()) + 1;
+const bookFromText = (text) => {
+    const value = clean(text);
+    for (const book of BOOKS) {
+        for (const name of book.names) {
+            const prefix = clean(name);
+            if (!value.startsWith(`${prefix} `)) continue;
+            const rest = value.slice(prefix.length + 1).trim().split(/\s+/)[0];
+            const index = BOOK_LIMIT.indexOf(rest);
+            if (index !== -1) return { book, level: index + 1 };
+        }
     }
     return null;
+};
+const bookFromItem = (item) => {
+    if (!item) return null;
+    for (const line of lore(item)) {
+        const info = bookFromText(line);
+        if (info) return info;
+    }
+    return bookFromText(item.getName?.());
 };
 
 class BookFlipper extends ModuleBase {
@@ -50,8 +70,8 @@ class BookFlipper extends ModuleBase {
         super({
             name: 'Book Flipper',
             subcategory: 'Bazaar',
-            description: 'Buys Rejuvenate I/II/III, combines them to Rejuvenate V, then sells the V books on the Bazaar.',
-            tooltip: 'Requires Cookie Buff and the Auto Combine module. Empty your inventory first. Only Rejuvenate is traded.',
+            description: 'Cleans up, then buys Rejuvenate I/II/III and Wisdom I/II, combines to V, and sells the V books.',
+            tooltip: 'Requires Cookie Buff and the Auto Combine module. Empty your inventory first. Wisdom needs Enchanting 27.',
             isMacro: true,
         });
         this.bindToggleKey();
@@ -59,17 +79,19 @@ class BookFlipper extends ModuleBase {
         this.clickDelay = 350;
         this.addSlider('Click Delay (ms)', 50, 2_000, 350, (value) => (this.clickDelay = value), 'Delay between Bazaar clicks.');
         this.maxBuyOrders = 8;
-        this.addSlider('Order Limit', 1, 28, 8, (value) => (this.maxBuyOrders = Math.round(value)), 'Maximum number of active buy orders.');
+        this.addSlider('Order Limit', 1, 28, 8, (value) => (this.maxBuyOrders = Math.round(value)), 'Maximum active buy orders (all books).');
         this.budget = 10_000_000;
-        this.addSlider('Per-Order Budget (M)', 0.1, 100, 10, (value) => (this.budget = value * 1_000_000), 'Max coins per buy order (capped at 256 books).');
+        this.addSlider('Per-Order Budget (M)', 0.1, 100, 10, (value) => (this.budget = value * 1_000_000), 'Max coins per buy order (also capped by your purse).');
         this.taxPercent = 1.25;
-        this.addSlider('Bazaar Tax (%)', 0, 3, 1.25, (value) => (this.taxPercent = value), 'Bazaar sell tax applied to the Rejuvenate V sale.');
+        this.addSlider('Bazaar Tax (%)', 0, 3, 1.25, (value) => (this.taxPercent = value), 'Bazaar sell tax.');
         this.undercutPercent = 0.1;
-        this.addSlider('Undercut (%)', 0, 5, 0.1, (value) => (this.undercutPercent = value), 'How far below the lowest Rejuvenate V sell offer to list.');
+        this.addSlider('Undercut (%)', 0, 5, 0.1, (value) => (this.undercutPercent = value), 'How far below the lowest sell offer to list.');
         this.minProfit = 0;
-        this.addSlider('Min Profit per V', 0, 10_000_000, 0, (value) => (this.minProfit = value), 'Minimum coins profit per finished Rejuvenate V.');
+        this.addSlider('Min Profit per V', 0, 10_000_000, 0, (value) => (this.minProfit = value), 'Minimum coins profit per finished level V book.');
         this.skillGate = true;
-        this.addToggle('Enchanting Skill Gate', (value) => (this.skillGate = !!value), 'Skip if your Enchanting level is below the Rejuvenate requirement.', true);
+        this.addToggle('Enchanting Skill Gate', (value) => (this.skillGate = !!value), 'Skip enchants whose required Enchanting level is above yours.', true);
+        this.cleanOnEnable = true;
+        this.addToggle('Clean Orders On Enable', (value) => (this.cleanOnEnable = !!value), 'Cancel/claim/combine existing book orders before trading.', true);
         this.addButton('Refresh Prices', () => this.setAction(this.fetchPrices, 'Refreshing', 0, 25_000), 'Re-fetch Bazaar prices now.');
         this.addButton('Read Enchanting', () => this.setAction(this.readSkills, 'Reading Enchanting', 0, 15_000), 'Re-read your Enchanting level from /skills.');
 
@@ -79,15 +101,20 @@ class BookFlipper extends ModuleBase {
                 data: {
                     State: () => this.status,
                     Enchanting: () => (this.enchantingLevel == null ? '—' : `${this.enchantingLevel}`),
-                    'Buy Orders': () => `${this.activeTargets.length}/${this.maxBuyOrders}`,
+                    Purse: () => {
+                        const purse = this.readPurse();
+                        return purse == null ? '—' : formatCoins(purse);
+                    },
+                    Books: () => this.enabledBooks().map((book) => book.name).join(', ') || '—',
                 },
             },
             {
-                title: 'Rejuvenate',
+                title: 'Next',
                 data: {
-                    Ladder: () => (this.target && this.target.input ? `${this.target.units}x ${bookName(this.target.input)} -> V` : '—'),
-                    'Buy @': () => (this.target && this.target.orderPrice ? `${formatCoins(this.target.orderPrice)}` : '—'),
-                    'To Sell': () => `${this.countLevel(SELL_TIER)}x V`,
+                    Book: () => (this.target ? this.target.name : 'None'),
+                    Buy: () => (this.target && this.target.orderPrice ? `${formatCoins(this.target.orderPrice)}` : '—'),
+                    Orders: () => `${this.activeTargets.length}/${this.maxBuyOrders}`,
+                    'To Sell': () => this.enabledBooks().map((book) => `${book.name[0]}V x${this.countLevel(book, SELL_TIER)}`).join(' '),
                 },
             },
         ]);
@@ -121,6 +148,7 @@ class BookFlipper extends ModuleBase {
         this.startingInventory = this.inventorySnapshot(inventory.getItems());
         this.lastCheckedInventory = this.startingInventory;
         this.inventoryReady = true;
+        this.cleanupPhase = this.cleanOnEnable ? 'buys' : null;
         this.setAction(this.readSkills, 'Reading Enchanting', 0, 15_000);
     }
 
@@ -156,7 +184,10 @@ class BookFlipper extends ModuleBase {
         this.recovering = false;
         this.pendingEnable = false;
         this.combining = false;
+        this.afterCombine = null;
+        this.cleanupPhase = null;
         this.claimNoSpace = false;
+        this.claimedSlots = new Set();
         this.inventoryReady = false;
         this.startingInventory = new Map();
         this.lastCheckedInventory = new Map();
@@ -167,6 +198,21 @@ class BookFlipper extends ModuleBase {
         this.retryAction = null;
         this.retryAt = 0;
         this.requestToken = (this.requestToken || 0) + 1;
+    }
+
+    enabledBooks() {
+        return BOOKS.filter((book) => !this.skillGate || (this.enchantingLevel != null && this.enchantingLevel >= book.required));
+    }
+
+    readPurse() {
+        try {
+            for (const line of (Scoreboard.getLines() || [])) {
+                const text = ChatLib.removeFormatting(String(line));
+                const match = text.match(/(?:Purse|Piggy):\s*([\d,]+)/i);
+                if (match) return Number(match[1].replace(/,/g, ''));
+            }
+        } catch (error) {}
+        return null;
     }
 
     tick() {
@@ -306,7 +352,6 @@ class BookFlipper extends ModuleBase {
                 }
                 this.bazaarData = bazaar;
                 this.orderQueue = this.computeFlips(bazaar);
-                this.orderPricesChecked = false;
                 this.openOrders();
             })
             .catch((error) => {
@@ -320,44 +365,58 @@ class BookFlipper extends ModuleBase {
 
     computeFlips(bazaar) {
         const products = bazaar?.products || {};
-        const outProduct = products[bookId(SELL_TIER)];
-        const outAsk = askPrice(outProduct);
-        if (outAsk <= 0) return [];
-        if (this.skillGate && this.enchantingLevel != null && this.enchantingLevel < 10) return [];
-        const revenuePerV = outAsk * (1 - this.undercutPercent / 100) * (1 - this.taxPercent / 100);
+        const purse = this.readPurse();
         const candidates = [];
-        for (const input of BUY_TIERS) {
-            const inProduct = products[bookId(input)];
-            if (!inProduct) continue;
-            const inBid = bidPrice(inProduct);
-            if (inBid <= 0) continue;
-            const units = unitsFor(input);
-            const price = Math.ceil((inBid + 0.1) * 10) / 10;
-            const maxQuantity = Math.min(256, Math.floor(this.budget / price));
-            const quantity = Math.floor(maxQuantity / units) * units;
-            if (quantity < units) continue;
-            const outputCount = quantity / units;
-            const profitPerV = revenuePerV - price * units;
-            if (profitPerV < this.minProfit) continue;
-            candidates.push({
-                id: bookId(input),
-                name: bookName(input),
-                input,
-                units,
-                quantity,
-                outputCount,
-                orderPrice: price,
-                expectedOrderPrice: price,
-                profit: profitPerV * outputCount,
-                profitPerHour: profitPerV * ((Number(outProduct?.quick_status?.buyMovingWeek) || 0) / 168),
-            });
+        for (const book of this.enabledBooks()) {
+            const outProduct = products[bookId(book, SELL_TIER)];
+            const outAsk = askPrice(outProduct);
+            if (outAsk <= 0) continue;
+            const revenuePerV = outAsk * (1 - this.undercutPercent / 100) * (1 - this.taxPercent / 100);
+            for (const input of book.buyTiers) {
+                const inProduct = products[bookId(book, input)];
+                if (!inProduct) continue;
+                const price = Math.ceil((askPrice(inProduct) + 0.1) * 10) / 10;
+                if (price <= 0) continue;
+                const units = unitsFor(input);
+                const profitPerV = revenuePerV - price * units;
+                if (profitPerV < this.minProfit) continue;
+                candidates.push({
+                    book,
+                    id: bookId(book, input),
+                    name: bookName(book, input),
+                    input,
+                    units,
+                    orderPrice: price,
+                    expectedOrderPrice: price,
+                    profitPerV,
+                    profitPerHour: profitPerV * ((Number(outProduct?.quick_status?.buyMovingWeek) || 0) / 168),
+                });
+            }
         }
-        return candidates.sort((a, b) => b.profitPerHour - a.profitPerHour).slice(0, Math.max(0, this.maxBuyOrders));
+        candidates.sort((a, b) => b.profitPerHour - a.profitPerHour);
+        let available = purse != null ? Math.floor(purse * 0.98) : Number.MAX_SAFE_INTEGER;
+        const chosen = [];
+        for (const candidate of candidates) {
+            if (chosen.length >= this.maxBuyOrders) break;
+            if (available <= 0) break;
+            const funds = Math.min(this.budget, available);
+            const maxQuantity = Math.floor(funds / candidate.orderPrice);
+            const quantity = Math.floor(maxQuantity / candidate.units) * candidate.units;
+            if (quantity < candidate.units) continue;
+            candidate.quantity = quantity;
+            candidate.outputCount = quantity / candidate.units;
+            candidate.profit = candidate.profitPerV * candidate.outputCount;
+            chosen.push(candidate);
+            available -= quantity * candidate.orderPrice;
+        }
+        return chosen;
     }
 
     openOrders() {
         this.orderPricesChecked = false;
         this.sellCheckQueue = [];
+        this.claimNoSpace = false;
+        this.claimedSlots = new Set();
         this.commandAndWait('managebazaarorders', this.inspectOrder, 'Opening Bazaar orders');
     }
 
@@ -365,13 +424,17 @@ class BookFlipper extends ModuleBase {
         if (!clean(getGuiName()).includes('bazaar orders')) return;
         this.scanOpenOrders();
         this.adoptOpenOrders();
+        this.reconcileOrders();
 
         const claimSlot = this.findClaimSlot();
         if (claimSlot !== -1) {
+            this.claimedSlots.add(claimSlot);
             clickSlot(claimSlot);
-            this.setAction(this.inspectOrder, 'Claiming books', Math.max(250, this.clickDelay), 0);
+            this.setAction(this.inspectOrder, 'Claiming books', Math.max(250, this.clickDelay), GUI_TIMEOUT);
             return;
         }
+
+        if (this.cleanupPhase) return this.cleanupStep();
 
         if (!this.orderPricesChecked) {
             this.orderPricesChecked = true;
@@ -382,17 +445,63 @@ class BookFlipper extends ModuleBase {
         this.finishCycle();
     }
 
+    cleanupStep() {
+        if (this.cleanupPhase === 'buys') {
+            const target = this.activeTargets[0];
+            if (target) {
+                this.target = target;
+                const slot = this.findOrderSlot(target);
+                if (slot === -1) return this.setAction(this.inspectOrder, 'Re-checking orders', this.clickDelay, GUI_TIMEOUT);
+                return this.clickAndWait(slot, this.cleanupCancel, 'Opening order');
+            }
+            this.cleanupPhase = 'combine';
+            return this.combineBooks(() => {
+                this.cleanupPhase = 'sells';
+                this.openOrders();
+            });
+        }
+        if (this.cleanupPhase === 'sells') {
+            const sell = this.openSellOrders.find((order) => order.book);
+            if (sell) {
+                this.target = sell;
+                const slot = this.findOrderSlot(sell, new Set(), 'sell ');
+                if (slot === -1) return this.setAction(this.inspectOrder, 'Re-checking offers', this.clickDelay, GUI_TIMEOUT);
+                return this.clickAndWait(slot, this.cleanupCancel, 'Opening offer');
+            }
+            this.cleanupPhase = null;
+            this.message('&aCleanup complete; resuming.');
+            return this.finishCycle();
+        }
+        return this.finishCycle();
+    }
+
+    cleanupCancel() {
+        const gui = clean(getGuiName());
+        if (gui.includes('bazaar orders')) return;
+        if (!gui.includes('order options')) return;
+        const slot = this.findSlot('Cancel Order', true);
+        if (slot === -1) return;
+        this.clickAndWait(slot, this.inspectOrder, 'Cancelling order', 500);
+    }
+
+    reconcileOrders() {
+        const held = new Set(this.activeTargets.map((target) => `${target.book.key}:${target.input}`));
+        this.orderQueue = this.orderQueue.filter((candidate) => !held.has(`${candidate.book.key}:${candidate.input}`));
+        this.orderQueue = this.orderQueue.slice(0, Math.max(0, this.maxBuyOrders - this.activeTargets.length));
+    }
+
     adoptOpenOrders() {
         const adopted = [];
         for (const order of this.openBuyOrders) {
-            const input = this.rejuvInputOf(order);
-            if (input == null) continue;
-            const units = unitsFor(input);
+            if (!order.book || order.level == null || order.level >= SELL_TIER) continue;
+            if (!order.book.buyTiers.includes(order.level)) continue;
+            const units = unitsFor(order.level);
             const amount = Number.isFinite(order.amount) && order.amount > 0 ? order.amount : units;
             adopted.push({
-                id: bookId(input),
-                name: bookName(input),
-                input,
+                book: order.book,
+                id: bookId(order.book, order.level),
+                name: bookName(order.book, order.level),
+                input: order.level,
                 units,
                 quantity: amount,
                 outputCount: Math.floor(amount / units),
@@ -403,13 +512,6 @@ class BookFlipper extends ModuleBase {
         this.activeTargets = adopted;
     }
 
-    rejuvInputOf(order) {
-        if (order.level != null && order.level < SELL_TIER) return order.level;
-        const name = clean(order.name);
-        for (const tier of BUY_TIERS) if (name === clean(bookName(tier))) return tier;
-        return null;
-    }
-
     checkNextOrder() {
         this.target = this.orderCheckQueue.shift() || null;
         if (!this.target) return this.startSellChecks();
@@ -418,7 +520,7 @@ class BookFlipper extends ModuleBase {
 
     openOrderCheck() {
         if (!clean(getGuiName()).includes('bazaar')) return;
-        const slot = this.findBookSlot(this.target.input);
+        const slot = this.findBookSlot(this.target.book, this.target.input);
         if (slot === -1) return this.commandAndWait('managebazaarorders', this.openOutbidOrder, 'Reopening orders');
         this.clickAndWait(slot, this.checkProductOrder, 'Opening product');
     }
@@ -432,7 +534,7 @@ class BookFlipper extends ModuleBase {
         this.target.expectedOrderPrice = Math.ceil((topPrice + 0.1) * 10) / 10;
         this.cancelQuantity = 0;
         this.orderMissingSince = 0;
-        this.message(`&e${this.target.name} was outbid at ${topPrice.toLocaleString()} coins; relisting.`);
+        this.message(`&e${this.target.name} was outbid; relisting.`);
         this.commandAndWait('managebazaarorders', this.openOutbidOrder, 'Opening outbid order');
     }
 
@@ -478,9 +580,9 @@ class BookFlipper extends ModuleBase {
         if (this.cancelQuantity <= 0) return this.checkNextOrder();
         const price = target.expectedOrderPrice;
         const units = target.units;
-        const quantity = Math.floor(Math.min(256, this.cancelQuantity, Math.floor(this.budget / price)) / units) * units;
+        const quantity = Math.floor(Math.min(this.cancelQuantity, Math.floor(this.budget / price)) / units) * units;
         this.cancelQuantity = 0;
-        if (quantity >= units && this.flipProfit(target.input, price) >= this.minProfit) {
+        if (quantity >= units && this.flipProfit(target.book, target.input, price) >= this.minProfit) {
             target.quantity = quantity;
             target.outputCount = quantity / units;
             target.orderPrice = price;
@@ -504,7 +606,7 @@ class BookFlipper extends ModuleBase {
 
     openProduct() {
         if (!clean(getGuiName()).includes('bazaar')) return;
-        const slot = this.findBookSlot(this.target.input);
+        const slot = this.findBookSlot(this.target.book, this.target.input);
         if (slot === -1) return;
         this.clickAndWait(slot, this.chooseBuyOrder, 'Selecting buy order');
     }
@@ -540,12 +642,10 @@ class BookFlipper extends ModuleBase {
     }
 
     choosePrice() {
-        const slot = this.findSlot('Top Order +0.1', true);
+        const slot = this.findBestOfferSlot();
         if (slot === -1) return;
-        const item = Player.getContainer()?.getStackInSlot(slot);
-        if (lore(item).some((line) => /can't afford/i.test(line))) return this.retryPrices(`Can't afford the ${this.target.name} order.`);
-        const price = this.unitPrice(item);
-        if (!this.isSafePrice(price)) return this.retryPrices('The +0.1 price moved too far from the estimate or is no longer profitable.');
+        const price = this.unitPrice(Player.getContainer()?.getStackInSlot(slot));
+        if (!this.isSafePrice(price)) return this.retryPrices('The best-offer price moved too far or is no longer profitable.');
         this.target.orderPrice = price;
         this.clickAndWait(slot, this.confirmOrder, 'Confirming order');
     }
@@ -573,23 +673,21 @@ class BookFlipper extends ModuleBase {
     }
 
     startSellChecks() {
-        this.sellCheckQueue = this.openSellOrders.filter(
-            (order) => (order.level === SELL_TIER || clean(order.name) === clean(bookName(SELL_TIER))) && Number.isFinite(order.price) && order.price > 0
-        );
+        this.sellCheckQueue = this.openSellOrders.filter((order) => order.book && order.level === SELL_TIER && Number.isFinite(order.price) && order.price > 0);
         this.checkNextSellOrder();
     }
 
     checkNextSellOrder() {
         this.target = this.sellCheckQueue.shift() || null;
         if (!this.target) return this.finishCycle();
-        this.commandAndWait(`bz ${bookName(SELL_TIER)}`, this.openSellCheck, 'Checking V offer');
+        this.commandAndWait(`bz ${this.target.name}`, this.openSellCheck, 'Checking sell offer');
     }
 
     openSellCheck() {
         if (!clean(getGuiName()).includes('bazaar')) return;
-        const slot = this.findBookSlot(SELL_TIER);
+        const slot = this.findBookSlot(this.target.book, SELL_TIER);
         if (slot === -1) return this.commandAndWait('managebazaarorders', this.openSellCancel, 'Reopening orders');
-        this.clickAndWait(slot, this.checkSellProduct, 'Opening Rejuvenate V');
+        this.clickAndWait(slot, this.checkSellProduct, 'Opening book');
     }
 
     checkSellProduct() {
@@ -598,7 +696,7 @@ class BookFlipper extends ModuleBase {
         const lowest = this.topSellOfferPrice(Player.getContainer()?.getStackInSlot(slot));
         if (!Number.isFinite(lowest)) return this.checkNextSellOrder();
         if (this.target.price <= lowest + 0.001) return this.checkNextSellOrder();
-        this.message(`&eRejuvenate V offer undercut at ${lowest.toLocaleString()} coins; relisting.`);
+        this.message(`&e${this.target.name} offer undercut; relisting.`);
         this.commandAndWait('managebazaarorders', this.openSellCancel, 'Opening offer');
     }
 
@@ -628,16 +726,17 @@ class BookFlipper extends ModuleBase {
 
     finishCycle() {
         if (this.orderQueue.length) return this.placeNextOrder();
-        if (this.hasCombinableBooks()) return this.combineBooks();
-        if (this.countLevel(SELL_TIER) > 0) return this.sellBooks();
+        if (this.hasCombinableBooks()) return this.combineBooks(this.sellBooks);
+        if (this.hasSellables()) return this.sellBooks();
         this.setAction(this.fetchPrices, 'Waiting for refresh', REFRESH_MS, 0);
     }
 
-    combineBooks() {
+    combineBooks(after) {
+        this.afterCombine = after || this.sellBooks;
         const combine = getModule('Auto Combine');
-        if (!combine) return this.sellBooks();
+        if (!combine || !this.hasCombinableBooks()) return this.afterCombine.call(this);
         this.combining = true;
-        this.message('&eCombining books to Rejuvenate V...');
+        this.message('&eCombining books to level V...');
         if (!combine.enabled) combine.toggle(true);
         this.setAction(this.waitCombine, 'Combining books', 1_000, 0);
     }
@@ -649,23 +748,35 @@ class BookFlipper extends ModuleBase {
             return;
         }
         this.combining = false;
-        this.sellBooks();
+        const next = this.afterCombine || this.sellBooks;
+        this.afterCombine = null;
+        next.call(this);
+    }
+
+    combineForSpace() {
+        this.message('&eInventory full; combining to free space.');
+        this.combineBooks(this.cleanupPhase ? this.openOrders : this.sellBooks);
+    }
+
+    hasSellables() {
+        return this.enabledBooks().some((book) => this.countLevel(book, SELL_TIER) > 0);
     }
 
     sellBooks() {
-        const quantity = Math.min(this.countLevel(SELL_TIER), 256);
-        if (quantity <= 0) return this.setAction(this.fetchPrices, 'Waiting for refresh', REFRESH_MS, 0);
-        this.target = { id: bookId(SELL_TIER), name: bookName(SELL_TIER), input: SELL_TIER, level: SELL_TIER, units: 1, quantity, outputCount: quantity };
+        const book = this.enabledBooks().find((candidate) => this.countLevel(candidate, SELL_TIER) > 0);
+        if (!book) return this.setAction(this.fetchPrices, 'Waiting for refresh', REFRESH_MS, 0);
+        const quantity = Math.min(this.countLevel(book, SELL_TIER), 256);
+        this.target = { book, id: bookId(book, SELL_TIER), name: bookName(book, SELL_TIER), input: SELL_TIER, level: SELL_TIER, units: 1, quantity, outputCount: quantity };
         this.placingSell = true;
-        this.message(`Selling &b${quantity}x Rejuvenate V&f on the Bazaar.`);
-        this.commandAndWait(`bz ${bookName(SELL_TIER)}`, this.openSellProduct, 'Opening Rejuvenate V');
+        this.message(`Selling &b${quantity}x ${this.target.name}&f on the Bazaar.`);
+        this.commandAndWait(`bz ${this.target.name}`, this.openSellProduct, 'Opening sell item');
     }
 
     openSellProduct() {
         if (!clean(getGuiName()).includes('bazaar')) return;
-        const slot = this.findBookSlot(SELL_TIER);
+        const slot = this.findBookSlot(this.target.book, SELL_TIER);
         if (slot === -1) return;
-        this.clickAndWait(slot, this.chooseSellOffer, 'Selecting Rejuvenate V');
+        this.clickAndWait(slot, this.chooseSellOffer, 'Selecting book');
     }
 
     chooseSellOffer() {
@@ -699,7 +810,7 @@ class BookFlipper extends ModuleBase {
     }
 
     chooseSellPrice() {
-        const slot = this.findSlot('Top Offer -0.1', true);
+        const slot = this.findBestOfferSlot();
         if (slot === -1) return;
         const price = this.unitPrice(Player.getContainer()?.getStackInSlot(slot));
         if (Number.isFinite(price)) this.target.orderPrice = price;
@@ -733,7 +844,7 @@ class BookFlipper extends ModuleBase {
         if (/you don't have the space required to claim that/i.test(message)) {
             if (!this.claimNoSpace) {
                 this.claimNoSpace = true;
-                if (this.enabled) this.message('&eInventory full; cannot claim more books.');
+                if (this.enabled) this.setAction(this.combineForSpace, 'Inventory full; combining', 500, 0);
             }
             return;
         }
@@ -783,10 +894,12 @@ class BookFlipper extends ModuleBase {
                     ?.match(/[\d,]+/)?.[0]
                     ?.replace(/,/g, '')
             );
+            const info = bookFromText(match[2]) || bookFromItem(stack);
             const order = {
                 id: this.skyblockItemId(stack),
                 name: ChatLib.removeFormatting(String(stack.getName())).trim().replace(/^(BUY|SELL)\s+/i, ''),
-                level: rejuvLevel(stack),
+                book: info ? info.book : null,
+                level: info ? info.level : null,
                 amount,
                 price: this.unitPrice(stack),
             };
@@ -801,9 +914,10 @@ class BookFlipper extends ModuleBase {
     findClaimSlot() {
         const items = Player.getContainer()?.getItems() || [];
         for (let slot = 0; slot < Math.max(0, items.length - 36); slot++) {
+            if (this.claimedSlots.has(slot)) continue;
             const stack = items[slot];
             if (!clean(stack?.getName?.()).startsWith('buy ')) continue;
-            if (rejuvLevel(stack) == null && !clean(stack?.getName?.()).includes('rejuvenate')) continue;
+            if (!bookFromItem(stack)) continue;
             if (lore(stack).some((line) => /^you have [\d,]+ items? to claim!?$/i.test(line))) return slot;
         }
         return -1;
@@ -821,14 +935,30 @@ class BookFlipper extends ModuleBase {
         return -1;
     }
 
-    findBookSlot(level) {
+    findBookSlot(book, level) {
         const items = Player.getContainer()?.getItems() || [];
-        const target = clean(bookName(level));
+        const target = clean(bookName(book, level));
         for (let slot = 0; slot < items.length; slot++) {
             const item = items[slot];
             if (!item) continue;
-            if (rejuvLevel(item) === level) return slot;
+            const info = bookFromItem(item);
+            if (info && info.book.key === book.key && info.level === level) return slot;
             if (clean(item.getName?.()) === target) return slot;
+        }
+        return -1;
+    }
+
+    findBestOfferSlot() {
+        const items = Player.getContainer()?.getItems() || [];
+        for (let slot = 0; slot < items.length; slot++) {
+            const item = items[slot];
+            if (!item) continue;
+            let registry = '';
+            try {
+                registry = clean(item.getType?.()?.getRegistryName?.() ?? '');
+            } catch (error) {}
+            const text = clean([item.getName?.(), ...lore(item)].join(' '));
+            if (registry.includes('gold_nugget') || /best offer|buy now|sell now/.test(text)) return slot;
         }
         return -1;
     }
@@ -843,7 +973,8 @@ class BookFlipper extends ModuleBase {
             const name = clean(stack?.getName?.());
             if (!name.startsWith(prefix)) continue;
             const stripped = name.slice(prefix.length);
-            const matches = stripped === targetName || (target.level != null && rejuvLevel(stack) === target.level);
+            const info = bookFromText(stripped) || bookFromItem(stack);
+            const matches = stripped === targetName || (info && target.book && info.book.key === target.book.key && (target.level == null || info.level === target.level));
             if (!matches) continue;
             if (fallback === -1) fallback = slot;
             const price = this.unitPrice(stack);
@@ -899,36 +1030,46 @@ class BookFlipper extends ModuleBase {
         return snapshot;
     }
 
-    countLevel(level) {
+    countLevel(book, level) {
         let total = 0;
         for (const item of Player.getInventory()?.getItems() || []) {
-            if (rejuvLevel(item) === level) total += Number(item.getStackSize() || 0);
+            const info = bookFromItem(item);
+            if (info && info.book.key === book.key && info.level === level) total += Number(item.getStackSize() || 0);
         }
         return total;
     }
 
     hasCombinableBooks() {
-        for (let level = 1; level <= 4; level++) if (this.countLevel(level) >= 2) return true;
+        for (const book of BOOKS) {
+            for (let level = 1; level <= 4; level++) {
+                if (this.countLevel(book, level) >= 2) return true;
+            }
+        }
         return false;
     }
 
-    flipProfit(input, price) {
-        const outProduct = this.bazaarData?.products?.[bookId(SELL_TIER)];
+    flipProfit(book, input, price) {
+        const outProduct = this.bazaarData?.products?.[bookId(book, SELL_TIER)];
         const revenuePerV = askPrice(outProduct) * (1 - this.undercutPercent / 100) * (1 - this.taxPercent / 100);
         return revenuePerV - price * unitsFor(input);
     }
 
     isSafePrice(price) {
         const expected = Number(this.target.expectedOrderPrice);
-        const slack = Math.max(1, expected * 0.05);
-        return Number.isFinite(price) && price > 0 && price <= expected + slack && this.flipProfit(this.target.input, price) >= this.minProfit;
+        return (
+            Number.isFinite(price) &&
+            price > 0 &&
+            Number.isFinite(expected) &&
+            price <= expected * 1.1 + 1 &&
+            this.flipProfit(this.target.book, this.target.input, price) >= this.minProfit
+        );
     }
 
     removeTarget(target) {
-        const name = clean(target.name);
-        this.activeTargets = this.activeTargets.filter((entry) => clean(entry.name) !== name);
-        this.orderCheckQueue = this.orderCheckQueue.filter((entry) => clean(entry.name) !== name);
-        this.orderQueue = this.orderQueue.filter((entry) => clean(entry.name) !== name);
+        const key = `${target.book.key}:${target.input}`;
+        this.activeTargets = this.activeTargets.filter((entry) => `${entry.book.key}:${entry.input}` !== key);
+        this.orderCheckQueue = this.orderCheckQueue.filter((entry) => `${entry.book.key}:${entry.input}` !== key);
+        this.orderQueue = this.orderQueue.filter((entry) => `${entry.book.key}:${entry.input}` !== key);
     }
 
     retryPrices(message) {
@@ -937,15 +1078,19 @@ class BookFlipper extends ModuleBase {
     }
 
     restart(message) {
-        const startingInventory = this.startingInventory;
-        const lastCheckedInventory = this.lastCheckedInventory;
+        const snapshot = {
+            bazaarData: this.bazaarData,
+            enchantingLevel: this.enchantingLevel,
+            startingInventory: this.startingInventory,
+            lastCheckedInventory: this.lastCheckedInventory,
+            cleanupPhase: this.cleanupPhase,
+        };
         this.message(`&e${message} Restarting...`);
         closeInventory();
         this.reset();
-        this.startingInventory = startingInventory;
-        this.lastCheckedInventory = lastCheckedInventory;
+        Object.assign(this, snapshot);
         this.inventoryReady = true;
-        this.setAction(this.readSkills, 'Reading Enchanting', 500, 15_000);
+        this.setAction(this.fetchPrices, 'Restarting', 500, 25_000);
     }
 
     fail(message) {
@@ -954,7 +1099,8 @@ class BookFlipper extends ModuleBase {
     }
 
     report() {
-        this.message(`&bBook Flipper&f: ${this.status} | Enchanting ${this.enchantingLevel ?? '?'} | buy orders ${this.activeTargets.length} | V held ${this.countLevel(SELL_TIER)}`);
+        this.message(`&bBook Flipper&f: ${this.status} | Enchanting ${this.enchantingLevel ?? '?'}`);
+        this.message(`  Buy orders: ${this.activeTargets.length}/${this.maxBuyOrders} | Books: ${this.enabledBooks().map((book) => book.name).join(', ')}`);
         for (const target of this.activeTargets) {
             this.message(`  &7${target.name} @ ${formatCoins(target.orderPrice)} (${target.quantity}x)`);
         }
