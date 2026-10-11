@@ -214,6 +214,7 @@ class BazaarNpcMacro extends ModuleBase {
         this.orderMissingSince = 0;
         this.cleanupMode = false;
         this.inventoryReady = false;
+        this.claimNoSpace = false;
         this.requestToken = (this.requestToken || 0) + 1;
     }
 
@@ -598,7 +599,7 @@ class BazaarNpcMacro extends ModuleBase {
         this.activeTargets = openTargets;
         if (completed) {
             const hasNewItems = this.hasInventoryIncrease();
-            if (this.inventoryFull()) {
+            if (this.noRoomToClaim()) {
                 if (hasNewItems) return this.setAction(this.openTrades, 'Inventory full', 500);
                 return this.fail('Inventory is full, but none of it was added by this macro.');
             }
@@ -624,7 +625,7 @@ class BazaarNpcMacro extends ModuleBase {
         }
 
         const hasNewItems = this.hasInventoryIncrease();
-        if (this.inventoryFull()) {
+        if (this.noRoomToClaim()) {
             if (hasNewItems) return this.setAction(this.openTrades, 'Inventory full', 500);
             return this.fail('Inventory is full, but none of it was added by this macro.');
         }
@@ -648,7 +649,7 @@ class BazaarNpcMacro extends ModuleBase {
         }
 
         const hasNewItems = this.hasInventoryIncrease();
-        const inventoryFull = this.inventoryFull();
+        const inventoryFull = this.noRoomToClaim();
         if (inventoryFull && hasNewItems) return this.setAction(this.openTrades, 'Inventory full', 500);
 
         const claimSlot = buySlots.find((slot) => lore(items[slot]).some((line) => /^you have [\d,]+ items? to claim!$/i.test(line)));
@@ -716,7 +717,7 @@ class BazaarNpcMacro extends ModuleBase {
             return this.finishOrderCancellation();
         }
         this.orderMissingSince = 0;
-        if (this.inventoryFull()) {
+        if (this.noRoomToClaim()) {
             if (this.hasInventoryIncrease()) return this.setAction(this.openTrades, 'Inventory full', 500);
             return this.fail('Inventory is full, but none of it was added by this macro.');
         }
@@ -812,11 +813,22 @@ class BazaarNpcMacro extends ModuleBase {
 
         this.lastCheckedInventory = this.inventorySnapshot();
         const nextAction = this.cancelQuantity > 0 ? this.finishOrderCancellation : this.orderQueue.length ? this.placeNextOrder : this.openOrders;
+        this.claimNoSpace = false;
         this.setAction(nextAction, 'Resuming Bazaar', 500, 0);
     }
 
     onChat(event) {
         const message = event?.message?.getUnformattedText?.() ?? event?.message?.getString?.() ?? '';
+        if (/you don't have the space required to claim that/i.test(message)) {
+            if (!this.claimNoSpace) {
+                this.claimNoSpace = true;
+                if (this.enabled) {
+                    this.message('&eInventory full; selling to NPC...');
+                    this.setAction(this.openTrades, 'Inventory full', 500, 0);
+                }
+            }
+            return;
+        }
         if (/^\[Bazaar\] You reached your maximum of [\d,]+ Bazaar orders!$/.test(message)) {
             this.orderLimitReached = true;
             this.orderQueue = [];
@@ -945,6 +957,10 @@ class BazaarNpcMacro extends ModuleBase {
     inventoryFull() {
         const items = Player.getInventory()?.getItems() || [];
         return items.length >= 36 && items.slice(0, 36).every((item) => item != null);
+    }
+
+    noRoomToClaim() {
+        return this.inventoryFull() || this.claimNoSpace;
     }
 
     findNewSellSlot(items) {
