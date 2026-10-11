@@ -5,6 +5,7 @@ import { ModuleBase } from '../../utils/ModuleBase';
 import { setSignLine } from '../../utils/Sign';
 import { v5Command } from '../../utils/V5Commands';
 import { clickSlot, closeInventory, getGuiName } from '../../utils/player/Inventory';
+import { Recovery } from '../../utils/AutoRecovery';
 
 // This entire macro is AI generated, good luck!
 
@@ -132,6 +133,23 @@ class BazaarNpcMacro extends ModuleBase {
         this.cleanupOnEnable = false;
         this.cleanupInventory = null;
         this.reset();
+        this.recovering = false;
+        this.pendingEnable = { cleanupMode, cleanupInventory };
+        Recovery.setActive(true);
+        this.message(cleanupMode ? '&aCleanup started' : '&aEnabled');
+        if (!Recovery.isReady()) {
+            this.status = 'Recovering';
+            this.message('&eNot on your island yet; recovering before starting...');
+            return;
+        }
+        this.finishEnable();
+    }
+
+    finishEnable() {
+        const pending = this.pendingEnable;
+        this.pendingEnable = null;
+        const cleanupMode = pending ? pending.cleanupMode : this.cleanupMode;
+        const cleanupInventory = pending ? pending.cleanupInventory : null;
         const inventory = Player.getInventory();
         if (!inventory) return this.fail('Could not snapshot your inventory.');
         if (
@@ -146,11 +164,11 @@ class BazaarNpcMacro extends ModuleBase {
         this.startingInventory = cleanupMode && cleanupInventory ? cleanupInventory : this.inventorySnapshot(inventory.getItems());
         this.lastCheckedInventory = this.startingInventory;
         this.inventoryReady = true;
-        this.message(cleanupMode ? '&aCleanup started' : '&aEnabled');
         this.openOrders();
     }
 
     onDisable() {
+        Recovery.setActive(false);
         const cleanupFinished = this.cleanupFinished;
         if (!cleanupFinished && this.inventoryReady) this.cleanupInventory = this.startingInventory;
         else if (cleanupFinished) this.cleanupInventory = null;
@@ -221,6 +239,22 @@ class BazaarNpcMacro extends ModuleBase {
     }
 
     tick() {
+        if (!Recovery.isReady()) {
+            if (!this.recovering) {
+                this.recovering = true;
+                this.status = 'Recovering';
+                this.action = null;
+                this.retryAction = null;
+                closeInventory();
+            }
+            return;
+        }
+        if (this.recovering) {
+            this.recovering = false;
+            if (this.pendingEnable) this.finishEnable();
+            else this.restart('Back on your island.');
+            return;
+        }
         const now = Date.now();
         if (this.deadline && now >= this.deadline) return this.restart(`Timed out while ${this.status.toLowerCase()}.`);
         if (this.retryAction && now >= this.retryAt) {
