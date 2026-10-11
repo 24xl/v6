@@ -1,13 +1,23 @@
 import requestV2 from '../../utils/Request';
-import { chat } from '../../utils/Chat';
 import { ModuleBase } from '../../utils/ModuleBase';
 import { v5Command } from '../../utils/V5Commands';
 import { closeInventory, getGuiName } from '../../utils/player/Inventory';
 import { enchantKeyFromId, readEnchantingFromContainer, requiredEnchanting } from '../../utils/Skills';
 
 const BAZAAR_URL = 'https://api.hypixel.net/v2/skyblock/bazaar';
+const COMMAND_CAPACITY = 10;
+const COMMAND_RESTORE_TIME = 1_050;
+const REFRESH_MS = 60_000;
+const FAIL_RETRY_MS = 30_000;
+const RETRY_MS = 4_000;
 const MAX_ORDER_QTY = 256;
 const DEFAULT_BOOKS = ['rejuvenate'];
+
+const clean = (value) =>
+    ChatLib.removeFormatting(String(value ?? ''))
+        .trim()
+        .replace(/^[^a-z0-9]+/i, '')
+        .toLowerCase();
 
 const formatCoins = (value) => {
     const n = Number(value) || 0;
@@ -30,38 +40,47 @@ class BookFlipper extends ModuleBase {
             name: 'Book Flipper',
             subcategory: 'Bazaar',
             description: 'Finds profitable enchant-book ladders: buy the cheapest active input tier(s), combine to the top tier, sell it.',
-            tooltip: 'Planner (read-only). Buys via buy orders, combines fills, and sells the top tier.',
+            tooltip: 'Planner (read-only for now). Reads your Enchanting level, then lists the best book flips.',
             isMacro: true,
         });
         this.bindToggleKey();
 
-        this.taxPercent = 1.25;
-        this.minInputFlow = 5;
-        this.minOutputFlow = 5;
-        this.minProfit = 0;
-        this.undercutPercent = 0.1;
-        this.capturePercent = 25;
+        this.clickDelay = 350;
+        this.addSlider('Click Delay (ms)', 50, 2_000, 350, (value) => (this.clickDelay = value), 'Delay between Bazaar clicks.');
         this.maxBooks = 3;
-        this.budget = 10_000_000;
-        this.skillGate = true;
-        this.enchantingLevel = null;
-
-        this.flips = [];
-        this.status = 'Idle';
-        this.lastRefresh = 0;
-        this.refreshInterval = 60_000;
-        this.state = 'IDLE';
-
-        this.addSlider('Per-Order Budget (M)', 0.1, 100, 10, (millions) => (this.budget = millions * 1_000_000), 'Max coins per buy order (also capped at 256 books).');
         this.addSlider('Max Books', 1, 3, 3, (value) => (this.maxBooks = Math.round(value)), 'How many enchant books to run at once.');
+        this.budget = 10_000_000;
+        this.addSlider('Per-Order Budget (M)', 0.1, 100, 10, (value) => (this.budget = value * 1_000_000), 'Max coins per buy order (also capped at 256 books).');
+        this.taxPercent = 1.25;
         this.addSlider('Bazaar Tax (%)', 0, 3, 1.25, (value) => (this.taxPercent = value), 'Bazaar sell tax applied to the sell value.');
+        this.minInputFlow = 5;
         this.addSlider('Min Input Flow (/hr)', 0, 500, 5, (value) => (this.minInputFlow = value), 'Only buy input tiers that actually sell this often.');
-        this.addSlider('Min Output Flow (/hr)', 0, 500, 5, (value) => (this.minOutputFlow = value), 'Only target top tiers that actually get bought this often.');
+        this.minOutputFlow = 5;
+        this.addSlider('Min Output Flow (/hr)', 0, 500, 5, (value) => (this.minOutputFlow = value), 'Only target top tiers that get bought this often.');
+        this.minProfit = 0;
         this.addSlider('Min Profit', 0, 10_000_000, 0, (value) => (this.minProfit = value), 'Minimum coins profit per finished book.');
+        this.undercutPercent = 0.1;
         this.addSlider('Undercut (%)', 0, 5, 0.1, (value) => (this.undercutPercent = value), 'How far below the lowest sell offer to list.');
-        this.addSlider('Capture (%)', 0, 100, 25, (value) => (this.capturePercent = value), 'Share of the output flow you realistically capture (for profit/hr).');
+        this.capturePercent = 25;
+        this.addSlider('Capture (%)', 0, 100, 25, (value) => (this.capturePercent = value), 'Share of output flow captured, for profit/hr.');
+        this.skillGate = true;
         this.addToggle('Enchanting Skill Gate', (value) => (this.skillGate = !!value), 'Skip enchants whose required Enchanting level is above yours.', true);
-        this.addButton('List Book Flips', () => this.listFlips(10), 'Print the current top book flips.');
+        this.addButton('Refresh Prices', () => this.setAction(this.fetchPrices, 'Refreshing', 0, 25_000), 'Re-fetch Bazaar prices now.');
+        this.addButton('Read Enchanting', () => this.setAction(this.readSkills, 'Reading Enchanting', 0, 15_000), 'Re-read your Enchanting level from /skills.');
+
+        this.status = 'Idle';
+        this.flips = [];
+        this.enchantingLevel = null;
+        this.skillReadAttempts = 0;
+
+        this.action = null;
+        this.nextActionAt = 0;
+        this.deadline = 0;
+        this.retryAction = null;
+        this.retryAt = 0;
+        this.requestToken = 0;
+        this.commandTokens = COMMAND_CAPACITY;
+        this.commandRefillAt = Date.now();
 
         this.createOverlay([
             {
@@ -87,74 +106,135 @@ class BookFlipper extends ModuleBase {
         v5Command('bazaar books', () => this.listFlips(10));
     }
 
-    fail(message) {
-        this.status = message;
-        this.message(`&c${message}`);
-    }
-
     onEnable() {
-        this.status = 'Loading';
+        this.status = 'Starting';
         this.flips = [];
         this.enchantingLevel = null;
-        this.state = this.skillGate ? 'READING_SKILLS' : 'FETCHING';
-        if (this.skillGate) {
-            try {
-                closeInventory();
-                ChatLib.command('skills');
-            } catch (e) {
-                this.message('&cCould not open /skills.');
-                this.state = 'FETCHING';
-            }
-        } else {
-            this.fetchPrices();
-        }
+        this.action = null;
+        this.retryAction = null;
+        this.deadline = 0;
+        this.skillReadAttempts = 0;
+        this.setAction(this.readSkills, 'Reading Enchanting', 0, 15_000);
     }
 
     onDisable() {
         this.status = 'Idle';
         this.flips = [];
-        this.state = 'IDLE';
+        this.action = null;
+        this.retryAction = null;
+        this.requestToken++;
     }
 
     tick() {
         if (!this.enabled) return;
-
-        if (this.state === 'READING_SKILLS') {
-            const name = String(getGuiName() ?? '').toLowerCase();
-            if (!name.includes('skill')) return;
-            const result = readEnchantingFromContainer(Player.getContainer());
-            if (result) {
-                this.enchantingLevel = result.level;
-                console.log(`[BookFlipper] Enchanting=${result.level} name="${result.name}"`);
-                if (result.level == null) {
-                    console.log(`[BookFlipper] skills item lore: ${JSON.stringify(result.lore)}`);
-                    this.message('&eCould not parse Enchanting level (see log). Gate skipped.');
-                }
+        try {
+            const now = Date.now();
+            if (this.deadline && now >= this.deadline) return this.restart(`Timed out while ${this.status.toLowerCase()}.`);
+            if (this.retryAction && now >= this.retryAt) {
+                this.retryAt = now + RETRY_MS;
+                this.nextActionAt = now + this.clickDelay;
+                this.retryAction.call(this);
+                return;
             }
-            closeInventory();
-            this.state = 'FETCHING';
-            this.fetchPrices();
+            if (now < this.nextActionAt) return;
+            if (this.action) this.action.call(this);
+        } catch (error) {
+            console.error('[BookFlipper] tick error: ' + error);
+            this.restart('Error; retrying.');
+        }
+    }
+
+    setAction(action, status, delay = this.clickDelay, timeout = 0, retryAction = null) {
+        this.action = action;
+        this.status = status;
+        this.nextActionAt = Date.now() + delay;
+        this.deadline = timeout ? Date.now() + timeout : 0;
+        this.retryAction = retryAction;
+        this.retryAt = retryAction ? Date.now() + RETRY_MS : 0;
+    }
+
+    runCommand(command) {
+        const now = Date.now();
+        const restored = Math.floor((now - this.commandRefillAt) / COMMAND_RESTORE_TIME);
+        if (restored) {
+            this.commandTokens = Math.min(COMMAND_CAPACITY, this.commandTokens + restored);
+            this.commandRefillAt = this.commandTokens === COMMAND_CAPACITY ? now : this.commandRefillAt + restored * COMMAND_RESTORE_TIME;
+        }
+        if (!this.commandTokens) return COMMAND_RESTORE_TIME - (now - this.commandRefillAt);
+        this.commandTokens--;
+        ChatLib.command(command);
+        return 0;
+    }
+
+    restart(message) {
+        this.message(`&e${message}`);
+        this.flips = [];
+        this.action = null;
+        this.retryAction = null;
+        this.skillReadAttempts = 0;
+        this.setAction(this.readSkills, 'Reading Enchanting', 500, 15_000);
+    }
+
+    fail(message) {
+        this.status = message;
+        this.message(`&c${message}`);
+    }
+
+    readSkills() {
+        const gui = String(getGuiName() ?? '').toLowerCase();
+        if (gui.includes('skill')) {
+            try {
+                const result = readEnchantingFromContainer(Player.getContainer());
+                if (result?.level != null) {
+                    this.enchantingLevel = result.level;
+                    console.log(`[BookFlipper] Enchanting=${result.level}`);
+                } else if (result) {
+                    console.log(`[BookFlipper] skills item lore: ${JSON.stringify(result.lore)}`);
+                }
+            } catch (error) {
+                console.error('[BookFlipper] skills read error: ' + error);
+            }
+            try {
+                closeInventory();
+            } catch (error) {}
+            this.setAction(this.fetchPrices, 'Fetching bazaar', 300, 25_000);
             return;
         }
 
-        if (this.state === 'IDLE' && Date.now() - this.lastRefresh >= this.refreshInterval) {
-            this.fetchPrices();
+        this.skillReadAttempts++;
+        if (this.skillReadAttempts > 4) {
+            console.log('[BookFlipper] could not open /skills; skill gate disabled');
+            this.setAction(this.fetchPrices, 'Fetching bazaar', 0, 25_000);
+            return;
         }
+        const wait = this.runCommand('skills');
+        this.setAction(this.readSkills, 'Opening skills', wait || 800, 15_000);
     }
 
     fetchPrices() {
         this.status = 'Fetching bazaar';
-        const token = (this.requestToken = (this.requestToken || 0) + 1);
+        const token = ++this.requestToken;
+        const retry = () => this.setAction(this.fetchPrices, 'Retrying', FAIL_RETRY_MS, 25_000);
+
         requestV2({ url: BAZAAR_URL, method: 'GET', json: true, timeout: 10_000 })
             .then((bazaar) => {
                 if (!this.enabled || token !== this.requestToken) return;
-                if (!bazaar?.success) return this.fail('Could not load Bazaar prices.');
+                if (!bazaar?.success) {
+                    this.fail('Could not load Bazaar prices.');
+                    retry();
+                    return;
+                }
                 this.flips = this.computeFlips(bazaar.products || {});
-                this.lastRefresh = Date.now();
-                this.status = `Ready (${this.flips.length} flips)`;
-                this.state = 'IDLE';
+                this.status = `Ready (${this.flips.length})`;
+                this.setAction(this.fetchPrices, `Ready (${this.flips.length})`, REFRESH_MS, 0);
             })
-            .catch(() => this.fail('Could not load Bazaar prices.'));
+            .catch((error) => {
+                console.error('[BookFlipper] fetch error: ' + error);
+                if (this.enabled && token === this.requestToken) {
+                    this.fail('Could not load Bazaar prices.');
+                    retry();
+                }
+            });
     }
 
     computeFlips(products) {
@@ -163,7 +243,9 @@ class BookFlipper extends ModuleBase {
             const key = enchantKeyFromId(id);
             if (!key) continue;
             const level = Number(String(id).match(/_(\d+)$/)?.[1]);
-            (families[key] ||= {})[level] = products[id];
+            if (!Number.isFinite(level)) continue;
+            if (!families[key]) families[key] = {};
+            families[key][level] = products[id];
         }
 
         const tax = this.taxPercent / 100;
@@ -193,8 +275,7 @@ class BookFlipper extends ModuleBase {
                     const inProduct = tiers[inputLevel];
                     const inBid = bid(inProduct);
                     const inAsk = ask(inProduct);
-                    if (inBid <= 0 || inAsk <= 0) continue;
-                    if (inBid / inAsk < 0.1) continue;
+                    if (inBid <= 0 || inAsk <= 0 || inBid / inAsk < 0.1) continue;
                     if (sellFlow(inProduct) < this.minInputFlow) continue;
 
                     const units = 2 ** (output - inputLevel);
@@ -207,11 +288,10 @@ class BookFlipper extends ModuleBase {
                 }
                 if (input == null) continue;
 
-                const revenue = outAsk * (1 - undercut) * (1 - tax);
+                const revenue = outAsk * (1 - this.undercutPercent / 100) * (1 - this.taxPercent / 100);
                 const profit = revenue - cost;
                 if (profit < this.minProfit) continue;
-                const profitPerHour = profit * outFlow * capture;
-
+                const profitPerHour = profit * outFlow * (this.capturePercent / 100);
                 const candidate = {
                     key,
                     input,
@@ -222,9 +302,9 @@ class BookFlipper extends ModuleBase {
                     profit,
                     profitPerHour,
                     outputFlow: outFlow,
-                    inputFlow: input != null ? sellFlow(tiers[input]) : 0,
+                    inputFlow: sellFlow(tiers[input]),
                     required,
-                    budgetQty: Math.min(MAX_ORDER_QTY, Math.floor(this.budget / Math.max(1, bid(tiers[input])))),
+                    unitPrice: bid(tiers[input]),
                 };
                 if (!best || candidate.profitPerHour > best.profitPerHour) best = candidate;
             }
@@ -238,7 +318,7 @@ class BookFlipper extends ModuleBase {
 
     listFlips(count = 10) {
         if (!this.flips.length) return this.message('&eNo flips loaded yet.');
-        this.message(`&bBook flips (&f${this.flips.length}&b):`);
+        this.message(`&bBook flips (&f${this.flips.length}&b), Enchanting ${this.enchantingLevel ?? '?'}:`);
         this.flips.slice(0, count).forEach((f) => {
             this.message(
                 `  &f${f.key} &7| ${f.need}x T${f.input} -> T${f.output} &7| cost &6${formatCoins(f.cost)}&7, sell &a${formatCoins(
@@ -246,7 +326,6 @@ class BookFlipper extends ModuleBase {
                 )}&7, profit &a${formatCoins(f.profit)} &7| &e~${formatCoins(f.profitPerHour)}/hr &7(req enc ${f.required})`
             );
         });
-        chat('');
     }
 }
 
