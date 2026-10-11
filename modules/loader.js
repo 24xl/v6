@@ -86,6 +86,7 @@ import './rift/ScribeNuker';
 
 /* BAZAAR */
 import './bazaar/BazaarNpcMacro';
+import './bazaar/BookFlipper';
 
 /* OTHER */
 import './other/AutoBeg';
