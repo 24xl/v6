@@ -212,9 +212,9 @@ class BookFlipper extends ModuleBase {
     }
 
     fetchPrices() {
-        this.status = 'Fetching bazaar';
+        this.setAction(null, 'Loading prices', 0, 25_000);
         const token = ++this.requestToken;
-        const retry = () => this.setAction(this.fetchPrices, 'Retrying', FAIL_RETRY_MS, 25_000);
+        const retry = () => this.setAction(this.fetchPrices, 'Retrying', FAIL_RETRY_MS, 0);
 
         requestV2({ url: BAZAAR_URL, method: 'GET', json: true, timeout: 10_000 })
             .then((bazaar) => {
