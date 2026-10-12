@@ -25,7 +25,8 @@ class RewarpSettings extends ModuleBase {
         this.declinePurchaseFailures = false;
         this.autoPhilipBonus = false;
         this.philipContactMethod = '/call (recommended)';
-        this.pestKiller = false;
+        this.pestKillerMode = null;
+        this.pestModeToggle = null;
         this.pestThreshold = 5;
         this.pestTraps = false;
         this.trapPlot = '';
@@ -93,10 +94,17 @@ class RewarpSettings extends ModuleBase {
         );
 
         const pestPopup = this.addPopup('Pest Killer Settings', null, 'Configure when Pest Killer runs.');
-        pestPopup.addComponent(
-            new ToggleButton('Pest Killer', 0, 0, undefined, undefined, (value) => (this.pestKiller = !!value), this.pestKiller),
-            'Pauses farming to clear pests when the configured threshold is reached.'
+        this.pestModeToggle = new MultiToggle(
+            'Mode',
+            0,
+            0,
+            ['Fly', '-Walk', '-Manual'],
+            true,
+            (options) => (this.pestKillerMode = options.find((option) => option.enabled)?.name ?? null),
+            false,
+            true
         );
+        pestPopup.addComponent(this.pestModeToggle, 'Which pest killer to use. Select none to disable pest killing.');
         pestPopup.addComponent(
             new Slider('Pest Threshold', 1, 8, 0, 0, undefined, undefined, this.pestThreshold, (value) => {
                 this.pestThreshold = Math.round(value);
@@ -127,6 +135,14 @@ class RewarpSettings extends ModuleBase {
 
     getTrapPlot() {
         return this.trapPlotInput ? String(this.trapPlotInput.text ?? '').trim() : this.trapPlot;
+    }
+
+    getPestKillerMode() {
+        return this.pestModeToggle?.options?.find((option) => option.enabled)?.name ?? null;
+    }
+
+    isPestKillingEnabled() {
+        return this.getPestKillerMode() === 'Fly';
     }
 
     addRewarpButtons(...buttons) {

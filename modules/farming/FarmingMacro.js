@@ -78,7 +78,7 @@ export class FarmingMacro extends ModuleBase {
             this.toggle(false);
             return;
         }
-        if ((farmingSettings.killNearbyPests || rewarpSettings.pestKiller) && findItemInHotbar('Vacuum') < 0) {
+        if ((farmingSettings.killNearbyPests || rewarpSettings.isPestKillingEnabled()) && findItemInHotbar('Vacuum') < 0) {
             this.message('&cNo Vacuum found in hotbar.');
             this.toggle(false);
             return;
@@ -180,11 +180,11 @@ export class FarmingMacro extends ModuleBase {
     handleFarming(player) {
         if (loadoutHandler.switching) return Client.unpressKeys();
         if (this.sprayonatorAction) return;
-        if (farmingSettings.killNearbyPests && !rewarpSettings.pestKiller && this.handlePest(player)) return;
+        if (farmingSettings.killNearbyPests && !rewarpSettings.isPestKillingEnabled() && this.handlePest(player)) return;
 
         const looping = rewarpSettings.looping;
         const hybrid = rewarpSettings.hybrid;
-        if (rewarpSettings.pestKiller && getGardenPestStatus().gardenPests >= rewarpSettings.pestThreshold) {
+        if (rewarpSettings.isPestKillingEnabled() && getGardenPestStatus().gardenPests >= rewarpSettings.pestThreshold) {
             const pestColumnClear = this.isPestColumnClear(player);
             if (looping || hybrid || pestColumnClear) {
                 const returnPoint = { x: player.getX(), y: player.getY(), z: player.getZ() };
@@ -193,7 +193,7 @@ export class FarmingMacro extends ModuleBase {
             }
         }
         if (!looping && this.isAtPoint(player, this.points.end)) {
-            return this.beginRewarp(this.points.start, rewarpSettings.pestKiller && getGardenPestStatus().gardenPests >= rewarpSettings.pestThreshold);
+            return this.beginRewarp(this.points.start, rewarpSettings.isPestKillingEnabled() && getGardenPestStatus().gardenPests >= rewarpSettings.pestThreshold);
         }
         if (looping && this.shouldRunBarnTasks()) {
             if (rewarpSettings.shouldRunVisitorMacro() || rewarpSettings.philipContactMethod === 'Pathfind') ChatLib.command('sethome');

@@ -16,7 +16,7 @@ import {
 import { setTooltip } from '../core/GuiTooltip';
 
 export class MultiToggle {
-    constructor(title, x, y, options = [], singleSelect = false, callback = null, defaultValue = false) {
+    constructor(title, x, y, options = [], singleSelect = false, callback = null, defaultValue = false, allowNone = false) {
         this.title = title;
         this.x = x;
         this.y = y;
@@ -27,6 +27,7 @@ export class MultiToggle {
             animationStart: 0,
         }));
         this.singleSelect = singleSelect;
+        this.allowNone = !!allowNone;
 
         const normalizeDefaultNames = (value) => {
             if (!Array.isArray(value)) return null;
@@ -78,7 +79,7 @@ export class MultiToggle {
             });
         }
 
-        if (this.singleSelect && !this.options.some((option) => option.enabled) && this.options.length > 0) {
+        if (this.singleSelect && !this.allowNone && !this.options.some((option) => option.enabled) && this.options.length > 0) {
             this.options[0].enabled = true;
             this.options[0].animationProgress = 1;
         }
@@ -327,6 +328,10 @@ export class MultiToggle {
                         if (this.singleSelect) {
                             const isEnabled = this.options[i].enabled;
                             if (isEnabled) {
+                                if (this.allowNone) {
+                                    this.options[i].enabled = false;
+                                    this.options[i].animationStart = Date.now();
+                                }
                                 playClickSound();
                                 if (this.callback) this.callback(this.options);
                                 return true;
