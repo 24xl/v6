@@ -18,6 +18,7 @@ const PEST_RANGE_SQ = 12.5 ** 2;
 const PEST_ANGLE = 45;
 const PARTICLE_SEARCH_MS = 1_000;
 const PLOT_TIMEOUT_MS = 30_000;
+const PLOT_EMPTY_GRACE_MS = 2_000;
 const ROOF_TIMEOUT_MS = 2_000;
 // How far the climb raycasts when looking for something solid. getLookingAt uses vanilla
 // Entity.pick(distance), not the crosshair hitResult, so this is not capped at reach.
@@ -59,6 +60,7 @@ class PestKiller {
         this.roofStartedAt = 0;
         this.roofOriginalSlot = -1;
         this.pathToken = 0;
+        this.plotEmptySince = 0;
         farmingSettings.originalSlot = Player.getHeldItemIndex();
     }
 
@@ -70,7 +72,11 @@ class PestKiller {
             return true;
         }
 
-        if (currentPlot === this.currentPlot && currentPlotPests === 0) {
+        const onOwnPlot = currentPlot !== null && currentPlot === this.currentPlot;
+        const plotEmpty = onOwnPlot && currentPlotPests === 0;
+        if (!plotEmpty) this.plotEmptySince = 0;
+        else if (!this.plotEmptySince) this.plotEmptySince = Date.now();
+        if (plotEmpty && this.canSkipPlot() && Date.now() - this.plotEmptySince >= PLOT_EMPTY_GRACE_MS) {
             this.completeCurrentPlot();
             return false;
         }
@@ -324,6 +330,15 @@ class PestKiller {
         this.stopPath();
         this.stopKilling();
         this.finishArea();
+    }
+
+    canSkipPlot() {
+        if (this.state === STATES.WAITING_FOR_PLOT || this.state === STATES.KILLING || this.state === STATES.PATHING_PESTS) return false;
+        return !this.anyPestNearby();
+    }
+
+    anyPestNearby() {
+        return getLoadedPests().some((pest) => this.distanceSq(pest) <= PEST_RANGE_SQ);
     }
 
     startParticleSearch() {
