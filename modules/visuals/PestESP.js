@@ -66,7 +66,7 @@ class PestESP extends ModuleBase {
         });
 
         this.when(
-            () => this.enabled && area() === 'Garden',
+            () => this.enabled && inGarden(),
             'postRenderWorld',
             () => {
                 const entities = [];
