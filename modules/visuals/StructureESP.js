@@ -1,7 +1,7 @@
 import { isDeveloperModeEnabled } from '../../utils/DeveloperModeState';
 import { Vec3d } from '../../utils/Constants';
 import { ModuleBase } from '../../utils/ModuleBase';
-import { getArea } from '../../utils/TabListUtils';
+import { inCrystalHollows } from '../../utils/Area';
 
 const Objects = Java.type('java.util.Objects');
 
@@ -93,7 +93,7 @@ class StructureESP extends ModuleBase {
 
     updateRenderData() {
         try {
-            const inHollows = getArea() === 'Crystal Hollows';
+            const inHollows = inCrystalHollows();
             StructureFinder.setActive(inHollows);
             if (!inHollows) {
                 this.renderData = null;

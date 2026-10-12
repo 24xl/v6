@@ -1,6 +1,6 @@
 import { BP, Vec3d } from './Constants';
 import { ClientboundSystemChatPacket } from './Packets';
-import { getArea } from './TabListUtils';
+import { getArea } from './Area';
 
 export const mc = Client.getMinecraft();
 const CONFIG_DIR_NAME = 'V5Config';
@@ -44,6 +44,7 @@ export function writeConfigFile(fileName, data) {
 }
 
 export const area = getArea;
+export { getAreaName, normalizeArea, areaIs, areaIncludes, inGarden, inRift, inCrystalHollows } from './Area';
 
 export function subArea() {
     const now = Date.now();

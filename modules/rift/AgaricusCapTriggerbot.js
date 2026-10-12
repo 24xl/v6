@@ -1,5 +1,5 @@
 import { ModuleBase } from '../../utils/ModuleBase';
-import { getArea } from '../../utils/TabListUtils';
+import { inRift } from '../../utils/Area';
 
 class AgaricusCapTriggerbot extends ModuleBase {
     constructor() {
@@ -16,7 +16,7 @@ class AgaricusCapTriggerbot extends ModuleBase {
     }
 
     tick() {
-        if (Date.now() < this.clickReadyAt || getArea() !== 'The Rift') return;
+        if (Date.now() < this.clickReadyAt || !inRift()) return;
         if (!Player.getHeldItem()?.getName?.()?.includes('Wand of Farming')) return;
         if (Player.lookingAt()?.type?.getRegistryName?.() !== 'minecraft:red_mushroom') return;
 

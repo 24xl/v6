@@ -1,32 +1,10 @@
-const AREA_CACHE_MS = 1000;
 const PICKAXE_ABILITY_CACHE_MS = 200;
 
-let currentArea = 'unknown';
-let areaLastChecked = 0;
 let pickaxeAbility = '';
 let pickaxeAbilityExpiresAt = 0;
 
 export const stripTabFormatting = (text) => ChatLib.removeFormatting(String(text ?? ''));
 export const getTabListNames = () => TabList.getNames() || [];
-
-export function getArea() {
-    const now = Date.now();
-    if (now - areaLastChecked < AREA_CACHE_MS) return currentArea;
-
-    areaLastChecked = now;
-    currentArea = 'unknown';
-
-    try {
-        for (const line of getTabListNames()) {
-            const [, area] = stripTabFormatting(line).split('Area:');
-            if (area?.trim()) return (currentArea = area.trim());
-        }
-    } catch (error) {
-        console.error(error);
-    }
-
-    return currentArea;
-}
 
 export function getPickaxeAbilityStatus() {
     const now = Date.now();

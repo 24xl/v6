@@ -1,6 +1,6 @@
 import { Vec3d } from '../../utils/Constants';
 import { ModuleBase } from '../../utils/ModuleBase';
-import { area } from '../../utils/Utils';
+import { inGarden } from '../../utils/Area';
 
 const PEST_NAMES = ['Silverfish', 'Bat'];
 const PEST_KILL_RADIUS_SQ = 12 ** 2;
@@ -40,7 +40,7 @@ class PestESP extends ModuleBase {
 
         this.persistentPests = new Map();
         this.on('tick', () => {
-            if (area() !== 'Garden') return;
+            if (!inGarden()) return;
 
             const now = Date.now();
 

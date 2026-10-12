@@ -3,6 +3,7 @@ import { Blocks, BP } from './Constants';
 import { getCurrentFlowstate } from './Flowstate';
 import { executeAsync } from './ThreadExecutor';
 import { area as getArea, convertToVector, getConfigFile, writeConfigFile } from './Utils';
+import { normalizeArea } from './Area';
 import { v5Command } from './V5Commands';
 import Pathfinder from './pathfinder/PathFinder';
 import { clickItems, clickSlot, closeInventory, findFirstItem, getGuiName, setItemSlot } from './player/Inventory';
@@ -364,7 +365,7 @@ class SpeedCalculations {
         let targetArea = area || getArea();
         let base = stats.speed;
 
-        if (targetArea === 'Crystal Hollows' && stats.professional) {
+        if (normalizeArea(targetArea) === 'crystal hollows' && stats.professional) {
             base = base + stats.professional;
         }
 

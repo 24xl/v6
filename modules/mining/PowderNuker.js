@@ -3,7 +3,7 @@ import { BP, Direction } from '../../utils/Constants';
 import { ModuleBase } from '../../utils/ModuleBase';
 import { setKeysForStraightLineCoords } from '../../utils/player/Movement';
 import { Rotations } from '../../utils/player/Rotations';
-import { getArea } from '../../utils/TabListUtils';
+import { inCrystalHollows } from '../../utils/Area';
 import { registerSkyblockEvent } from '../../utils/SkyblockEvents';
 import { Nuker } from './Nuker';
 import { refuel, hasMaxGreatExplorer } from '../../utils/MiningUtils';
@@ -104,7 +104,7 @@ class PowderNuker extends ModuleBase {
     }
 
     onEnable() {
-        if (getArea() !== 'Crystal Hollows') return this.stop('Start in the Crystal Hollows.');
+        if (!inCrystalHollows()) return this.stop('Start in the Crystal Hollows.');
         if (!this.inside(Player.getX(), Player.getZ(), 1)) return this.stop('Start inside the selected region, away from its border and the Nucleus.');
         if (!Nuker.isHoldingMiningTool()) return this.stop('Hold a drill, gauntlet, or pickaxe.');
         this.savedNuker = {

@@ -1,5 +1,5 @@
 import { ClientboundDisconnectPacket, ClientboundLoginDisconnectPacket } from './Packets';
-import { getArea } from './TabListUtils';
+import { getArea } from './Area';
 import { registerSkyblockEvent } from './SkyblockEvents';
 import { closeInventory } from './player/Inventory';
 

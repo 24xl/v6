@@ -5,6 +5,7 @@ import { ScheduleTask } from '../../utils/ScheduleTask';
 import { getPestCooldown, getTabListNames, stripTabFormatting } from '../../utils/TabListUtils';
 import { regrab, ungrab } from '../../utils/Ungrab';
 import { getConfigFile, getGardenPestStatus, randomInt, writeConfigFile } from '../../utils/Utils';
+import { inGarden } from '../../utils/Area';
 import { findItemInHotbar, setItemSlot } from '../../utils/player/Inventory';
 import { farmingSettings } from './FarmingSettings';
 import { farmingDelays } from './FarmingDelays';
@@ -65,12 +66,18 @@ export class FarmingMacro extends ModuleBase {
         ]);
 
         this.on('tick', () => this.handleTick());
+        this.when(() => !inGarden(), 'tick', () => this.toggle(false), true);
         registerSkyblockEvent('sprayonatorunavailable', () => {
             if (this.enabled && farmingSettings.useSprayonator) this.sprayonatorUnavailable = true;
         });
     }
 
     onEnable() {
+        if (!inGarden()) {
+            this.message('&cYou must be in the Garden to enable this macro.');
+            this.toggle(false);
+            return;
+        }
         if ((farmingSettings.killNearbyPests || rewarpSettings.pestKiller) && findItemInHotbar('Vacuum') < 0) {
             this.message('&cNo Vacuum found in hotbar.');
             this.toggle(false);
