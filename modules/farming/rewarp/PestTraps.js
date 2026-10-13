@@ -7,7 +7,7 @@ import { farmingSettings } from '../FarmingSettings';
 import { pestKiller } from './PestKiller';
 import { rewarpSettings } from './RewarpSettings';
 import { angleToPlayer } from '../../../utils/Math';
-import { stripTabFormatting, getTabListNames } from '../../../utils/TabListUtils';
+import { readTraps } from '../../../utils/TabListUtils';
 import { getGardenPestStatus } from '../../../utils/Utils';
 import { getLoadedPests } from '../../visuals/PestESP';
 import { registerSkyblockEvent } from '../../../utils/SkyblockEvents';
@@ -28,8 +28,6 @@ const SCAN_GATHER_MS = 8_000;
 const REOPEN_HOLD_COOLDOWN_MS = 400;
 const RELEASE_KILL_RANGE_SQ = 12 ** 2;
 const AIM_PRECISION = 3;
-const PEST_TRAPS_RE = /^Pest Traps:\s*(\d+)\s*\/\s*\d+$/;
-const FULL_TRAPS_RE = /^Full Traps:\s*(.*)$/;
 
 const STATES = {
     IDLE: 'Idle',
@@ -81,26 +79,7 @@ class PestTraps {
     }
 
     readTab() {
-        let placed = 0;
-        let fullIds = [];
-        for (const line of getTabListNames()) {
-            const text = stripTabFormatting(line?.getName?.() ?? line).trim();
-            if (!text) continue;
-            const placedMatch = text.match(PEST_TRAPS_RE);
-            if (placedMatch) {
-                placed = Number(placedMatch[1]);
-                continue;
-            }
-            const fullMatch = text.match(FULL_TRAPS_RE);
-            if (fullMatch) fullIds = this.parseTrapIds(fullMatch[1]);
-        }
-        return { placed, fullIds };
-    }
-
-    parseTrapIds(rest) {
-        const text = String(rest ?? '').trim();
-        if (!text || /^none$/i.test(text)) return [];
-        return (text.match(/#(\d+)/g) || []).map((token) => Number(token.slice(1)));
+        return readTraps();
     }
 
     plotFromSetting() {

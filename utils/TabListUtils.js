@@ -93,6 +93,50 @@ export function readPests() {
     }
 }
 
+export function readTraps() {
+    const lines = getTabListNames().map((line) => stripTabFormatting(line?.getName?.() ?? line).trim());
+    let placed = 0;
+    let max = 0;
+    const fullIds = [];
+    const noBaitIds = [];
+    let section = null;
+
+    const collect = (text, target) => {
+        if (!text || /^none$/i.test(text)) return;
+        for (const token of text.match(/#(\d+)/g) || []) {
+            const id = Number(token.slice(1));
+            if (!target.includes(id)) target.push(id);
+        }
+    };
+
+    for (const text of lines) {
+        if (!text) continue;
+        const traps = text.match(/^Pest Traps:\s*(\d+)\s*\/\s*(\d+)/);
+        if (traps) {
+            placed = Number(traps[1]);
+            max = Number(traps[2]);
+            section = null;
+            continue;
+        }
+        const full = text.match(/^Full Traps:\s*(.*)$/);
+        if (full) {
+            section = fullIds;
+            collect(full[1], fullIds);
+            continue;
+        }
+        const bait = text.match(/^No Bait:\s*(.*)$/);
+        if (bait) {
+            section = noBaitIds;
+            collect(bait[1], noBaitIds);
+            continue;
+        }
+        if (section && /^[#\d,\s]+$/.test(text)) collect(text, section);
+        else section = null;
+    }
+
+    return { placed, max, fullIds, noBaitIds };
+}
+
 export function getPestCooldown() {
     try {
         const names = getTabListNames();

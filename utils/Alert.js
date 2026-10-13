@@ -17,6 +17,11 @@ const BELL_SECONDS = 0.95;
 const tones = { chime: null, bell: null };
 let cachedEngine = null;
 
+const toByte = (value) => {
+    const low = value & 0xff;
+    return low >= 128 ? low - 256 : low;
+};
+
 function buildChime() {
     const totalFrames = CHIME_NOTES.reduce((sum, [, seconds]) => sum + Math.round(seconds * SAMPLE_RATE), 0);
     const bytes = JavaArray.newInstance(java.lang.Byte.TYPE, totalFrames * 2);
@@ -28,8 +33,8 @@ function buildChime() {
             const attack = Math.min(1, frame / 150);
             const release = Math.min(1, (frames - frame) / 700);
             const sample = Math.round(Math.sin(2 * Math.PI * frequency * t) * attack * release * 0.33 * 32767);
-            bytes[index++] = sample & 0xff;
-            bytes[index++] = (sample >> 8) & 0xff;
+            bytes[index++] = toByte(sample);
+            bytes[index++] = toByte(sample >> 8);
         }
     }
     return bytes;
@@ -47,18 +52,17 @@ function buildBell() {
         }
         const attack = Math.min(1, frame / 60);
         const sample = Math.round(Math.max(-1, Math.min(1, value * attack * 0.4)) * 32767);
-        bytes[index++] = sample & 0xff;
-        bytes[index++] = (sample >> 8) & 0xff;
+        bytes[index++] = toByte(sample);
+        bytes[index++] = toByte(sample >> 8);
     }
     return bytes;
 }
 
 function play(kind) {
-    if (!tones[kind]) tones[kind] = kind === 'bell' ? buildBell() : buildChime();
-    const bytes = tones[kind];
-
     executeAsync(() => {
         try {
+            if (!tones[kind]) tones[kind] = kind === 'bell' ? buildBell() : buildChime();
+            const bytes = tones[kind];
             const format = new AudioFormat(SAMPLE_RATE, 16, 1, true, false);
             const line = AudioSystem.getLine(new DataLine.Info(SourceDataLine, format));
             line.open(format);
