@@ -9,6 +9,7 @@ import { registerSkyblockEvent } from '../../../utils/SkyblockEvents';
 import { getLookingAt } from '../../../utils/Raytrace';
 import { ungrab, regrab } from '../../../utils/Ungrab';
 import { chat } from '../../../utils/Chat';
+import { alert } from '../../../utils/Alert';
 
 const PLOT_TIMEOUT_MS = 30_000;
 const ROOF_TIMEOUT_MS = 2_000;
@@ -145,6 +146,7 @@ class ManualPestKiller {
         this.manualActive = true;
         this.handedOffAt = Date.now();
         regrab();
+        alert('Start killing pests');
         chat('&eManual pest killer: clear the pests, the macro resumes when the garden is clear.');
         return false;
     }
