@@ -12,7 +12,7 @@ import { chat } from '../../../utils/Chat';
 
 const PLOT_TIMEOUT_MS = 30_000;
 const ROOF_TIMEOUT_MS = 2_000;
-const CLEAR_DEBOUNCE_TICKS = 10;
+const MANUAL_TIMEOUT_MS = 60_000;
 const ROOF_LOOK_DISTANCE = 24;
 const GARDEN_MAX_PLACEABLE_Y = 76;
 const ROOF_STAGES = {
@@ -42,33 +42,30 @@ class ManualPestKiller {
         this.roofStartedAt = 0;
         this.roofOriginalSlot = -1;
         this.manualActive = false;
-        this.clearedTicks = 0;
+        this.handedOffAt = 0;
         farmingSettings.originalSlot = Player.getHeldItemIndex();
     }
 
     tick() {
         if (!this.running) return true;
 
+        const { alivePestCount, hasSection } = readPests();
+        const cleared = hasSection && alivePestCount === 0;
+
         if (this.manualActive) {
-            const { gardenPests } = getGardenPestStatus();
-            const alivePestCount = readPests().alivePestCount;
-            if (gardenPests === 0 && alivePestCount === 0) {
-                this.clearedTicks++;
-                if (this.clearedTicks >= CLEAR_DEBOUNCE_TICKS) {
-                    this.stop();
-                    return true;
-                }
-            } else {
-                this.clearedTicks = 0;
+            if (cleared || Date.now() - this.handedOffAt >= MANUAL_TIMEOUT_MS) {
+                this.stop();
+                return true;
             }
             return false;
         }
 
-        const { gardenPests, currentPlot } = getGardenPestStatus();
-        if (gardenPests === 0 || !gardenPests) {
+        if (cleared) {
             this.stop();
             return true;
         }
+
+        const { currentPlot } = getGardenPestStatus();
 
         if (this.state === STATES.WAITING_FOR_PLOT) {
             if (!this.teleportedToPlot) return false;
@@ -146,7 +143,7 @@ class ManualPestKiller {
         farmingSettings.selectVacuum();
         this.state = STATES.WAITING_FOR_USER;
         this.manualActive = true;
-        this.clearedTicks = 0;
+        this.handedOffAt = Date.now();
         regrab();
         chat('&eManual pest killer: clear the pests, the macro resumes when the garden is clear.');
         return false;

@@ -74,7 +74,7 @@ export function readPests() {
     try {
         const names = getTabListNames();
         const start = names.findIndex((line) => stripTabFormatting(line?.getName?.() ?? line).includes('Pests:'));
-        if (start === -1) return { alivePestCount: 0, infestedPlots: [] };
+        if (start === -1) return { alivePestCount: 0, infestedPlots: [], hasSection: false };
 
         let alivePestCount = 0;
         let infestedPlots = [];
@@ -86,10 +86,10 @@ export function readPests() {
             if (alive) alivePestCount = Number(alive[1]);
             if (plots) infestedPlots = plots[1].match(/\d+/g)?.map(Number) ?? [];
         }
-        return { alivePestCount, infestedPlots };
+        return { alivePestCount, infestedPlots, hasSection: true };
     } catch (error) {
         console.error(error);
-        return { alivePestCount: 0, infestedPlots: [] };
+        return { alivePestCount: 0, infestedPlots: [], hasSection: false };
     }
 }
 

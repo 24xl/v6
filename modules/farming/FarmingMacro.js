@@ -2,7 +2,7 @@ import { ModuleBase } from '../../utils/ModuleBase';
 import { Mousemat } from '../../utils/player/Mousemat';
 import { Rotations } from '../../utils/player/Rotations';
 import { ScheduleTask } from '../../utils/ScheduleTask';
-import { getPestCooldown, getTabListNames, stripTabFormatting } from '../../utils/TabListUtils';
+import { getPestCooldown, getTabListNames, readPests, stripTabFormatting } from '../../utils/TabListUtils';
 import { regrab, ungrab } from '../../utils/Ungrab';
 import { getConfigFile, getGardenPestStatus, randomInt, writeConfigFile } from '../../utils/Utils';
 import { inGarden } from '../../utils/Area';
@@ -177,6 +177,12 @@ export class FarmingMacro extends ModuleBase {
         }
     }
 
+    pestThresholdReached() {
+        if (!rewarpSettings.isPestKillingEnabled()) return false;
+        const count = rewarpSettings.getPestKillerMode() === '-Manual' ? readPests().alivePestCount : getGardenPestStatus().gardenPests;
+        return count >= rewarpSettings.pestThreshold;
+    }
+
     handleFarming(player) {
         if (loadoutHandler.switching) return Client.unpressKeys();
         if (this.sprayonatorAction) return;
@@ -184,7 +190,7 @@ export class FarmingMacro extends ModuleBase {
 
         const looping = rewarpSettings.looping;
         const hybrid = rewarpSettings.hybrid;
-        if (rewarpSettings.isPestKillingEnabled() && getGardenPestStatus().gardenPests >= rewarpSettings.pestThreshold) {
+        if (this.pestThresholdReached()) {
             const pestColumnClear = this.isPestColumnClear(player);
             if (looping || hybrid || pestColumnClear) {
                 const returnPoint = { x: player.getX(), y: player.getY(), z: player.getZ() };
@@ -193,7 +199,7 @@ export class FarmingMacro extends ModuleBase {
             }
         }
         if (!looping && this.isAtPoint(player, this.points.end)) {
-            return this.beginRewarp(this.points.start, rewarpSettings.isPestKillingEnabled() && getGardenPestStatus().gardenPests >= rewarpSettings.pestThreshold);
+            return this.beginRewarp(this.points.start, this.pestThresholdReached());
         }
         if (looping && this.shouldRunBarnTasks()) {
             if (rewarpSettings.shouldRunVisitorMacro() || rewarpSettings.philipContactMethod === 'Pathfind') ChatLib.command('sethome');
