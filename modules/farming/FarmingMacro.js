@@ -6,6 +6,7 @@ import { getPestCooldown, getTabListNames, readPests, stripTabFormatting } from 
 import { regrab, ungrab } from '../../utils/Ungrab';
 import { getConfigFile, getGardenPestStatus, randomInt, writeConfigFile } from '../../utils/Utils';
 import { inGarden } from '../../utils/Area';
+import { alert } from '../../utils/Alert';
 import { findItemInHotbar, setItemSlot } from '../../utils/player/Inventory';
 import { farmingSettings } from './FarmingSettings';
 import { farmingDelays } from './FarmingDelays';
@@ -104,6 +105,7 @@ export class FarmingMacro extends ModuleBase {
         this.resumeClickUntil = 0;
         this.guiResumeTicks = 0;
         this.wasInGui = false;
+        this.pestSpawnAlerted = false;
         ungrab();
         this.startDelayTicks = 1;
         const player = Player.getPlayer();
@@ -206,7 +208,19 @@ export class FarmingMacro extends ModuleBase {
             return this.beginRewarp({ x: player.getX(), y: player.getY(), z: player.getZ() });
         }
 
-        const slot = getPestCooldown() <= loadoutHandler.pestSpawnSwapCooldown ? loadoutHandler.pestSpawningSlot : loadoutHandler.farmingSlot;
+        const { hasSection: hasPestSection } = readPests();
+        const pestCooldown = getPestCooldown();
+        if (rewarpSettings.getPestKillerMode() === '-Manual' && hasPestSection && pestCooldown <= loadoutHandler.pestSpawnSwapCooldown) {
+            if (!this.pestSpawnAlerted) {
+                this.pestSpawnAlerted = true;
+                alert('manual pest killing soon');
+                this.message('&eManual pest killing soon');
+            }
+        } else if (hasPestSection && pestCooldown > loadoutHandler.pestSpawnSwapCooldown) {
+            this.pestSpawnAlerted = false;
+        }
+
+        const slot = pestCooldown <= loadoutHandler.pestSpawnSwapCooldown ? loadoutHandler.pestSpawningSlot : loadoutHandler.farmingSlot;
         if (!loadoutHandler.select(slot)) return Client.unpressKeys();
 
         if (this.trySprayonator()) return;
