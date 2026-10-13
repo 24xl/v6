@@ -159,7 +159,7 @@ export class FarmingMacro extends ModuleBase {
 
         if (Mousemat.active) return;
 
-        if (this.mode === REWARPING) {
+        if (this.mode === REWARPING && !rewarpHandler.isManualActive()) {
             // Never leave a break held while the rewarper is doing its own thing (roof climb,
             // trap emptying, return). Farming is the only thing that should break crops.
             Client.setKey('leftclick', false);

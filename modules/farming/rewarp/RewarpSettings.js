@@ -142,7 +142,7 @@ class RewarpSettings extends ModuleBase {
     }
 
     isPestKillingEnabled() {
-        return this.getPestKillerMode() === 'Fly';
+        return ['Fly', '-Manual'].includes(this.getPestKillerMode());
     }
 
     addRewarpButtons(...buttons) {
