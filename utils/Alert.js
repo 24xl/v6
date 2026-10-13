@@ -2,20 +2,26 @@ import { AudioFormat, AudioSystem, DataLine, FloatControl, JavaArray, Runtime, S
 import { executeAsync } from './ThreadExecutor';
 
 const SAMPLE_RATE = 44100;
-const NOTES = [
+const CHIME_NOTES = [
     [880.0, 0.13],
     [1318.5, 0.17],
 ];
-let toneCache = null;
+const BELL_FREQUENCY = 660;
+const BELL_PARTIALS = [
+    [1.0, 1.0, 2.2],
+    [2.4, 0.5, 3.0],
+    [3.8, 0.28, 3.8],
+    [5.4, 0.16, 4.8],
+];
+const BELL_SECONDS = 0.95;
+const tones = { chime: null, bell: null };
 let cachedEngine = null;
 
-function buildTone() {
-    if (toneCache) return toneCache;
-
-    const totalFrames = NOTES.reduce((sum, [, seconds]) => sum + Math.round(seconds * SAMPLE_RATE), 0);
+function buildChime() {
+    const totalFrames = CHIME_NOTES.reduce((sum, [, seconds]) => sum + Math.round(seconds * SAMPLE_RATE), 0);
     const bytes = JavaArray.newInstance(java.lang.Byte.TYPE, totalFrames * 2);
     let index = 0;
-    for (const [frequency, seconds] of NOTES) {
+    for (const [frequency, seconds] of CHIME_NOTES) {
         const frames = Math.round(seconds * SAMPLE_RATE);
         for (let frame = 0; frame < frames; frame++) {
             const t = frame / SAMPLE_RATE;
@@ -26,26 +32,44 @@ function buildTone() {
             bytes[index++] = (sample >> 8) & 0xff;
         }
     }
-
-    toneCache = bytes;
     return bytes;
 }
 
-function chime() {
+function buildBell() {
+    const frames = Math.round(BELL_SECONDS * SAMPLE_RATE);
+    const bytes = JavaArray.newInstance(java.lang.Byte.TYPE, frames * 2);
+    let index = 0;
+    for (let frame = 0; frame < frames; frame++) {
+        const t = frame / SAMPLE_RATE;
+        let value = 0;
+        for (const [ratio, gain, decay] of BELL_PARTIALS) {
+            value += gain * Math.sin(2 * Math.PI * BELL_FREQUENCY * ratio * t) * Math.exp(-decay * t);
+        }
+        const attack = Math.min(1, frame / 60);
+        const sample = Math.round(Math.max(-1, Math.min(1, value * attack * 0.4)) * 32767);
+        bytes[index++] = sample & 0xff;
+        bytes[index++] = (sample >> 8) & 0xff;
+    }
+    return bytes;
+}
+
+function play(kind) {
+    if (!tones[kind]) tones[kind] = kind === 'bell' ? buildBell() : buildChime();
+    const bytes = tones[kind];
+
     executeAsync(() => {
         try {
             const format = new AudioFormat(SAMPLE_RATE, 16, 1, true, false);
             const line = AudioSystem.getLine(new DataLine.Info(SourceDataLine, format));
             line.open(format);
             if (line.isControlSupported(FloatControl.Type.MASTER_GAIN)) line.getControl(FloatControl.Type.MASTER_GAIN).setValue(0);
-            const bytes = buildTone();
             line.start();
             line.write(bytes, 0, bytes.length);
             line.drain();
             line.stop();
             line.close();
         } catch (error) {
-            console.error('[V5 Alert] chime failed: ' + error);
+            console.error('[V5 Alert] sound failed: ' + error);
         }
     });
 }
@@ -90,7 +114,7 @@ function speak(text) {
     });
 }
 
-export function alert(text) {
-    chime();
+export function alert(text, sound = 'chime') {
+    play(sound === 'bell' ? 'bell' : 'chime');
     speak(text);
 }

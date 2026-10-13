@@ -49,7 +49,7 @@ class RewarpHandler {
         if (runPhilip) this.tasks.push(philipMacro);
         const hasBarnTasks = runVisitor || (runPhilip && rewarpSettings.philipContactMethod === 'Pathfind');
         this.resumeAfterTasks = rewarpSettings.looping && !hasBarnTasks && !runPestKiller;
-        if (runPestKiller) this.tasks.push(rewarpSettings.getPestKillerMode() === '-Manual' ? manualPestKiller : pestKiller, autoSell);
+        if (runPestKiller) this.tasks.push(rewarpSettings.getPestKillerMode() === 'Manual' ? manualPestKiller : pestKiller, autoSell);
         this.phase = hasBarnTasks ? PHASES.BARN : this.tasks.length ? PHASES.DECIDING : PHASES.REWARP;
         this.nextActionAt = runPestKiller && !hasBarnTasks ? 0 : Date.now() + farmingDelays.random('rewarp');
     }

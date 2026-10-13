@@ -181,7 +181,7 @@ export class FarmingMacro extends ModuleBase {
 
     pestThresholdReached() {
         if (!rewarpSettings.isPestKillingEnabled()) return false;
-        const count = rewarpSettings.getPestKillerMode() === '-Manual' ? readPests().alivePestCount : getGardenPestStatus().gardenPests;
+        const count = rewarpSettings.getPestKillerMode() === 'Manual' ? readPests().alivePestCount : getGardenPestStatus().gardenPests;
         return count >= rewarpSettings.pestThreshold;
     }
 
@@ -210,7 +210,7 @@ export class FarmingMacro extends ModuleBase {
 
         const { hasSection: hasPestSection } = readPests();
         const pestCooldown = getPestCooldown();
-        if (rewarpSettings.getPestKillerMode() === '-Manual' && hasPestSection && pestCooldown <= loadoutHandler.pestSpawnSwapCooldown) {
+        if (rewarpSettings.getPestKillerMode() === 'Manual' && hasPestSection && pestCooldown <= loadoutHandler.pestSpawnSwapCooldown) {
             if (!this.pestSpawnAlerted) {
                 this.pestSpawnAlerted = true;
                 alert('manual pest killing soon');

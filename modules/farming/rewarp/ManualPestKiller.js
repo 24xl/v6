@@ -146,7 +146,7 @@ class ManualPestKiller {
         this.manualActive = true;
         this.handedOffAt = Date.now();
         regrab();
-        alert('Start killing pests');
+        alert('Start killing pests', 'bell');
         chat('&eManual pest killer: clear the pests, the macro resumes when the garden is clear.');
         return false;
     }
