@@ -1,5 +1,5 @@
 import Pathfinder from '../../../utils/pathfinder/PathFinder';
-import { chat } from '../../../utils/Chat';
+import { chat, chatDebug } from '../../../utils/Chat';
 import { ArmorStandEntity } from '../../../utils/Constants';
 import { clickItem, closeInventory } from '../../../utils/player/Inventory';
 import { Rotations } from '../../../utils/player/Rotations';
@@ -7,6 +7,7 @@ import { farmingSettings } from '../FarmingSettings';
 import { pestKiller } from './PestKiller';
 import { rewarpSettings } from './RewarpSettings';
 import { angleToPlayer } from '../../../utils/Math';
+import { isLookingAtEntity } from '../../../utils/Raytrace';
 import { readTraps } from '../../../utils/TabListUtils';
 import { getGardenPestStatus } from '../../../utils/Utils';
 import { getLoadedPests } from '../../visuals/PestESP';
@@ -19,8 +20,8 @@ const TRAP_BOX_COLOR = new RenderColor(0, 255, 0, 120);
 const SCAN_INTERVAL_MS = 1_000;
 const TELEPORT_TIMEOUT_MS = 10_000;
 const AIM_TIMEOUT_MS = 2_500;
-const OPEN_TIMEOUT_MS = 4_500;
-const OPEN_ATTEMPTS = 3;
+const OPEN_TIMEOUT_MS = 6_000;
+const OPEN_ATTEMPTS = 4;
 const STAND_ATTEMPTS = 1;
 const APPROACH_TIMEOUT_MS = 25_000;
 const RELEASE_WAIT_MS = 1_500;
@@ -210,7 +211,7 @@ class PestTraps {
                 if (success) this.startAim(entry);
                 else this.failStand();
             },
-            true
+            false
         );
         return false;
     }
@@ -227,24 +228,32 @@ class PestTraps {
     startAim(entry) {
         this.stopPath();
         this.transition(STATES.AIMING, AIM_TIMEOUT_MS);
-        Rotations.lookAtVector(entry.stand, { precision: AIM_PRECISION });
+        this.aimAt(entry);
         return false;
+    }
+
+    aimAt(entry) {
+        Rotations.lookAtVector(Rotations.getAimPoint(entry.stand) || entry.stand, { precision: AIM_PRECISION });
     }
 
     tickAim() {
         const entry = this.currentStand;
         if (!entry) return this.failStand();
         if (Date.now() >= this.nextActionAt) return this.failStand();
-        if (angleToPlayer(entry.stand).distance > AIM_PRECISION) return false;
+        // Only leave AIMING once the crosshair is genuinely on the trap (real eye->look ray),
+        // re-aiming each tick otherwise. This is the literal "a click will land" test, so it
+        // no longer depends on the rotation manager finishing.
+        if (!isLookingAtEntity(entry.stand, 6)) {
+            this.aimAt(entry);
+            return false;
+        }
         Rotations.stop();
         Client.unpressKeys();
         this.transition(STATES.OPENING);
         this.openDeadline = Date.now() + OPEN_TIMEOUT_MS;
-        // Settle for a moment after the camera stops before the first click: clicking
-        // on the same tick the aim locks can land while the player is still drifting
-        // and the click gets swallowed.
         this.nextOpenClickAt = Date.now() + 350;
         this.openAttempts = 0;
+        chatDebug(`&7Trap #${entry.id} crosshair on trap (err ${angleToPlayer(entry.stand).distance.toFixed(1)}) - opening.`);
         return false;
     }
 
@@ -261,6 +270,7 @@ class PestTraps {
         if (Date.now() < this.nextOpenClickAt) return false;
         this.nextOpenClickAt = Date.now() + 500;
         this.openAttempts++;
+        chatDebug(`&7Trap #${this.currentStand?.id} open click ${this.openAttempts}.`);
         Client.rightClick();
         return false;
     }
