@@ -1,3 +1,4 @@
+import { chat } from '../Chat';
 import { Swift } from '../pathfinder/SwiftIntegration';
 import { CombatWalker } from './CombatWalker';
 
@@ -7,7 +8,9 @@ const STATES = {
     FOLLOWING: 'FOLLOWING',
 };
 
-const SEARCH_TIMEOUT_MS = 25000;
+const SEARCH_TIMEOUT_MS = 15000;
+const SEARCH_EMPTY_GRACE_MS = 1500;
+const FAIL_COOLDOWN_MS = 500;
 const START_OFFSETS = [
     [0, 0, 0],
     [0, 1, 0],
@@ -23,8 +26,15 @@ class CombatPathNavigator {
         this.callback = null;
         this.tickRegister = null;
         this.searchStartedAt = 0;
+        this.emptySince = 0;
+        this.lastFailAt = 0;
         this.maxCompute = 500000;
         this.variantSeed = 0;
+        this.debug = false;
+    }
+
+    setDebug(enabled) {
+        this.debug = !!enabled;
     }
 
     setMaxCompute(maxCompute) {
@@ -32,8 +42,17 @@ class CombatPathNavigator {
         if (Number.isFinite(value) && value > 0) this.maxCompute = Math.floor(value);
     }
 
+    log(message) {
+        if (this.debug) chat('&9[CombatNav] &f' + message);
+    }
+
     findPath(goals, onComplete, options = {}) {
         this.resetPath();
+
+        if (Date.now() - this.lastFailAt < FAIL_COOLDOWN_MS) {
+            if (typeof onComplete === 'function') onComplete(false);
+            return;
+        }
 
         const end = this.normalizeGoals(goals);
         if (!end.length) {
@@ -44,14 +63,16 @@ class CombatPathNavigator {
         const avoidRadius = Math.max(1, Math.floor(Number.isFinite(options.avoidRadius) ? options.avoidRadius : 2));
         this.addAvoidPoints(options.avoidPoints, avoidRadius);
 
-        const started = Swift.SwiftPath(this.buildStarts(), end, false, this.variantSeed, this.maxCompute);
-        if (!started) {
+        if (!Swift.SwiftPath(this.buildStarts(), end, false, this.variantSeed, this.maxCompute)) {
+            this.log('search did not start');
+            this.lastFailAt = Date.now();
             if (typeof onComplete === 'function') onComplete(false);
             return;
         }
 
         this.callback = typeof onComplete === 'function' ? onComplete : null;
         this.searchStartedAt = Date.now();
+        this.emptySince = 0;
         this.state = STATES.SEARCHING;
         this.startTick();
     }
@@ -59,27 +80,42 @@ class CombatPathNavigator {
     onTick() {
         if (this.state === STATES.SEARCHING) {
             if (Swift.isSearching()) {
-                if (Date.now() - this.searchStartedAt > SEARCH_TIMEOUT_MS) this.finish(false);
+                if (Date.now() - this.searchStartedAt > SEARCH_TIMEOUT_MS) this.fail('timeout');
                 return;
             }
 
             const result = Swift.getResult();
-            const nodes = result?.path?.length ? result.path : result?.keynodes;
-            if (!result || !nodes?.length) {
-                this.finish(false);
+            if (!result) {
+                if (!this.emptySince) this.emptySince = Date.now();
+                if (Date.now() - this.emptySince > SEARCH_EMPTY_GRACE_MS || Date.now() - this.searchStartedAt > SEARCH_TIMEOUT_MS) {
+                    this.fail('no path');
+                }
+                return;
+            }
+            this.emptySince = 0;
+
+            const nodes = result.path?.length ? result.path : result.keynodes;
+            if (!nodes?.length) {
+                this.fail('empty path');
                 return;
             }
 
             CombatWalker.setPath(result);
             this.state = STATES.FOLLOWING;
+            this.log('following ' + nodes.length + ' nodes');
             return;
         }
 
         if (this.state === STATES.FOLLOWING) {
             const status = CombatWalker.tick();
             if (status === 'ARRIVED') this.finish(true);
-            else if (status === 'STUCK' || status === 'IDLE') this.finish(false);
+            else if (status === 'STUCK' || status === 'IDLE') this.fail('walker ' + status);
         }
+    }
+
+    fail(reason) {
+        this.log('failed: ' + reason);
+        this.finish(false);
     }
 
     isPathing() {
@@ -98,10 +134,11 @@ class CombatPathNavigator {
         const callback = this.callback;
         this.callback = null;
         this.state = STATES.IDLE;
+        if (!success) this.lastFailAt = Date.now();
         this.stopTick();
         CombatWalker.stop();
         Swift.clear();
-        if (typeof callback === 'function') callback(success);
+        if (callback) callback(success);
     }
 
     startTick() {

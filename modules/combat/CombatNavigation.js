@@ -26,6 +26,7 @@ class CombatNavigation extends ModuleBase {
             (value) => {
                 this.debug = !!value;
                 CombatWalker.setDebug(this.debug);
+                CombatNavigator.setDebug(this.debug);
             },
             'Draw the followed path nodes, the current look-ahead point and the active segment.'
         );
@@ -109,6 +110,7 @@ class CombatNavigation extends ModuleBase {
         CombatRotations.setSpeedMultiplier(this.rotationSpeed);
         CombatNavigator.setMaxCompute(this.maxCompute);
         CombatWalker.setDebug(this.debug);
+        CombatNavigator.setDebug(this.debug);
     }
 }
 
