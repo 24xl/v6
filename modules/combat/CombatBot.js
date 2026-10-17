@@ -45,6 +45,11 @@ const BLACKHOLE_SCAN_Y_RANGE = 20;
 const BLACKHOLE_MEMORY_MS = 60000;
 const BLACKHOLE_MERGE_RADIUS = 2.5;
 
+const CURRENT_TARGET_COLOR = new RenderColor(255, 0, 0, 100);
+const NEXT_TARGET_COLOR = new RenderColor(0, 255, 0, 120);
+const CURRENT_TARGET_THICKNESS = 7;
+const NEXT_TARGET_THICKNESS = 5;
+
 const COMBAT_PRESETS = {
     Graveyard: {
         entityClass: ZombieEntity,
@@ -416,19 +421,42 @@ class Combat extends ModuleBase {
         ];
     }
 
+    scoreTarget(target) {
+        const position = this.getTargetPosition(target);
+        if (!position) return null;
+
+        const distance = this._getDistanceToPlayer(position).distance;
+        const turn = angleToPlayer([position.x, position.y, position.z]).distance;
+        return distance + turn * 0.025;
+    }
+
     bestTarget() {
         let best = null;
         let bestScore = Infinity;
 
         this.targets.forEach((target) => {
             if (!this.isTargetUsable(target)) return;
-            const position = this.getTargetPosition(target);
-            if (!position) return;
 
-            const distance = this._getDistanceToPlayer(position).distance;
-            const turn = angleToPlayer([position.x, position.y, position.z]).distance;
-            const score = distance + turn * 0.025;
-            if (score < bestScore) {
+            const score = this.scoreTarget(target);
+            if (score !== null && score < bestScore) {
+                best = target;
+                bestScore = score;
+            }
+        });
+
+        return best;
+    }
+
+    getNextTarget(exclude = this.target) {
+        let best = null;
+        let bestScore = Infinity;
+
+        this.targets.forEach((target) => {
+            if (!this.isTargetUsable(target)) return;
+            if (exclude && this.sameTarget(target, exclude)) return;
+
+            const score = this.scoreTarget(target);
+            if (score !== null && score < bestScore) {
                 best = target;
                 bestScore = score;
             }
@@ -696,23 +724,13 @@ class Combat extends ModuleBase {
     }
 
     renderTargets() {
-        const groups = new Map();
-        this.targets.forEach((target) => {
-            const blacklisted = this.blacklistedTargets.has(this.getTargetUuid(target));
-            if (!blacklisted && !this.isTargetUsable(target)) return;
+        const next = this.getNextTarget();
+        const nextEntity = next && next.toMC ? next.toMC() : next;
+        const currentEntity = this.isTargetUsable(this.target) ? (this.target.toMC ? this.target.toMC() : this.target) : null;
 
-            const entity = target.toMC ? target.toMC() : target;
-            const selected = this.sameTarget(target, this.target);
-            const key = `${blacklisted}:${selected}`;
-            if (!groups.has(key))
-                groups.set(key, {
-                    color: blacklisted ? new RenderColor(0, 0, 0, 150) : selected ? new RenderColor(255, 0, 0, 100) : new RenderColor(0, 70, 200, 100),
-                    thickness: selected ? 7 : 3,
-                    entities: [],
-                });
-            groups.get(key).entities.push(entity);
-        });
-        groups.forEach(({ entities, color, thickness }) => Render3D.drawHitboxes(entities, color, thickness, false));
+        if (nextEntity) Render3D.drawHitboxes([nextEntity], NEXT_TARGET_COLOR, NEXT_TARGET_THICKNESS, false);
+        if (currentEntity) Render3D.drawHitboxes([currentEntity], CURRENT_TARGET_COLOR, CURRENT_TARGET_THICKNESS, false);
+
         Render3D.drawFilledBoxes(
             this.activeBlackholes.map((blackhole) => new Vec3d(blackhole.x - 0.5, blackhole.y + 0.5, blackhole.z - 0.5)),
             new RenderColor(0, 0, 0, 150),
