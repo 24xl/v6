@@ -110,3 +110,7 @@ import './other/RatMacro';
 import './other/PeltMacro';
 import './other/PeltQOL';
 import './other/DojoMacro';
+
+/* COMBAT */
+import './combat/CombatBot';
+import './combat/CombatNavigation';

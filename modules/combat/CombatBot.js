@@ -1,9 +1,9 @@
 import { ArmorStandEntity, CreeperEntity, DataComponents, EndermanEntity, MobEntity, PlayerEntity, Vec3d, ZombieEntity } from '../../utils/Constants';
 import { angleToPlayer, getDistance, getDistanceToPlayer } from '../../utils/Math';
 import { ModuleBase } from '../../utils/ModuleBase';
-import Pathfinder from '../../utils/pathfinder/PathFinder';
-import { setKeysForStraightLineCoords } from '../../utils/player/Movement';
-import { Rotations } from '../../utils/player/Rotations';
+import { CombatNavigator } from '../../utils/combat/CombatNavigator';
+import { CombatRotations } from '../../utils/combat/CombatRotations';
+import { CombatWalker } from '../../utils/combat/CombatWalker';
 import { isLookingAtEntity } from '../../utils/Raytrace';
 
 const STATES = {
@@ -37,6 +37,7 @@ const REPATH_DISTANCE = 7;
 const REPATH_DELAY_MS = 1200;
 const PATH_FAILURE_BLACKLIST_MS = 5000;
 const VISIBILITY_GRACE_MS = 750;
+const TARGET_SCAN_INTERVAL = 2;
 
 const BLACKHOLE_AVOID_RADIUS = 8.5;
 const BLACKHOLE_SCAN_INTERVAL = 10;
@@ -108,12 +109,11 @@ class Combat extends ModuleBase {
         this.visibleUntil = new Map();
         this.activeBlackholes = [];
         this.scanTicker = 0;
+        this.targetScanTicker = 0;
 
         this.pathfindingThreshold = 15;
         this.attackCPS = 10;
         this.attackButton = 'Left Click';
-        this.overrideRotationSpeed = false;
-        this.combatRotationSpeed = 400;
 
         this.addSlider(
             'Pathfinding Threshold',
@@ -147,29 +147,6 @@ class Combat extends ModuleBase {
             'Mouse button used to attack.',
             'Left Click'
         );
-
-        let rotationSpeedSlider;
-        this.addToggle(
-            'Override Rotation Speed',
-            (value) => {
-                this.overrideRotationSpeed = !!value;
-                rotationSpeedSlider.visible = this.overrideRotationSpeed;
-                this.refreshTargetRotation();
-            },
-            'Use a Combat Bot-specific rotation speed instead of the global setting.'
-        );
-        rotationSpeedSlider = this.addSlider(
-            'Combat Rotation Speed',
-            30,
-            60,
-            40,
-            (value) => {
-                this.combatRotationSpeed = value * 10;
-                if (this.overrideRotationSpeed) this.refreshTargetRotation();
-            },
-            'Degrees per second.'
-        );
-        rotationSpeedSlider.visible = false;
 
         this.addMultiToggle(
             'Target Presets',
@@ -224,7 +201,7 @@ class Combat extends ModuleBase {
 
         this.scanBlackholes();
         this.expireTargetData();
-        this.targets = this.getTargets();
+        this.scanTargets();
 
         if (this.target && !this.isTargetUsable(this.target)) this.setTarget(null);
         if (!this.target) {
@@ -272,7 +249,7 @@ class Combat extends ModuleBase {
 
         this.cancelPath();
         Client.stopMovement();
-        Rotations.stop();
+        CombatRotations.stop();
         this.trackedTarget = null;
         this.target = target;
         this.nextAttackAt = 0;
@@ -282,15 +259,10 @@ class Combat extends ModuleBase {
     }
 
     trackTarget() {
-        if (!this.target || this.trackedTarget === this.target) return;
-        const options = this.overrideRotationSpeed ? { rotationSpeed: this.combatRotationSpeed } : { speedMultiplier: 0.9 };
-        if (Rotations.trackEntity(this.target, options)) this.trackedTarget = this.target;
-    }
-
-    refreshTargetRotation() {
         if (!this.target) return;
-        this.trackedTarget = null;
-        this.trackTarget();
+        if (this.trackedTarget === this.target) return;
+        CombatRotations.lookAtEntity(this.target);
+        this.trackedTarget = this.target;
     }
 
     engage(position, distance) {
@@ -298,8 +270,7 @@ class Combat extends ModuleBase {
         this.trackTarget();
 
         if (distance.distanceFlat > 2.8) {
-            setKeysForStraightLineCoords(position.x, position.y, position.z, true, true);
-            Client.setKey('sprint', true);
+            CombatWalker.moveToward(position);
         } else {
             Client.stopMovement();
         }
@@ -326,55 +297,27 @@ class Combat extends ModuleBase {
         }
 
         this.cancelPath();
-        this.trackTarget();
+        this.trackedTarget = null;
         this.setState(STATES.PATHING);
         this.pathStartedAt = Date.now();
         this.pathTargetPosition = { ...position };
 
-        const candidates = this.targets.filter((target) => this.isTargetUsable(target));
         const goals = [];
-        candidates.forEach((target) => {
-            const targetPosition = this.getTargetPosition(target);
-            if (targetPosition) goals.push(...this.buildPathGoals(targetPosition));
-        });
-        let target = this.target;
+        this.targets
+            .filter((target) => this.isTargetUsable(target))
+            .forEach((target) => {
+                const targetPosition = this.getTargetPosition(target);
+                if (targetPosition) goals.push(...this.buildPathGoals(targetPosition));
+            });
+        if (!goals.length) goals.push(...this.buildPathGoals(position));
+
         const token = ++this.pathToken;
-        Pathfinder.findPath(goals, (success) => this.onPathComplete(token, target, success), {
-            resolveEntityTarget: (result) => {
-                const selected = this.getPathResultTarget(result, candidates);
-                const selectedPosition = this.getTargetPosition(selected);
-                if (!selectedPosition) return null;
+        const target = this.target;
 
-                target = selected;
-                this.pathTargetPosition = { ...selectedPosition };
-                if (!this.sameTarget(this.target, selected)) {
-                    this.target = selected;
-                    this.trackedTarget = null;
-                    this.nextAttackAt = 0;
-                    this.trackTarget();
-                }
-
-                return { target: selected, goals: this.buildPathGoals(selectedPosition) };
-            },
-            walkArrivalRadius: PATH_HANDOFF_DISTANCE,
+        CombatNavigator.findPath(goals, (success) => this.onPathComplete(token, target, success), {
             avoidPoints: this.activeBlackholes,
             avoidRadius: Math.ceil(BLACKHOLE_AVOID_RADIUS),
-            silent: true,
         });
-    }
-
-    getPathResultTarget(result, candidates) {
-        const path = result?.path;
-        const end = path && path.length ? path[path.length - 1] : null;
-        if (!end) return this.target;
-
-        const best = candidates.reduce((closest, candidate) => {
-            const position = this.getTargetPosition(candidate);
-            if (!position) return closest;
-            const distance = this.getDistanceBetween(end, position).distance;
-            return !closest || distance < closest.distance ? { target: candidate, distance } : closest;
-        }, null);
-        return best ? best.target : this.target;
     }
 
     onPathComplete(token, target, success) {
@@ -394,14 +337,14 @@ class Combat extends ModuleBase {
     cancelPath() {
         this.pathToken++;
         this.pathTargetPosition = null;
-        if (this.state === STATES.PATHING || Pathfinder.isPathing()) Pathfinder.resetPath();
+        if (this.state === STATES.PATHING || CombatNavigator.isPathing()) CombatNavigator.resetPath();
     }
 
     pauseMovement() {
         if (this.state === STATES.IDLE && !this.trackedTarget) return;
         this.cancelPath();
         Client.stopMovement();
-        Rotations.stop();
+        CombatRotations.stop();
         this.trackedTarget = null;
         this.setState(STATES.IDLE);
     }
@@ -651,6 +594,11 @@ class Combat extends ModuleBase {
         return (this.visibleUntil.get(uuid) || 0) > Date.now();
     }
 
+    scanTargets() {
+        if (this.targetScanTicker++ % TARGET_SCAN_INTERVAL !== 0 && this.targets.length) return;
+        this.targets = this.getTargets();
+    }
+
     getTargets() {
         const targets = this.externalTargets !== null ? this.externalTargets : this.targetNames.length ? this.findMob({ names: this.targetNames }) : [];
         if (this.externalTargets === null) this.enabledPresets.forEach((name) => targets.push(...this.findMob(COMBAT_PRESETS[name])));
@@ -750,6 +698,7 @@ class Combat extends ModuleBase {
     onEnable() {
         this.activeBlackholes = [];
         this.scanTicker = 0;
+        this.targetScanTicker = 0;
         if (!this.isParentManaged) {
             this.message(this.targetNames.length || this.enabledPresets.size ? '&aEnabled' : '&eEnabled, but no targets are configured.');
         }
@@ -760,7 +709,7 @@ class Combat extends ModuleBase {
 
         this.cancelPath();
         Client.stopMovement();
-        Rotations.stop();
+        CombatRotations.stop();
         this.externalTargets = null;
         this.targets = [];
         this.target = null;
