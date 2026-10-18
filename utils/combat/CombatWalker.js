@@ -1,6 +1,7 @@
 import { setKeysForStraightLineCoords } from '../player/Movement';
 import { isLineClear } from '../Raytrace';
 import { Vec3d } from '../Constants';
+import { CombatRotations } from './CombatRotations';
 
 const MOVEMENT_KEYS = ['w', 'a', 's', 'd', 'space', 'sprint'];
 
