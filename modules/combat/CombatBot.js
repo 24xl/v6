@@ -38,6 +38,7 @@ const REPATH_DELAY_MS = 700;
 const PATH_FAILURE_BLACKLIST_MS = 12000;
 const VISIBILITY_GRACE_MS = 750;
 const TARGET_SCAN_INTERVAL = 2;
+const NAME_CACHE_MS = 500;
 
 const BLACKHOLE_AVOID_RADIUS = 8.5;
 const BLACKHOLE_SCAN_INTERVAL = 10;
@@ -107,6 +108,7 @@ class Combat extends ModuleBase {
 
         this.blacklistedTargets = new Map();
         this.visibleUntil = new Map();
+        this.nameCache = new Map();
         this.activeBlackholes = [];
         this.scanTicker = 0;
         this.targetScanTicker = 0;
@@ -494,7 +496,7 @@ class Combat extends ModuleBase {
                 if (config.boundaryCheck && !config.boundaryCheck(entity.getX(), entity.getY(), entity.getZ())) return false;
                 if (config.entityCheck && !config.entityCheck(entity.toMC())) return false;
 
-                return this.isVisibleOrRecent(entity, config.checkVisibility);
+                return true;
             } catch (e) {
                 console.error('V5 Combat Bot target scan error: ' + e);
                 return false;
@@ -567,7 +569,16 @@ class Combat extends ModuleBase {
     }
 
     getCleanEntityName(entity) {
-        return ChatLib.removeFormatting(String(entity.getName()?.getString?.() ?? entity.getName())).toLowerCase();
+        const uuid = this.getTargetUuid(entity);
+        const now = Date.now();
+        if (uuid) {
+            const cached = this.nameCache.get(uuid);
+            if (cached && now - cached.at < NAME_CACHE_MS) return cached.name;
+        }
+
+        const name = ChatLib.removeFormatting(String(entity.getName()?.getString?.() ?? entity.getName())).toLowerCase();
+        if (uuid) this.nameCache.set(uuid, { name, at: now });
+        return name;
     }
 
     isVisibleOrRecent(entity, checkVisibility) {
