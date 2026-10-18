@@ -42,6 +42,7 @@ class CombatPathWalker {
         this.progressAt = 0;
         this.lastX = 0;
         this.lastZ = 0;
+        this.stuckAttempts = 0;
         this.renderRegister = register('postRenderWorld', () => this.render()).unregister();
     }
 
@@ -65,6 +66,7 @@ class CombatPathWalker {
         this.flagBits = Array.isArray(result?.path_flag_bits) && result.path_flag_bits.length >= 8 ? result.path_flag_bits : DEFAULT_FLAG_BITS;
         this.t = 0;
         this.smoothedLookahead = MAX_LOOKAHEAD;
+        this.stuckAttempts = 0;
         if (Number.isFinite(options.arrivalRadius)) this.arrivalRadius = options.arrivalRadius;
         this.markProgress();
     }
@@ -89,16 +91,26 @@ class CombatPathWalker {
             return 'ARRIVED';
         }
 
-        const movedX = player.getX() - this.lastX;
-        const movedZ = player.getZ() - this.lastZ;
-        if (Math.hypot(movedX, movedZ) >= PROGRESS_DISTANCE) this.markProgress();
-        else if (Date.now() - this.progressAt > STUCK_MS) {
-            this.stopKeys();
-            return 'STUCK';
-        }
-
         const lookPoint = this.computeLookPoint();
         this.steer(lookPoint);
+
+        const moved = Math.hypot(player.getX() - this.lastX, player.getZ() - this.lastZ);
+        if (moved >= PROGRESS_DISTANCE) {
+            this.stuckAttempts = 0;
+            this.markProgress();
+        } else if (Date.now() - this.progressAt > STUCK_MS) {
+            this.stuckAttempts++;
+            this.markProgress();
+            if (this.stuckAttempts >= 3) {
+                this.stopKeys();
+                return 'STUCK';
+            }
+            Client.setKey('space', true);
+            Client.setKey(this.stuckAttempts % 2 === 1 ? 'a' : 'd', true);
+            Client.setKey('w', true);
+            return 'MOVING';
+        }
+
         const movePoint = this.interpolate(this.t + MOVE_LOOKAHEAD) || lookPoint;
         this.moveToward(movePoint);
         this.handleJump();
@@ -134,10 +146,18 @@ class CombatPathWalker {
         const px = player.getX();
         const pz = player.getZ();
         const base = Math.max(0, Math.min(lastSegment, Math.floor(this.t)));
-        const start = Math.max(0, base - 2);
-        const end = Math.min(lastSegment, base + 10);
 
-        let bestT = this.t;
+        let result = this.project(px, pz, Math.max(0, base - 3), Math.min(lastSegment, base + 12));
+        if (result.distanceSq > 6.25) {
+            const global = this.project(px, pz, 0, lastSegment);
+            if (global.distanceSq < result.distanceSq) result = global;
+        }
+
+        this.t = Math.max(0, Math.min(this.points.length - 1, result.t));
+    }
+
+    project(px, pz, start, end) {
+        let bestT = start;
         let bestDistanceSq = Infinity;
 
         for (let i = start; i <= end; i++) {
@@ -159,8 +179,7 @@ class CombatPathWalker {
             }
         }
 
-        const maxT = Math.min(this.points.length - 1, this.t + MAX_ADVANCE_PER_TICK);
-        this.t = Math.min(maxT, Math.max(this.t, bestT));
+        return { t: bestT, distanceSq: bestDistanceSq };
     }
 
     interpolate(indexFloat) {

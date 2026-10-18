@@ -4,7 +4,7 @@ import { ModuleBase } from '../../utils/ModuleBase';
 import { CombatNavigator } from '../../utils/combat/CombatNavigator';
 import { CombatRotations } from '../../utils/combat/CombatRotations';
 import { CombatWalker } from '../../utils/combat/CombatWalker';
-import { isLookingAtEntity } from '../../utils/Raytrace';
+import { isLineClear, isLookingAtEntity } from '../../utils/Raytrace';
 
 const STATES = {
     IDLE: 'IDLE',
@@ -33,12 +33,11 @@ const BLACKHOLE_TEXTURES = new Set([
 const ATTACK_REACH = 4;
 const NAMETAG_MOB_RANGE = 1;
 const PATH_HANDOFF_DISTANCE = 6;
-const REPATH_DISTANCE = 7;
-const REPATH_DELAY_MS = 1200;
+const REPATH_DISTANCE = 2;
+const REPATH_DELAY_MS = 700;
 const PATH_FAILURE_BLACKLIST_MS = 12000;
 const VISIBILITY_GRACE_MS = 750;
 const TARGET_SCAN_INTERVAL = 2;
-const REACHABILITY_PENALTY = 12;
 
 const BLACKHOLE_AVOID_RADIUS = 8.5;
 const BLACKHOLE_SCAN_INTERVAL = 10;
@@ -205,15 +204,9 @@ class Combat extends ModuleBase {
         this.scanTargets();
 
         if (this.target && !this.isTargetUsable(this.target)) this.setTarget(null);
+        if (!this.target) this.setTarget(this.bestTarget());
         if (!this.target) {
-            this.setTarget(this.bestTarget());
-            const position = this.getTargetPosition(this.target);
-            if (!position) this.setState(STATES.IDLE);
-            else {
-                const distance = this._getDistanceToPlayer(position);
-                if (distance.distance <= ATTACK_REACH && this.canSeeTarget(this.target)) this.engage(position, distance);
-                else this.startPath(position);
-            }
+            this.setState(STATES.IDLE);
             return;
         }
 
@@ -225,24 +218,27 @@ class Combat extends ModuleBase {
 
         const distance = this._getDistanceToPlayer(position);
 
-        if (this.state === STATES.PATHING) {
-            if (
-                Date.now() - this.pathStartedAt >= REPATH_DELAY_MS &&
-                this.pathTargetPosition &&
-                this.getDistanceBetween(position, this.pathTargetPosition).distanceFlat >= REPATH_DISTANCE
-            ) {
-                this.startPath(position);
-            }
+        if (distance.distance <= ATTACK_REACH && this.hasLineOfSight(position)) {
+            this.engage(position, distance);
             return;
         }
 
-        const pathThreshold = this.state === STATES.FIGHTING ? this.pathfindingThreshold + 2 : this.pathfindingThreshold;
-        if (distance.distanceFlat > pathThreshold || (distance.distance > ATTACK_REACH && !this.canSeeTarget(this.target))) {
-            this.startPath(position);
-            return;
-        }
+        this.ensurePath(position);
+    }
 
-        this.engage(position, distance);
+    ensurePath(position) {
+        const moved =
+            !this.pathTargetPosition ||
+            this.getDistanceBetween(position, this.pathTargetPosition).distanceFlat >= REPATH_DISTANCE;
+        const stale = Date.now() - this.pathStartedAt >= REPATH_DELAY_MS;
+        const navigating = this.state === STATES.PATHING && CombatNavigator.isPathing();
+        if (!navigating || moved || stale) this.startPath(position);
+    }
+
+    hasLineOfSight(position) {
+        const eye = Player.getPlayer()?.getEyePosition();
+        if (!eye) return false;
+        return isLineClear(eye.x(), eye.y(), eye.z(), position.x, position.y + 1, position.z, -99999, -99999, -99999);
     }
 
     setTarget(target) {
@@ -303,14 +299,7 @@ class Combat extends ModuleBase {
         this.pathStartedAt = Date.now();
         this.pathTargetPosition = { ...position };
 
-        const goals = [];
-        this.targets
-            .filter((target) => this.isTargetUsable(target))
-            .forEach((target) => {
-                const targetPosition = this.getTargetPosition(target);
-                if (targetPosition) goals.push(...this.buildPathGoals(targetPosition));
-            });
-        if (!goals.length) goals.push(...this.buildPathGoals(position));
+        const goals = this.buildPathGoals(position);
 
         const token = ++this.pathToken;
         const target = this.target;
@@ -382,12 +371,9 @@ class Combat extends ModuleBase {
             if (!this.isTargetUsable(target)) return;
 
             const score = this.scoreTarget(target);
-            if (score === null) return;
-
-            const adjusted = this.canSeeTarget(target) ? score : score + REACHABILITY_PENALTY;
-            if (adjusted < bestScore) {
+            if (score !== null && score < bestScore) {
                 best = target;
-                bestScore = adjusted;
+                bestScore = score;
             }
         });
 
