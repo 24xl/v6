@@ -1,14 +1,12 @@
 import { calculateAbsoluteAngles, getAngleDifference, wrapTo180 } from '../Math';
-import { applyToPlayer } from '../player/RotationGCD';
+import { applyToPlayer, clampPitch, getCurrentRotation } from '../player/RotationGCD';
 
-const BASE_KP = 0.09;
-const KD = 0.55;
-const MAX_VELOCITY = 16.0;
-const ACCEL_LIMIT = 2.6;
-const SETTLE_THRESHOLD = 0.15;
-const YAW_DEADZONE = 1.2;
-const PITCH_DEADZONE = 1.8;
-const SMOOTH_FACTOR = 0.1;
+const DEFAULT_SPEED = 500;
+const DAMPING_DIST = 45;
+const MIN_STEP = 10;
+const POINT_PRECISION = 0.1;
+const ENTITY_PRECISION = 0.5;
+const CURVE_STRENGTH = 0.14;
 const TALL_ENTITY_SPLIT = 2.5;
 const TALL_ENTITY_MULTIPLIER = 0.5;
 const SHORT_ENTITY_MULTIPLIER = 0.85;
@@ -16,21 +14,22 @@ const SHORT_ENTITY_MULTIPLIER = 0.85;
 class CombatRotationController {
     constructor() {
         this.request = null;
-        this.currentYaw = 0;
-        this.currentPitch = 0;
-        this.rawTargetYaw = 0;
-        this.rawTargetPitch = 0;
-        this.yawVelocity = 0;
-        this.pitchVelocity = 0;
-        this.initialized = false;
-        this.lastUpdate = 0;
-        this.speedMultiplier = 1;
+        this.speed = DEFAULT_SPEED;
+        this.mode = 'Non-linear';
+        this.lastTime = 0;
+        this.startTime = 0;
+        this.initialDistance = 0;
+        this.curveSeed = Math.random() * Math.PI * 2;
         this.renderRegister = register('renderWorld', () => this.update()).unregister();
     }
 
-    setSpeedMultiplier(multiplier) {
-        const value = Number(multiplier);
-        if (Number.isFinite(value) && value > 0) this.speedMultiplier = value;
+    setSpeed(speed) {
+        const value = Number(speed);
+        if (Number.isFinite(value) && value > 0) this.speed = value;
+    }
+
+    setMode(mode) {
+        this.mode = mode === 'Linear' ? 'Linear' : mode === 'Instant' ? 'Instant' : 'Non-linear';
     }
 
     lookAtEntity(entity) {
@@ -38,7 +37,9 @@ class CombatRotationController {
             this.stop();
             return;
         }
+        if (this.request?.type === 'entity' && this.request.value === entity) return;
         this.request = { type: 'entity', value: entity };
+        this.resetTiming();
         this.start();
     }
 
@@ -57,26 +58,21 @@ class CombatRotationController {
 
     stop() {
         this.request = null;
-        this.lastUpdate = 0;
+        this.lastTime = 0;
+        this.startTime = 0;
+        this.initialDistance = 0;
         if (this.renderRegister.isRegistered()) this.renderRegister.unregister();
     }
 
     start() {
-        if (!this.initialized) this.syncFromPlayer();
-        this.lastUpdate = 0;
         if (!this.renderRegister.isRegistered()) this.renderRegister.register();
     }
 
-    syncFromPlayer() {
-        const player = Player.getPlayer();
-        if (!player) return;
-        this.currentYaw = wrapTo180(player.getYRot());
-        this.currentPitch = player.getXRot();
-        this.rawTargetYaw = this.currentYaw;
-        this.rawTargetPitch = this.currentPitch;
-        this.yawVelocity = 0;
-        this.pitchVelocity = 0;
-        this.initialized = true;
+    resetTiming(now = 0, distance = 0) {
+        this.lastTime = now;
+        this.startTime = now;
+        this.initialDistance = distance;
+        this.curveSeed = Math.random() * Math.PI * 2;
     }
 
     isEntityUsable(entity) {
@@ -92,14 +88,16 @@ class CombatRotationController {
         try {
             const mc = entity?.toMC ? entity.toMC() : entity;
             const box = mc?.getBoundingBox?.();
-            if (!box) return null;
-            const height = box.maxY - box.minY;
-            const multiplier = height >= TALL_ENTITY_SPLIT ? TALL_ENTITY_MULTIPLIER : SHORT_ENTITY_MULTIPLIER;
-            return {
-                x: (box.minX + box.maxX) / 2,
-                y: box.minY + height * multiplier,
-                z: (box.minZ + box.maxZ) / 2,
-            };
+            if (box) {
+                const height = box.maxY - box.minY;
+                const multiplier = height >= TALL_ENTITY_SPLIT ? TALL_ENTITY_MULTIPLIER : SHORT_ENTITY_MULTIPLIER;
+                return {
+                    x: (box.minX + box.maxX) / 2,
+                    y: box.minY + height * multiplier,
+                    z: (box.minZ + box.maxZ) / 2,
+                };
+            }
+            return { x: mc.getX(), y: mc.getY() + 1, z: mc.getZ() };
         } catch (e) {
             return null;
         }
@@ -111,61 +109,83 @@ class CombatRotationController {
         return this.getEntityAimPoint(this.request.value);
     }
 
+    getPrecision() {
+        return this.request?.type === 'entity' ? ENTITY_PRECISION : POINT_PRECISION;
+    }
+
     update() {
+        if (!this.request) return;
+
+        const player = Player.getPlayer();
+        if (!player) {
+            this.stop();
+            return;
+        }
+
         const point = this.resolvePoint();
         if (!point) {
             this.stop();
             return;
         }
 
-        const now = Date.now();
-        const timeScale = this.lastUpdate ? Math.min(2, (now - this.lastUpdate) / (1000 / 120)) : 1;
-        this.lastUpdate = now;
+        const current = getCurrentRotation(player);
+        if (!current) return;
 
         const angles = calculateAbsoluteAngles(point);
         const targetYaw = wrapTo180(angles.yaw);
-        const yawDelta = getAngleDifference(this.rawTargetYaw, targetYaw);
-        const smooth = Math.min(1, SMOOTH_FACTOR * timeScale);
+        const targetPitch = clampPitch(angles.pitch);
 
-        if (Math.abs(yawDelta) > YAW_DEADZONE) this.rawTargetYaw = wrapTo180(this.rawTargetYaw + yawDelta * smooth);
-        const pitchDelta = angles.pitch - this.rawTargetPitch;
-        if (Math.abs(pitchDelta) > PITCH_DEADZONE) this.rawTargetPitch += pitchDelta * smooth;
+        const currentYaw = wrapTo180(current.yaw);
+        const currentPitch = current.pitch;
+        const deltaYaw = getAngleDifference(currentYaw, targetYaw);
+        const deltaPitch = targetPitch - currentPitch;
+        const distance = Math.hypot(deltaYaw, deltaPitch);
 
-        this.applyPhysics(timeScale);
-        applyToPlayer(this.currentYaw, this.currentPitch);
+        const now = Date.now();
+        if (this.lastTime === 0) {
+            this.resetTiming(now, distance);
+            return;
+        }
+
+        if (distance > this.initialDistance) this.initialDistance = distance;
+        const deltaTime = Math.max(0, (now - this.lastTime) / 1000);
+        this.lastTime = now;
+
+        if (this.mode === 'Instant' || distance <= this.getPrecision()) {
+            applyToPlayer(targetYaw, targetPitch);
+            return;
+        }
+
+        const ratio = this.getStepRatio(distance, deltaTime);
+        const curve = this.getCurveOffset(this.getProgress(distance));
+        const nextYaw = currentYaw + deltaYaw * ratio + curve.x * ratio;
+        const nextPitch = clampPitch(currentPitch + deltaPitch * ratio + curve.y * ratio);
+
+        if (Number.isFinite(nextYaw) && Number.isFinite(nextPitch)) {
+            applyToPlayer(nextYaw, nextPitch);
+        }
     }
 
-    applyPhysics(timeScale) {
-        const yawError = getAngleDifference(this.currentYaw, this.rawTargetYaw);
-        const pitchError = this.rawTargetPitch - this.currentPitch;
-        const multiplier = Math.min(1.5, Math.max(0.6, Math.abs(yawError) / 10));
-        const kp = BASE_KP * multiplier * this.speedMultiplier;
-        const accelLimit = ACCEL_LIMIT * this.speedMultiplier;
-        const maxVelocity = MAX_VELOCITY * this.speedMultiplier;
+    getStepRatio(distance, deltaTime) {
+        const timeAlive = this.startTime > 0 ? (Date.now() - this.startTime) / 1000 : 0;
+        const warmup = Math.min(timeAlive * 4, 1);
+        const damping = Math.min(distance / DAMPING_DIST, 1);
+        const speed = this.speed * Math.sqrt(damping);
+        const step = (speed * warmup + MIN_STEP) * deltaTime;
+        return Math.min(distance, step) / distance;
+    }
 
-        if (Math.abs(yawError) < SETTLE_THRESHOLD && Math.abs(this.yawVelocity) < 0.02) {
-            this.currentYaw = this.rawTargetYaw;
-            this.yawVelocity = 0;
-        } else {
-            const accel = yawError * kp - this.yawVelocity * KD;
-            this.yawVelocity += Math.max(-accelLimit, Math.min(accelLimit, accel)) * timeScale;
-            this.yawVelocity *= Math.pow(0.92, timeScale);
-            this.yawVelocity = Math.max(-maxVelocity, Math.min(maxVelocity, this.yawVelocity));
-            this.currentYaw = wrapTo180(this.currentYaw + this.yawVelocity * timeScale);
-        }
+    getProgress(distance) {
+        if (this.initialDistance <= 0) return 1;
+        return Math.max(0, Math.min(1, 1 - distance / this.initialDistance));
+    }
 
-        if (Math.abs(pitchError) < SETTLE_THRESHOLD && Math.abs(this.pitchVelocity) < 0.02) {
-            this.currentPitch = this.rawTargetPitch;
-            this.pitchVelocity = 0;
-        } else {
-            const accel = pitchError * kp - this.pitchVelocity * KD;
-            this.pitchVelocity += Math.max(-accelLimit, Math.min(accelLimit, accel)) * timeScale;
-            this.pitchVelocity *= Math.pow(0.92, timeScale);
-            this.pitchVelocity = Math.max(-maxVelocity, Math.min(maxVelocity, this.pitchVelocity));
-            this.currentPitch += this.pitchVelocity * timeScale;
-        }
-
-        this.currentPitch = Math.max(-90, Math.min(90, this.currentPitch));
+    getCurveOffset(progress) {
+        if (this.mode !== 'Non-linear') return { x: 0, y: 0 };
+        const ease = Math.sin(progress * Math.PI);
+        const fade = 1 - progress;
+        const strength = this.initialDistance * CURVE_STRENGTH * ease * fade;
+        return { x: Math.cos(this.curveSeed) * strength, y: Math.sin(this.curveSeed) * strength };
     }
 }
 

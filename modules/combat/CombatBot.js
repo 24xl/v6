@@ -33,17 +33,21 @@ const BLACKHOLE_TEXTURES = new Set([
 const ATTACK_REACH = 4;
 const NAMETAG_MOB_RANGE = 1;
 const PATH_HANDOFF_DISTANCE = 6;
-const REPATH_DISTANCE = 2;
-const REPATH_DELAY_MS = 700;
+const REPATH_DISTANCE = 4;
+const REPATH_DELAY_MS = 1500;
 const PATH_FAILURE_BLACKLIST_MS = 12000;
 const VISIBILITY_GRACE_MS = 750;
 const TARGET_SCAN_INTERVAL = 3;
-const TARGET_SWITCH_MARGIN = 2.5;
+const TARGET_SWITCH_MARGIN = 4;
+const TARGET_SWITCH_COOLDOWN_MS = 500;
 const NAME_CACHE_MS = 500;
 const DEFAULT_SCAN_RADIUS = 24;
 const MIN_SCAN_RADIUS = 12;
 const MAX_SCAN_RADIUS = 50;
 const SCAN_Y_RANGE = 12;
+const SCAN_EXPAND_STEP = 8;
+const MAX_SEARCH_RADIUS = 80;
+const SCAN_EXPAND_SCANS = 4;
 
 const BLACKHOLE_AVOID_RADIUS = 8.5;
 const BLACKHOLE_SCAN_INTERVAL = 20;
@@ -124,6 +128,9 @@ class Combat extends ModuleBase {
         this.attackCPS = 10;
         this.attackButton = 'Left Click';
         this.scanRadius = DEFAULT_SCAN_RADIUS;
+        this.searchRadius = DEFAULT_SCAN_RADIUS;
+        this.expandTicker = 0;
+        this.lastSwitchAt = 0;
 
         this.addSlider(
             'Scan Radius',
@@ -228,7 +235,10 @@ class Combat extends ModuleBase {
 
         const best = this.bestTarget();
         if (!this.target) this.setTarget(best);
-        else if (best && !this.sameTarget(best, this.target) && this.shouldSwitchTarget(best)) this.setTarget(best);
+        else if (best && !this.sameTarget(best, this.target) && this.shouldSwitchTarget(best) && Date.now() - this.lastSwitchAt >= TARGET_SWITCH_COOLDOWN_MS) {
+            this.lastSwitchAt = Date.now();
+            this.setTarget(best);
+        }
 
         if (!this.target) {
             this.setState(STATES.IDLE);
@@ -254,6 +264,7 @@ class Combat extends ModuleBase {
 
     approachDirectly(position) {
         this.trackTarget();
+        if (!this.hasLineOfSight(position)) return;
         CombatWalker.moveToward(position);
     }
 
@@ -524,13 +535,13 @@ class Combat extends ModuleBase {
         }
     }
 
-    findMob(config) {
+    findMob(config, radius = this.scanRadius) {
         if (!config) return [];
         const hasNames = Array.isArray(config.names) && config.names.length > 0;
         if (!hasNames && !config.entityClass) return [];
 
-        if (hasNames) return this.findMobByName(config.names, this.scanRadius);
-        return this.nearbyEntities(config.entityClass, this.scanRadius).filter((entity) => this.matchesMobConfig(entity, config));
+        if (hasNames) return this.findMobByName(config.names, radius);
+        return this.nearbyEntities(config.entityClass, radius).filter((entity) => this.matchesMobConfig(entity, config));
     }
 
     nearbyEntities(mcClass, radius, yRange = SCAN_Y_RANGE) {
@@ -669,17 +680,25 @@ class Combat extends ModuleBase {
     scanTargets() {
         if (this.targetScanTicker++ % TARGET_SCAN_INTERVAL !== 0) return;
 
-        this.targets = this.getTargets();
-        this.targetUuids = new Set(this.targets.map((target) => this.getTargetUuid(target)).filter(Boolean));
+        const found = this.getTargets(this.searchRadius);
+
+        if (found.length) {
+            this.searchRadius = this.scanRadius;
+        } else if (this.searchRadius < MAX_SEARCH_RADIUS && this.expandTicker++ % SCAN_EXPAND_SCANS === 0) {
+            this.searchRadius = Math.min(this.searchRadius + SCAN_EXPAND_STEP, MAX_SEARCH_RADIUS);
+        }
+
+        this.targets = found;
+        this.targetUuids = new Set(found.map((target) => this.getTargetUuid(target)).filter(Boolean));
         this.nextTarget = this.computeNextTarget();
     }
 
-    getTargets() {
+    getTargets(radius = this.scanRadius) {
         const targets =
-            this.externalTargets !== null ? this.externalTargets : this.targetNames.length ? this.findMob({ names: this.targetNames }) : [];
+            this.externalTargets !== null ? this.externalTargets : this.targetNames.length ? this.findMob({ names: this.targetNames }, radius) : [];
         if (this.externalTargets === null) {
             this.enabledPresets.forEach((name) => {
-                if (COMBAT_PRESETS[name]) targets.push(...this.findMob(COMBAT_PRESETS[name]));
+                if (COMBAT_PRESETS[name]) targets.push(...this.findMob(COMBAT_PRESETS[name], radius));
             });
         }
         return [...new Map(targets.map((target) => [this.getTargetUuid(target), target])).values()].filter((target) => !this.isTargetNameBlacklisted(target));
@@ -781,6 +800,8 @@ class Combat extends ModuleBase {
         this.targetScanTicker = 0;
         this.targetUuids = new Set();
         this.nextTarget = null;
+        this.searchRadius = this.scanRadius;
+        this.expandTicker = 0;
         if (!this.isParentManaged) {
             this.message(this.targetNames.length || this.enabledPresets.size ? '&aEnabled' : '&eEnabled, but no targets are configured.');
         }

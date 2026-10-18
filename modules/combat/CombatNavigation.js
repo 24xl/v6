@@ -14,7 +14,7 @@ class CombatNavigation extends ModuleBase {
         });
 
         this.debug = false;
-        this.rotationSpeed = 1.5;
+        this.rotationSpeed = 50;
         this.sprint = true;
         this.autoJump = true;
         this.lookAlongPath = true;
@@ -33,14 +33,14 @@ class CombatNavigation extends ModuleBase {
 
         this.addSlider(
             'Rotation Speed',
-            5,
             30,
-            15,
+            100,
+            50,
             (value) => {
-                this.rotationSpeed = value / 10;
-                CombatRotations.setSpeedMultiplier(this.rotationSpeed);
+                this.rotationSpeed = value;
+                CombatRotations.setSpeed(this.rotationSpeed * 10);
             },
-            'Multiplier for the humanized path rotation.'
+            'Aim turn speed in degrees per second (higher = snappier).'
         );
 
         this.addToggle(
@@ -107,7 +107,7 @@ class CombatNavigation extends ModuleBase {
             lookAlongPath: this.lookAlongPath,
             arrivalRadius: this.arrivalRadius,
         });
-        CombatRotations.setSpeedMultiplier(this.rotationSpeed);
+        CombatRotations.setSpeed(this.rotationSpeed * 10);
         CombatNavigator.setMaxCompute(this.maxCompute);
         CombatWalker.setDebug(this.debug);
         CombatNavigator.setDebug(this.debug);
