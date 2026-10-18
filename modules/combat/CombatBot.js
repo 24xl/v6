@@ -226,6 +226,12 @@ class Combat extends ModuleBase {
         }
 
         this.ensurePath(position);
+        if (!CombatNavigator.isFollowing()) this.approachDirectly(position);
+    }
+
+    approachDirectly(position) {
+        this.trackTarget();
+        CombatWalker.moveToward(position);
     }
 
     ensurePath(position) {
@@ -265,7 +271,10 @@ class Combat extends ModuleBase {
     }
 
     engage(position, distance) {
-        this.setState(STATES.FIGHTING);
+        if (this.state !== STATES.FIGHTING) {
+            this.cancelPath();
+            this.setState(STATES.FIGHTING);
+        }
         this.trackTarget();
 
         if (distance.distanceFlat > 2.8) {
@@ -317,6 +326,7 @@ class Combat extends ModuleBase {
 
         this.pathTargetPosition = null;
         if (success && this.isTargetUsable(target)) {
+            this.trackedTarget = null;
             this.setState(STATES.FIGHTING);
             this.trackTarget();
             return;

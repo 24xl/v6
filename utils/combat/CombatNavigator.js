@@ -1,5 +1,6 @@
 import { chat } from '../Chat';
 import { Swift } from '../pathfinder/SwiftIntegration';
+import { startPathExecutor } from '../pathfinder/PathExecutor';
 import { CombatWalker } from './CombatWalker';
 
 const STATES = {
@@ -8,8 +9,8 @@ const STATES = {
     FOLLOWING: 'FOLLOWING',
 };
 
-const SEARCH_TIMEOUT_MS = 15000;
-const SEARCH_EMPTY_GRACE_MS = 1500;
+const SEARCH_TIMEOUT_MS = 2500;
+const SEARCH_EMPTY_GRACE_MS = 1200;
 const FAIL_COOLDOWN_MS = 500;
 const START_OFFSETS = [
     [0, 0, 0],
@@ -63,6 +64,7 @@ class CombatPathNavigator {
         const avoidRadius = Math.max(1, Math.floor(Number.isFinite(options.avoidRadius) ? options.avoidRadius : 2));
         this.addAvoidPoints(options.avoidPoints, avoidRadius);
 
+        startPathExecutor();
         if (!Swift.SwiftPath(this.buildStarts(), end, false, this.variantSeed, this.maxCompute)) {
             this.log('search did not start');
             this.lastFailAt = Date.now();
@@ -120,6 +122,10 @@ class CombatPathNavigator {
 
     isPathing() {
         return this.state !== STATES.IDLE;
+    }
+
+    isFollowing() {
+        return this.state === STATES.FOLLOWING;
     }
 
     resetPath() {

@@ -122,8 +122,7 @@ class CombatPathWalker {
         if (!point) return;
         if (Client.isInGui() && !Client.isInChat()) return;
         setKeysForStraightLineCoords(point.x, point.y, point.z, this.autoJump, true);
-        if (this.sprint && this.isStraight()) Client.setKey('sprint', true);
-        else Client.setKey('sprint', false);
+        Client.setKey('sprint', true);
     }
 
     steer(point) {
