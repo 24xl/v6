@@ -14,7 +14,7 @@ class CombatNavigation extends ModuleBase {
         });
 
         this.debug = false;
-        this.rotationSpeed = 1;
+        this.rotationSpeed = 1.5;
         this.sprint = true;
         this.autoJump = true;
         this.lookAlongPath = true;
@@ -34,8 +34,8 @@ class CombatNavigation extends ModuleBase {
         this.addSlider(
             'Rotation Speed',
             5,
-            20,
-            10,
+            30,
+            15,
             (value) => {
                 this.rotationSpeed = value / 10;
                 CombatRotations.setSpeedMultiplier(this.rotationSpeed);

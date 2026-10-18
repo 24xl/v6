@@ -13,6 +13,7 @@ const RECOVERY_LOOKAHEAD_STEP = 0.15;
 const PROXIMITY_THRESHOLD = 4.0;
 const COMPLETION_RADIUS = 1.9;
 const MAX_ADVANCE_PER_TICK = 1.6;
+const MOVE_LOOKAHEAD = 0.9;
 const PROGRESS_DISTANCE = 0.2;
 const STUCK_MS = 900;
 const STEP_UP_THRESHOLD = 0.5;
@@ -98,7 +99,8 @@ class CombatPathWalker {
 
         const lookPoint = this.computeLookPoint();
         this.steer(lookPoint);
-        this.moveToward(lookPoint);
+        const movePoint = this.interpolate(this.t + MOVE_LOOKAHEAD) || lookPoint;
+        this.moveToward(movePoint);
         this.handleJump();
 
         return 'MOVING';

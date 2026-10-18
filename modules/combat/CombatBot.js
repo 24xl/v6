@@ -35,9 +35,10 @@ const NAMETAG_MOB_RANGE = 1;
 const PATH_HANDOFF_DISTANCE = 6;
 const REPATH_DISTANCE = 7;
 const REPATH_DELAY_MS = 1200;
-const PATH_FAILURE_BLACKLIST_MS = 5000;
+const PATH_FAILURE_BLACKLIST_MS = 12000;
 const VISIBILITY_GRACE_MS = 750;
 const TARGET_SCAN_INTERVAL = 2;
+const REACHABILITY_PENALTY = 12;
 
 const BLACKHOLE_AVOID_RADIUS = 8.5;
 const BLACKHOLE_SCAN_INTERVAL = 10;
@@ -381,9 +382,12 @@ class Combat extends ModuleBase {
             if (!this.isTargetUsable(target)) return;
 
             const score = this.scoreTarget(target);
-            if (score !== null && score < bestScore) {
+            if (score === null) return;
+
+            const adjusted = this.canSeeTarget(target) ? score : score + REACHABILITY_PENALTY;
+            if (adjusted < bestScore) {
                 best = target;
-                bestScore = score;
+                bestScore = adjusted;
             }
         });
 

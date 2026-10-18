@@ -1,10 +1,10 @@
 import { calculateAbsoluteAngles, getAngleDifference, wrapTo180 } from '../Math';
 import { applyToPlayer } from '../player/RotationGCD';
 
-const BASE_KP = 0.05;
+const BASE_KP = 0.09;
 const KD = 0.55;
-const MAX_VELOCITY = 8.0;
-const ACCEL_LIMIT = 1.2;
+const MAX_VELOCITY = 16.0;
+const ACCEL_LIMIT = 2.6;
 const SETTLE_THRESHOLD = 0.15;
 const YAW_DEADZONE = 1.2;
 const PITCH_DEADZONE = 1.8;
