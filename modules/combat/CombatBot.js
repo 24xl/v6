@@ -37,12 +37,16 @@ const REPATH_DISTANCE = 2;
 const REPATH_DELAY_MS = 700;
 const PATH_FAILURE_BLACKLIST_MS = 12000;
 const VISIBILITY_GRACE_MS = 750;
-const TARGET_SCAN_INTERVAL = 2;
+const TARGET_SCAN_INTERVAL = 3;
 const TARGET_SWITCH_MARGIN = 2.5;
 const NAME_CACHE_MS = 500;
+const DEFAULT_SCAN_RADIUS = 24;
+const MIN_SCAN_RADIUS = 12;
+const MAX_SCAN_RADIUS = 50;
+const SCAN_Y_RANGE = 12;
 
 const BLACKHOLE_AVOID_RADIUS = 8.5;
-const BLACKHOLE_SCAN_INTERVAL = 10;
+const BLACKHOLE_SCAN_INTERVAL = 20;
 const BLACKHOLE_SCAN_RADIUS = 30;
 const BLACKHOLE_SCAN_Y_RANGE = 20;
 const BLACKHOLE_MEMORY_MS = 60000;
@@ -110,6 +114,8 @@ class Combat extends ModuleBase {
         this.blacklistedTargets = new Map();
         this.visibleUntil = new Map();
         this.nameCache = new Map();
+        this.targetUuids = new Set();
+        this.nextTarget = null;
         this.activeBlackholes = [];
         this.scanTicker = 0;
         this.targetScanTicker = 0;
@@ -117,6 +123,18 @@ class Combat extends ModuleBase {
         this.pathfindingThreshold = 15;
         this.attackCPS = 10;
         this.attackButton = 'Left Click';
+        this.scanRadius = DEFAULT_SCAN_RADIUS;
+
+        this.addSlider(
+            'Scan Radius',
+            MIN_SCAN_RADIUS,
+            MAX_SCAN_RADIUS,
+            DEFAULT_SCAN_RADIUS,
+            (value) => {
+                this.scanRadius = value;
+            },
+            'Radius (blocks) to search for nearby targets. Lower = better FPS.'
+        );
 
         this.addSlider(
             'Pathfinding Threshold',
@@ -407,13 +425,17 @@ class Combat extends ModuleBase {
         return bestDistance < currentDistance - TARGET_SWITCH_MARGIN;
     }
 
-    getNextTarget(exclude = this.target) {
+    getNextTarget() {
+        return this.nextTarget;
+    }
+
+    computeNextTarget() {
         let best = null;
         let bestScore = Infinity;
 
         this.targets.forEach((target) => {
             if (!this.isTargetUsable(target)) return;
-            if (exclude && this.sameTarget(target, exclude)) return;
+            if (this.sameTarget(target, this.target)) return;
 
             const score = this.scoreTarget(target);
             if (score !== null && score < bestScore) {
@@ -432,12 +454,14 @@ class Combat extends ModuleBase {
             if (!this.isCombatTargetCandidate(target, true)) return false;
 
             const uuid = this.getTargetUuid(target);
-            if (uuid && this.blacklistedTargets.has(uuid)) return false;
+            if (!uuid) return false;
+            if (this.blacklistedTargets.has(uuid)) return false;
+            if (!this.targetUuids.has(uuid)) return false;
 
             const position = this.getTargetPosition(target);
             if (!position || !this.isPositionSafe(position.x, position.y, position.z)) return false;
 
-            return this.targets.some((candidate) => this.sameTarget(candidate, target));
+            return true;
         } catch (e) {
             return false;
         }
@@ -501,46 +525,66 @@ class Combat extends ModuleBase {
     }
 
     findMob(config) {
-        if (!config?.entityClass && !Array.isArray(config?.names)) return [];
+        if (!config) return [];
+        const hasNames = Array.isArray(config.names) && config.names.length > 0;
+        if (!hasNames && !config.entityClass) return [];
 
-        const names = Array.isArray(config.names)
-            ? config.names
-                  .filter((name) => typeof name === 'string')
-                  .map((name) => name.trim().toLowerCase())
-                  .filter(Boolean)
-            : null;
-        if (names && !names.length) return [];
+        if (hasNames) return this.findMobByName(config.names, this.scanRadius);
+        return this.nearbyEntities(config.entityClass, this.scanRadius).filter((entity) => this.matchesMobConfig(entity, config));
+    }
 
-        const entities = names ? World.getAllEntities() : World.getAllEntitiesOfType(config.entityClass);
-        const nametagMobs = names ? entities.filter((entity) => this.isCombatTargetCandidate(entity, true)) : [];
-        const mobs = entities.filter((entity) => {
-            try {
-                if (!this.isCombatTargetCandidate(entity, config.allowInvisible)) return false;
-                if (config.entityClass && !(entity.toMC() instanceof config.entityClass)) return false;
-                if (this.isTargetNameBlacklisted(entity)) return false;
-                if (config.boundaryCheck && !config.boundaryCheck(entity.getX(), entity.getY(), entity.getZ())) return false;
-                if (config.entityCheck && !config.entityCheck(entity.toMC())) return false;
+    nearbyEntities(mcClass, radius, yRange = SCAN_Y_RANGE) {
+        const player = Player.getPlayer();
+        const world = World.getWorld();
+        if (!player || !world) return [];
+        try {
+            const box = player.getBoundingBox().inflate(radius, yRange, radius);
+            return world.getEntitiesOfClass(mcClass, box) || [];
+        } catch (e) {
+            console.error('V5 Combat Bot entity query error: ' + e);
+            return [];
+        }
+    }
 
-                return true;
-            } catch (e) {
-                console.error('V5 Combat Bot target scan error: ' + e);
-                return false;
-            }
-        });
-        const candidates = new Map(mobs.map((mob) => [this.getTargetUuid(mob), mob]));
-        if (!names) return [...candidates.values()];
+    matchesMobConfig(entity, config) {
+        try {
+            if (!this.isCombatTargetCandidate(entity, config.allowInvisible)) return false;
+            if (this.isTargetNameBlacklisted(entity)) return false;
+            if (config.boundaryCheck && !config.boundaryCheck(entity.getX(), entity.getY(), entity.getZ())) return false;
+            if (config.entityCheck && !config.entityCheck(entity)) return false;
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
 
+    findMobByName(names, radius) {
+        const parsed = names
+            .filter((name) => typeof name === 'string')
+            .map((name) => name.trim().toLowerCase())
+            .filter(Boolean);
+        if (!parsed.length) return [];
+
+        const mobs = this.nearbyEntities(MobEntity, radius).filter((entity) => this.isCombatTargetCandidate(entity, true));
+        const mobIds = new Set(mobs.map((mob) => this.getTargetUuid(mob)).filter(Boolean));
         const targets = new Map();
-        for (const entity of entities) {
-            try {
-                const name = this.getCleanEntityName(entity);
-                if (!names.some((candidate) => name.includes(candidate)) || this.isTargetNameBlacklisted(entity)) continue;
 
-                const target = entity.toMC() instanceof ArmorStandEntity ? this.resolveNametagTarget(entity, nametagMobs) : entity;
-                if (target && candidates.has(this.getTargetUuid(target))) targets.set(this.getTargetUuid(target), target);
-            } catch (e) {
-                console.error('V5 Combat Bot target scan error: ' + e);
-            }
+        for (const stand of this.nearbyEntities(ArmorStandEntity, radius)) {
+            const name = this.getCleanEntityName(stand);
+            if (!parsed.some((candidate) => name.includes(candidate))) continue;
+            if (this.isTargetNameBlacklisted(stand)) continue;
+            const mob = this.resolveNametagTarget(stand, mobs);
+            if (!mob) continue;
+            const uuid = this.getTargetUuid(mob);
+            if (uuid && mobIds.has(uuid)) targets.set(uuid, mob);
+        }
+
+        for (const mob of mobs) {
+            const name = this.getCleanEntityName(mob);
+            if (!parsed.some((candidate) => name.includes(candidate))) continue;
+            if (this.isTargetNameBlacklisted(mob)) continue;
+            const uuid = this.getTargetUuid(mob);
+            if (uuid) targets.set(uuid, mob);
         }
 
         return [...targets.values()];
@@ -569,8 +613,9 @@ class Combat extends ModuleBase {
     }
 
     resolveNametagTarget(namedEntity, mobs) {
-        const mcEntity = namedEntity.toMC();
-        if (mcEntity.isRemoved?.() || namedEntity.isDead?.()) return null;
+        const mcEntity = namedEntity?.toMC ? namedEntity.toMC() : namedEntity;
+        if (!mcEntity) return null;
+        if (mcEntity.isRemoved?.() || mcEntity.isDeadOrDying?.()) return null;
 
         const point = mcEntity.position();
 
@@ -580,7 +625,8 @@ class Combat extends ModuleBase {
 
         for (const mob of mobs) {
             try {
-                const distanceSq = mob.toMC().getBoundingBox().distanceToSqr(point);
+                const mobEntity = mob?.toMC ? mob.toMC() : mob;
+                const distanceSq = mobEntity.getBoundingBox().distanceToSqr(point);
                 if (distanceSq <= maxDistanceSq && distanceSq < closestDistanceSq) {
                     closest = mob;
                     closestDistanceSq = distanceSq;
@@ -621,13 +667,21 @@ class Combat extends ModuleBase {
     }
 
     scanTargets() {
-        if (this.targetScanTicker++ % TARGET_SCAN_INTERVAL !== 0 && this.targets.length) return;
+        if (this.targetScanTicker++ % TARGET_SCAN_INTERVAL !== 0) return;
+
         this.targets = this.getTargets();
+        this.targetUuids = new Set(this.targets.map((target) => this.getTargetUuid(target)).filter(Boolean));
+        this.nextTarget = this.computeNextTarget();
     }
 
     getTargets() {
-        const targets = this.externalTargets !== null ? this.externalTargets : this.targetNames.length ? this.findMob({ names: this.targetNames }) : [];
-        if (this.externalTargets === null) this.enabledPresets.forEach((name) => targets.push(...this.findMob(COMBAT_PRESETS[name])));
+        const targets =
+            this.externalTargets !== null ? this.externalTargets : this.targetNames.length ? this.findMob({ names: this.targetNames }) : [];
+        if (this.externalTargets === null) {
+            this.enabledPresets.forEach((name) => {
+                if (COMBAT_PRESETS[name]) targets.push(...this.findMob(COMBAT_PRESETS[name]));
+            });
+        }
         return [...new Map(targets.map((target) => [this.getTargetUuid(target), target])).values()].filter((target) => !this.isTargetNameBlacklisted(target));
     }
 
@@ -655,14 +709,14 @@ class Combat extends ModuleBase {
         const player = { x: Player.getX(), y: Player.getY(), z: Player.getZ() };
         const now = Date.now();
 
-        for (const stand of World.getAllEntitiesOfType(ArmorStandEntity) || []) {
+        for (const stand of this.nearbyEntities(ArmorStandEntity, BLACKHOLE_SCAN_RADIUS, BLACKHOLE_SCAN_Y_RANGE)) {
             try {
                 const position = { x: stand.getX(), y: stand.getY(), z: stand.getZ() };
                 if (
                     Math.abs(position.x - player.x) > BLACKHOLE_SCAN_RADIUS ||
                     Math.abs(position.y - player.y) > BLACKHOLE_SCAN_Y_RANGE ||
                     Math.abs(position.z - player.z) > BLACKHOLE_SCAN_RADIUS ||
-                    !this.isBlackholeHead(stand.getStackInSlot(5))
+                    !this.isBlackholeHead(stand.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.HEAD))
                 ) {
                     continue;
                 }
@@ -698,9 +752,9 @@ class Combat extends ModuleBase {
     }
 
     renderTargets() {
-        const next = this.getNextTarget();
+        const next = this.nextTarget && this.nextTarget !== this.target ? this.nextTarget : null;
         const nextEntity = next && next.toMC ? next.toMC() : next;
-        const currentEntity = this.isTargetUsable(this.target) ? (this.target.toMC ? this.target.toMC() : this.target) : null;
+        const currentEntity = this.target ? (this.target.toMC ? this.target.toMC() : this.target) : null;
 
         if (nextEntity) Render3D.drawHitboxes([nextEntity], NEXT_TARGET_COLOR, NEXT_TARGET_THICKNESS, false);
         if (currentEntity) Render3D.drawHitboxes([currentEntity], CURRENT_TARGET_COLOR, CURRENT_TARGET_THICKNESS, false);
@@ -725,6 +779,8 @@ class Combat extends ModuleBase {
         this.activeBlackholes = [];
         this.scanTicker = 0;
         this.targetScanTicker = 0;
+        this.targetUuids = new Set();
+        this.nextTarget = null;
         if (!this.isParentManaged) {
             this.message(this.targetNames.length || this.enabledPresets.size ? '&aEnabled' : '&eEnabled, but no targets are configured.');
         }
@@ -738,6 +794,8 @@ class Combat extends ModuleBase {
         CombatRotations.stop();
         this.externalTargets = null;
         this.targets = [];
+        this.targetUuids = new Set();
+        this.nextTarget = null;
         this.target = null;
         this.trackedTarget = null;
         this.state = STATES.IDLE;
