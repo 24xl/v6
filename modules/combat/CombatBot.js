@@ -38,6 +38,7 @@ const REPATH_DELAY_MS = 700;
 const PATH_FAILURE_BLACKLIST_MS = 12000;
 const VISIBILITY_GRACE_MS = 750;
 const TARGET_SCAN_INTERVAL = 2;
+const TARGET_SWITCH_MARGIN = 2.5;
 const NAME_CACHE_MS = 500;
 
 const BLACKHOLE_AVOID_RADIUS = 8.5;
@@ -206,7 +207,11 @@ class Combat extends ModuleBase {
         this.scanTargets();
 
         if (this.target && !this.isTargetUsable(this.target)) this.setTarget(null);
-        if (!this.target) this.setTarget(this.bestTarget());
+
+        const best = this.bestTarget();
+        if (!this.target) this.setTarget(best);
+        else if (best && !this.sameTarget(best, this.target) && this.shouldSwitchTarget(best)) this.setTarget(best);
+
         if (!this.target) {
             this.setState(STATES.IDLE);
             return;
@@ -390,6 +395,16 @@ class Combat extends ModuleBase {
         });
 
         return best;
+    }
+
+    shouldSwitchTarget(best) {
+        const currentPosition = this.getTargetPosition(this.target);
+        const bestPosition = this.getTargetPosition(best);
+        if (!currentPosition || !bestPosition) return true;
+
+        const currentDistance = this._getDistanceToPlayer(currentPosition).distance;
+        const bestDistance = this._getDistanceToPlayer(bestPosition).distance;
+        return bestDistance < currentDistance - TARGET_SWITCH_MARGIN;
     }
 
     getNextTarget(exclude = this.target) {
