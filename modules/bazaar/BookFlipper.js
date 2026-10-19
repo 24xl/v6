@@ -858,21 +858,25 @@ class BookFlipper extends ModuleBase {
             {
                 name: 'Create Sell Offer',
                 enter: () => {
-                    if (this.isSellMenu()) this.debugGui('sell menu');
+                    this.debugGuiOnce('sell menu');
                     const slot = this.findCreateOfferSlot();
                     if (slot >= 0) this.safeClick(slot);
-                    else this.debugGui('sell: no Create Sell Offer');
+                    else this.debugGuiOnce('sell: no Create Sell Offer');
                 },
                 done: () => this.hasItem('gold_nugget', 'Best Offer -0.1'),
             },
             {
                 name: 'Best Offer -0.1',
-                enter: () => this.clickItem('gold_nugget', 'Best Offer -0.1'),
+                enter: () => {
+                    this.debugGuiOnce('sell price');
+                    this.clickItem('gold_nugget', 'Best Offer -0.1');
+                },
                 done: () => this.hasItem('enchanted_book', 'Sell Offer'),
             },
             {
                 name: 'Submit sell offer',
                 enter: () => {
+                    this.debugGuiOnce('sell confirm');
                     st.mark = this.chatSeq;
                     this.clickItem('enchanted_book', 'Sell Offer');
                 },
@@ -1438,10 +1442,17 @@ class BookFlipper extends ModuleBase {
         const key = context + '|' + gui;
         if (this.guiDebugSeen[key]) return;
         this.guiDebugSeen[key] = true;
-        const slots = this.items()
+        this.debugGuiOnce(context);
+    }
+
+    debugGuiOnce(context) {
+        const gui = this.guiName();
+        const items = this.items();
+        const slots = items
             .map((item, slot) => `${slot}:${clean(item?.getName?.())}`)
             .filter((entry) => !entry.endsWith(':'));
         console.log(`[BookFlipper] GUI DEBUG (${context}) gui="${gui}" slots=${slots.join(' | ')}`);
+        this.message(`&8[DBG ${context}] &7gui=&f${gui} &7${slots.join(' ')}`);
     }
 
     report() {
