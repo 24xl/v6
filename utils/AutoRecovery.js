@@ -44,6 +44,7 @@ class AutoRecovery {
     constructor() {
         this.active = false;
         this.ready = true;
+        this.owners = new Set();
         this.state = STATE.READY;
         this.notSkyBlock = false;
         this.lastCommandAt = 0;
@@ -72,13 +73,17 @@ class AutoRecovery {
         });
     }
 
-    setActive(value) {
-        this.active = !!value;
-        this.ready = this.active ? this.inSkyBlock() && this.onIsland() : true;
+    setActive(value, owner = 'default') {
+        if (value) this.owners.add(owner);
+        else this.owners.delete(owner);
+        const active = this.owners.size > 0;
+        if (active === this.active) return;
+        this.active = active;
+        this.ready = !active;
         this.state = STATE.READY;
         this.notSkyBlock = false;
         this.notLoadedSince = 0;
-        console.log(`[Recovery] active=${this.active} ready=${this.ready}`);
+        console.log(`[Recovery] active=${this.active} owners=${this.owners.size} ready=${this.ready}`);
     }
 
     isReady() {
@@ -97,7 +102,8 @@ class AutoRecovery {
     }
 
     onIsland() {
-        return normalizeArea(getArea()).includes('private island') && normalizeArea(subArea()).includes('your island');
+        if (normalizeArea(getArea()).includes('private island')) return true;
+        return normalizeArea(subArea()).includes('your island');
     }
 
     setState(state) {

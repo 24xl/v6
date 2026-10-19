@@ -135,11 +135,10 @@ class BazaarNpcMacro extends ModuleBase {
         this.reset();
         this.recovering = false;
         this.pendingEnable = { cleanupMode, cleanupInventory };
-        Recovery.setActive(true);
+        Recovery.setActive(true, this.name);
         this.message(cleanupMode ? '&aCleanup started' : '&aEnabled');
         if (!Recovery.isReady()) {
             this.status = 'Recovering';
-            this.message('&eNot on your island yet; recovering before starting...');
             return;
         }
         this.finishEnable();
@@ -168,7 +167,7 @@ class BazaarNpcMacro extends ModuleBase {
     }
 
     onDisable() {
-        Recovery.setActive(false);
+        Recovery.setActive(false, this.name);
         const cleanupFinished = this.cleanupFinished;
         if (!cleanupFinished && this.inventoryReady) this.cleanupInventory = this.startingInventory;
         else if (cleanupFinished) this.cleanupInventory = null;
