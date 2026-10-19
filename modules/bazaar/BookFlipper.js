@@ -437,9 +437,9 @@ class BookFlipper extends ModuleBase {
         return {
             name: 'Open orders',
             status: 'Opening orders',
-            screen: () => this.guiIs('bazaar orders'),
+            screen: () => this.isOrdersGui(),
             open: () => this.runCommand('managebazaarorders'),
-            done: () => this.guiIs('bazaar orders'),
+            done: () => this.isOrdersGui(),
         };
     }
 
@@ -575,7 +575,7 @@ class BookFlipper extends ModuleBase {
                 name: 'Claim orders',
                 status: 'Claiming books',
                 enter: () => {
-                    if (!this.guiIs('bazaar orders')) {
+                    if (!this.isOrdersGui()) {
                         this.runCommand('managebazaarorders');
                         return;
                     }
@@ -593,7 +593,7 @@ class BookFlipper extends ModuleBase {
                 done: () =>
                     st.none ||
                     this.chatSince(st.mark, /you don't have the space required to claim that/i) ||
-                    (st.clickedAt && this.guiIs('bazaar orders') && Date.now() - st.clickedAt > 600),
+                    (st.clickedAt && this.isOrdersGui() && Date.now() - st.clickedAt > 600),
                 next: () => (st.none ? [this.doneStep(() => {})] : this.claimSteps()),
             },
         ];
@@ -610,7 +610,7 @@ class BookFlipper extends ModuleBase {
                 name: 'Find ' + phase + ' order',
                 status: 'Cleaning ' + phase,
                 enter: () => {
-                    if (!this.guiIs('bazaar orders')) {
+                    if (!this.isOrdersGui()) {
                         this.runCommand('managebazaarorders');
                         return;
                     }
@@ -652,7 +652,7 @@ class BookFlipper extends ModuleBase {
                 st.qty = Number(missing?.match(/([\d,]+)x/i)?.[1]?.replace(/,/g, '')) || 0;
                 this.safeClick(slot);
             },
-            done: () => this.guiIs('bazaar orders'),
+            done: () => this.isOrdersGui(),
         };
     }
 
@@ -760,18 +760,18 @@ class BookFlipper extends ModuleBase {
     buySteps(target) {
         const st = { amount: target.quantity, price: target.orderPrice || 0, mark: 0, ok: false, safe: true };
         this.target = target;
-        const buyMenu = () => this.guiIs('bazaar') && this.hasSlot('Create Buy Order');
+        const buyMenu = () => this.hasSlot('Create Buy Order');
         const amountScreen = () => this.hasSlot('Custom Amount');
         const priceScreen = () => this.hasSlot('Top Order +0.1');
-        const confirmScreen = () => this.guiIs('confirm buy order') || this.hasSlot('Buy Order');
+        const confirmScreen = () => this.hasSlot('Buy Order');
         return [
             this.closeGuiStep(),
             {
                 name: 'Open ' + target.name,
                 status: 'Buying ' + target.name,
-                screen: () => this.guiIs('bazaar') && this.hasSlot('Create Buy Order'),
+                screen: buyMenu,
                 open: () => this.runCommand('bz ' + target.name),
-                done: () => this.hasSlot('Create Buy Order'),
+                done: buyMenu,
             },
             {
                 name: 'Create Buy Order',
@@ -861,19 +861,19 @@ class BookFlipper extends ModuleBase {
         this.target = { name, book, level: SELL_TIER, orderPrice: 0 };
         const sellMenu = () => this.hasSlot('Create Sell Offer');
         const priceScreen = () => this.hasSlot('Best Offer -0.1');
-        const confirmScreen = () => this.guiIs('confirm sell offer') || this.hasSlot('Sell Offer');
+        const confirmScreen = () => this.hasSlot('Sell Offer');
         return [
             this.closeGuiStep(),
             {
                 name: 'Open bazaar',
                 status: 'Selling ' + name,
-                screen: () => this.guiIs('bazaar'),
+                screen: () => !!Player.getContainer(),
                 open: () => this.runCommand('bz'),
-                done: () => this.guiIs('bazaar'),
+                done: () => !!Player.getContainer(),
             },
             {
                 name: 'Select ' + name,
-                screen: () => this.guiIs('bazaar'),
+                screen: () => !!Player.getContainer(),
                 enter: () => this.safeClick(this.findInventoryBookSlot(book, SELL_TIER)),
                 done: sellMenu,
             },
@@ -912,7 +912,7 @@ class BookFlipper extends ModuleBase {
         const target = this.orderCheckQueue[0];
         const st = { missing: false, qty: 0, outbid: false, top: NaN };
         this.target = target;
-        const buyMenu = () => this.guiIs('bazaar') && this.hasSlot('Create Buy Order');
+        const buyMenu = () => this.hasSlot('Create Buy Order');
         return [
             this.closeGuiStep(),
             {
@@ -920,7 +920,7 @@ class BookFlipper extends ModuleBase {
                 status: 'Checking ' + target.name,
                 screen: buyMenu,
                 open: () => this.runCommand('bz ' + target.name),
-                done: () => this.hasSlot('Create Buy Order'),
+                done: buyMenu,
             },
             {
                 name: 'Read top order',
@@ -941,7 +941,7 @@ class BookFlipper extends ModuleBase {
         const target = this.sellCheckQueue[0];
         const st = { missing: false, qty: 0, undercut: false, top: NaN };
         this.target = target;
-        const sellMenu = () => this.guiIs('bazaar') && this.hasSlot('Create Sell Offer');
+        const sellMenu = () => this.hasSlot('Create Sell Offer');
         return [
             this.closeGuiStep(),
             {
@@ -949,7 +949,7 @@ class BookFlipper extends ModuleBase {
                 status: 'Checking ' + target.name,
                 screen: sellMenu,
                 open: () => this.runCommand('bz ' + target.name),
-                done: () => this.hasSlot('Create Sell Offer'),
+                done: sellMenu,
             },
             {
                 name: 'Read best offer',
@@ -974,7 +974,7 @@ class BookFlipper extends ModuleBase {
             {
                 name: 'Open order',
                 status: 'Cancelling ' + target.name,
-                screen: () => this.guiIs('bazaar orders'),
+                screen: () => this.isOrdersGui(),
                 enter: () => {
                     this.scanOrders();
                     const slot = this.findOrderSlot(target, new Set(), prefix);
@@ -1281,6 +1281,17 @@ class BookFlipper extends ModuleBase {
     guiIs(name) {
         const current = this.guiName();
         return !!current && current.includes(clean(name));
+    }
+
+    isOrdersGui() {
+        if (this.guiIs('bazaar orders')) return true;
+        const items = this.items();
+        const end = this.guiEnd();
+        for (let slot = 0; slot < end; slot++) {
+            const name = ChatLib.removeFormatting(String(items[slot]?.getName?.() ?? '')).trim();
+            if (/^(BUY|SELL)\s+.+/i.test(name)) return true;
+        }
+        return false;
     }
 
     screenMatches(screen) {
