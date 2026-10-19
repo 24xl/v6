@@ -183,6 +183,8 @@ class BookFlipper extends ModuleBase {
         this.needsSkills = false;
         this.inventoryReady = false;
         this.claimedSlots = new Map();
+        this.claimNoSpace = false;
+        this.orderOutbidCheckedAt = 0;
         this.orderCooldownUntil = 0;
         this.orderLimitReached = false;
         this.lastRefresh = 0;
@@ -228,6 +230,7 @@ class BookFlipper extends ModuleBase {
         const now = Date.now();
         if (/Placing orders is on cooldown/i.test(text)) this.orderCooldownUntil = now + 20_000;
         if (/reached your maximum of [\d,]+ Bazaar orders/i.test(text)) this.orderLimitReached = true;
+        if (/you don't have the space required to claim that/i.test(text)) this.claimNoSpace = true;
     }
 
     chatSince(mark, pattern) {
@@ -363,7 +366,6 @@ class BookFlipper extends ModuleBase {
     // ───────────────────────────── task picker ─────────────────────────────
 
     pickTask() {
-        this.computeOutbids();
         if (this.needsSkills || this.enchantingLevel === null) {
             this.needsSkills = false;
             return this.startTask('Read enchanting', [this.readSkillsStep()]);
@@ -392,15 +394,24 @@ class BookFlipper extends ModuleBase {
         }
 
         if (this.needsOrderScan()) return this.startTask('Scan orders', this.scanOrdersSteps());
+        if (!this.orderCheckQueue.length && this.needsOrderPriceCheck()) {
+            this.orderOutbidCheckedAt = Date.now();
+            this.orderCheckQueue = [...this.activeTargets];
+        }
         if (this.orderCheckQueue.length) return this.startTask('Relist order', this.relistBuySteps());
         if (this.sellCheckQueue.length) return this.startTask('Relist offer', this.relistSellSteps());
-        if (this.containsClaimableV()) return this.startTask('Claim orders', this.claimSteps());
+        if (!this.inventoryFull() && this.containsClaimableV()) return this.startTask('Claim orders', this.claimSteps());
         if (this.inventoryFull() || this.hasPair()) return this.startTask('Combine', this.combineSteps());
         if (this.hasSellableV()) return this.startTask('Sell books', this.sellSteps());
         if (this.orderQueue.length && this.activeTargets.length < this.maxBuyOrders && Date.now() >= this.orderCooldownUntil) {
             return this.startTask('Buy book', this.buySteps(this.orderQueue[0]));
         }
         return this.startTask('Idle', this.idleSteps());
+    }
+
+    needsOrderPriceCheck() {
+        if (!this.activeTargets.length) return false;
+        return Date.now() - this.orderOutbidCheckedAt >= 45_000;
     }
 
     needsOrderScan() {
@@ -564,8 +575,12 @@ class BookFlipper extends ModuleBase {
                     this.claimedSlots.set(slot, Date.now());
                     this.safeClick(slot);
                     st.clickedAt = Date.now();
+                    st.mark = this.chatSeq;
                 },
-                done: () => st.none || (st.clickedAt && this.guiIs('bazaar orders') && Date.now() - st.clickedAt > 600),
+                done: () =>
+                    st.none ||
+                    this.chatSince(st.mark, /you don't have the space required to claim that/i) ||
+                    (st.clickedAt && this.guiIs('bazaar orders') && Date.now() - st.clickedAt > 600),
                 next: () => (st.none ? [this.doneStep(() => {})] : this.claimSteps()),
             },
         ];
@@ -729,7 +744,7 @@ class BookFlipper extends ModuleBase {
     // ───────────────────────────── buy ─────────────────────────────
 
     buySteps(target) {
-        const st = { amount: target.quantity, price: target.orderPrice || 0, mark: 0, ok: false };
+        const st = { amount: target.quantity, price: target.orderPrice || 0, mark: 0, ok: false, safe: true };
         this.target = target;
         return [
             this.closeGuiStep(),
@@ -779,9 +794,15 @@ class BookFlipper extends ModuleBase {
                         return;
                     }
                     st.price = this.unitPrice(this.items()[slot]);
-                    this.safeClick(slot);
+                    st.safe = this.isSafePrice(target.book, target.input, st.price);
+                    if (st.safe) this.safeClick(slot);
+                    else this.debugGui('buy price moved; skipping ' + target.name);
                 },
-                done: () => this.hasItem('enchanted_book', 'Buy Order'),
+                done: () => (st.safe ? this.hasItem('enchanted_book', 'Buy Order') : true),
+                next: () =>
+                    st.safe
+                        ? undefined
+                        : [this.skipRelistBuyStep(target)],
             },
             {
                 name: 'Submit buy order',
@@ -862,13 +883,47 @@ class BookFlipper extends ModuleBase {
 
     relistBuySteps() {
         const target = this.orderCheckQueue[0];
-        const st = { missing: false, qty: 0 };
+        const st = { missing: false, qty: 0, outbid: false, top: NaN };
         this.target = target;
         return [
+            this.closeGuiStep(),
+            {
+                name: 'Open ' + target.name,
+                status: 'Checking ' + target.name,
+                enter: () => this.runCommand('bz ' + target.name),
+                done: () => this.findBookSlot(target.book, target.input) >= 0,
+            },
+            {
+                name: 'Verify outbid',
+                enter: () => {
+                    const slot = this.findBookSlot(target.book, target.input);
+                    if (slot >= 0) this.safeClick(slot);
+                },
+                done: () => this.hasItem('map', 'Create Buy Order'),
+                next: () => [
+                    {
+                        name: 'Read top order',
+                        enter: () => {
+                            const slot = this.findItem('map', 'Create Buy Order');
+                            if (slot < 0) return;
+                            st.top = this.topBuyOrderPrice(this.items()[slot]);
+                            st.outbid = Number.isFinite(st.top) && st.top > target.orderPrice + 0.001;
+                        },
+                        done: () => Number.isFinite(st.top),
+                        next: () => (st.outbid ? this.cancelOutbidSteps(target, st) : [this.skipRelistBuyStep(target)]),
+                    },
+                ],
+            },
+        ];
+    }
+
+    cancelOutbidSteps(target, st) {
+        return [
+            this.closeGuiStep(),
             this.openOrdersStep(),
             {
                 name: 'Open order',
-                status: 'Relisting ' + target.name,
+                status: 'Cancelling ' + target.name,
                 enter: () => {
                     this.scanOrders();
                     const slot = this.findOrderSlot(target, new Set(), 'buy ');
@@ -881,10 +936,18 @@ class BookFlipper extends ModuleBase {
                 done: () => st.missing || this.guiIs('order options'),
                 next: () =>
                     st.missing
-                        ? [this.doneStep(() => this.skipRelistBuy())]
+                        ? [this.skipRelistBuyStep(target)]
                         : [this.cancelOrderClickStep(st), this.doneStep(() => this.finishRelistBuy(target, st))],
             },
         ];
+    }
+
+    skipRelistBuyStep(target) {
+        return this.doneStep(() => {
+            this.orderCheckQueue = this.orderCheckQueue.filter((entry) => entry !== target);
+            this.ordersScanned = false;
+            this.target = null;
+        });
     }
 
     skipRelistBuy() {
@@ -893,11 +956,11 @@ class BookFlipper extends ModuleBase {
     }
 
     finishRelistBuy(target, st) {
-        this.orderCheckQueue.shift();
+        this.orderCheckQueue = this.orderCheckQueue.filter((entry) => entry !== target);
         this.removeTarget(target);
         this.ordersScanned = false;
-        const product = this.bazaarData?.products?.[bookId(target.book, target.input)];
-        const top = askPrice(product);
+        this.target = null;
+        const top = st.top;
         if (!(top > 0)) return;
         const price = Math.ceil((top + 0.1) * 10) / 10;
         const units = target.units;
@@ -995,29 +1058,11 @@ class BookFlipper extends ModuleBase {
         return revenuePerV - price * unitsFor(input);
     }
 
-    computeOutbids() {
-        if (!this.bazaarData) return;
-        const products = this.bazaarData.products || {};
-        const buyKeys = new Set(this.orderCheckQueue.map((target) => target.book.key + ':' + target.input));
-        for (const target of this.activeTargets) {
-            if (!target.book) continue;
-            const key = target.book.key + ':' + target.input;
-            if (buyKeys.has(key)) continue;
-            const product = products[bookId(target.book, target.input)];
-            if (product && askPrice(product) > target.orderPrice + 0.01) {
-                this.orderCheckQueue.push(target);
-                buyKeys.add(key);
-            }
-        }
-        const sellKeys = new Set(this.sellCheckQueue.map((order) => order.book && order.book.key));
-        for (const order of this.openSellOrders) {
-            if (!order.book || order.level !== SELL_TIER || sellKeys.has(order.book.key)) continue;
-            const product = products[bookId(order.book, SELL_TIER)];
-            if (product && Number.isFinite(order.price) && bidPrice(product) < order.price - 0.01) {
-                this.sellCheckQueue.push(order);
-                sellKeys.add(order.book.key);
-            }
-        }
+    topBuyOrderPrice(item) {
+        const prices = lore(item)
+            .map((line) => Number(line.match(/^- ([\d,.]+) coins? each\b/i)?.[1]?.replace(/,/g, '')))
+            .filter(Number.isFinite);
+        return prices.length ? Math.max(...prices) : NaN;
     }
 
     // ───────────────────────────── orders ─────────────────────────────
@@ -1092,6 +1137,7 @@ class BookFlipper extends ModuleBase {
     // ───────────────────────────── claiming ─────────────────────────────
 
     containsClaimableV() {
+        if (this.claimNoSpace) return false;
         return this.findClaimableVSlot() >= 0;
     }
 
@@ -1115,6 +1161,7 @@ class BookFlipper extends ModuleBase {
 
     claimMakesV(book) {
         const counts = { 1: 0, 2: 0, 3: 0, 4: 0 };
+        if (this.noRoomToClaim()) return false;
         for (let level = 1; level < SELL_TIER; level++) counts[level] = this.countLevel(book, level);
         for (const order of this.openBuyOrders) {
             if (!order.book || order.book.key !== book.key || order.level == null || order.level >= SELL_TIER) continue;
@@ -1174,6 +1221,10 @@ class BookFlipper extends ModuleBase {
 
     inventoryFull() {
         return this.freeSlots() <= 1;
+    }
+
+    noRoomToClaim() {
+        return this.claimNoSpace || this.freeSlots() <= 2;
     }
 
     // ───────────────────────────── lookups ─────────────────────────────
@@ -1287,6 +1338,15 @@ class BookFlipper extends ModuleBase {
             if (Number.isFinite(price) && Number.isFinite(target.orderPrice) && Math.abs(price - target.orderPrice) <= 0.001) return slot;
         }
         return fallback;
+    }
+
+    findSellPriceSlot() {
+        return this.findItem('gold_nugget', 'Best Offer -0.1');
+    }
+
+    isSafePrice(book, input, price) {
+        if (!Number.isFinite(price) || price <= 0) return false;
+        return this.flipProfit(book, input, price) >= this.minProfit;
     }
 
     capAmount(slot, st) {
