@@ -1,6 +1,5 @@
 import requestV2 from '../../utils/Request';
 import { DataComponents } from '../../utils/Constants';
-import { getModule } from '../../utils/MacroState';
 import { ModuleBase } from '../../utils/ModuleBase';
 import { setSignLine } from '../../utils/Sign';
 import { v5Command } from '../../utils/V5Commands';
@@ -9,21 +8,12 @@ import { Recovery } from '../../utils/AutoRecovery';
 import { readEnchantingFromContainer } from '../../utils/Skills';
 
 const BAZAAR_URL = 'https://api.hypixel.net/v2/skyblock/bazaar';
-const COMMAND_CAPACITY = 10;
-const COMMAND_RESTORE_TIME = 1_050;
-const GUI_TIMEOUT = 10_000;
-const STUCK_RETRY_DELAY = 1_000;
-const MAX_TIMEOUTS_BEFORE_RESTART = 3;
-const MAX_TOTAL_TIMEOUTS = 8;
-const REFRESH_MS = 60_000;
-const FAIL_RETRY_MS = 30_000;
 const SELL_TIER = 5;
-const MAX_CLAIMS = 8;
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
 const BOOK_LIMIT = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x'];
+const COMBINE_LEVELS = ['i', 'ii', 'iii', 'iv'];
 const BOOKS = [
     { key: 'rejuvenate', idPrefix: 'ENCHANTMENT_REJUVENATE_', name: 'Rejuvenate', names: ['Rejuvenate'], buyTiers: [1, 2, 3], required: 10 },
-    { key: 'ultimate_wisdom', idPrefix: 'ENCHANTMENT_ULTIMATE_WISDOM_', name: 'Wisdom', names: ['Wisdom', 'Ultimate Wisdom'], buyTiers: [1, 2], required: 27 },
 ];
 const bookId = (book, level) => `${book.idPrefix}${level}`;
 const bookName = (book, level) => `${book.name} ${ROMAN[level - 1]}`;
@@ -72,16 +62,20 @@ class BookFlipper extends ModuleBase {
         super({
             name: 'Book Flipper',
             subcategory: 'Bazaar',
-            description: 'Cleans up, then buys Rejuvenate I/II/III and Wisdom I/II, combines to V, and sells the V books.',
-            tooltip: 'Requires Cookie Buff and the Auto Combine module. Empty your inventory first. Wisdom needs Enchanting 27.',
+            description: 'Flips Rejuvenate books on the Bazaar: buys I/II/III, combines to V, sells the V books.',
+            tooltip: 'Requires Cookie Buff. Empty your inventory first. Needs an anvil on your island.',
             isMacro: true,
         });
         this.bindToggleKey();
 
         this.clickDelay = 350;
         this.addSlider('Click Delay (ms)', 50, 2_000, 350, (value) => (this.clickDelay = value), 'Delay between Bazaar clicks.');
+        this.stepTimeout = 8_000;
+        this.addSlider('Step Timeout (ms)', 3_000, 20_000, 8_000, (value) => (this.stepTimeout = value), 'How long a single GUI step may stall before it retries.');
+        this.maxRetries = 3;
+        this.addSlider('Max Retries per Step', 1, 6, 3, (value) => (this.maxRetries = Math.round(value)), 'Retries of a stalled step before the task aborts.');
         this.maxBuyOrders = 8;
-        this.addSlider('Order Limit', 1, 28, 8, (value) => (this.maxBuyOrders = Math.round(value)), 'Maximum active buy orders (all books).');
+        this.addSlider('Order Limit', 1, 28, 8, (value) => (this.maxBuyOrders = Math.round(value)), 'Maximum active buy orders.');
         this.budget = 10_000_000;
         this.addSlider('Per-Order Budget (M)', 0.1, 100, 10, (value) => (this.budget = value * 1_000_000), 'Max coins per buy order (also capped by your purse).');
         this.taxPercent = 1.25;
@@ -90,12 +84,16 @@ class BookFlipper extends ModuleBase {
         this.addSlider('Undercut (%)', 0, 5, 0.1, (value) => (this.undercutPercent = value), 'How far below the lowest sell offer to list.');
         this.minProfit = 0;
         this.addSlider('Min Profit per V', 0, 10_000_000, 0, (value) => (this.minProfit = value), 'Minimum coins profit per finished level V book.');
+        this.refreshSeconds = 60;
+        this.addSlider('Refresh Interval (s)', 10, 300, 60, (value) => (this.refreshSeconds = value), 'How long to idle before re-fetching prices.');
         this.skillGate = true;
         this.addToggle('Enchanting Skill Gate', (value) => (this.skillGate = !!value), 'Skip enchants whose required Enchanting level is above yours.', true);
         this.cleanOnEnable = true;
         this.addToggle('Clean Orders On Enable', (value) => (this.cleanOnEnable = !!value), 'Cancel/claim/combine existing book orders before trading.', true);
-        this.addButton('Refresh Prices', () => this.setAction(this.fetchPrices, 'Refreshing', 0, 25_000), 'Re-fetch Bazaar prices now.');
-        this.addButton('Read Enchanting', () => this.setAction(this.readSkills, 'Reading Enchanting', 0, 15_000), 'Re-read your Enchanting level from /skills.');
+        this.verbose = false;
+        this.addToggle('Verbose Chat', (value) => (this.verbose = !!value), 'Print every step to chat (debugging).', false);
+        this.addButton('Refresh Prices', () => (this.bazaarData = null), 'Re-fetch Bazaar prices now.');
+        this.addButton('Read Enchanting', () => this.setEnchantingPending(), 'Re-read your Enchanting level from /skills.');
 
         this.createOverlay([
             {
@@ -107,32 +105,34 @@ class BookFlipper extends ModuleBase {
                         const purse = this.readPurse();
                         return purse == null ? '—' : formatCoins(purse);
                     },
-                    Books: () => this.enabledBooks().map((book) => book.name).join(', ') || '—',
+                    Orders: () => `${this.activeTargets.length}/${this.maxBuyOrders}`,
                 },
             },
             {
                 title: 'Next',
                 data: {
-                    Book: () => (this.target ? this.target.name : 'None'),
-                    Buy: () => (this.target && this.target.orderPrice ? `${formatCoins(this.target.orderPrice)}` : '—'),
-                    Orders: () => `${this.activeTargets.length}/${this.maxBuyOrders}`,
-                    'To Sell': () => this.enabledBooks().map((book) => `${book.name[0]}V x${this.countLevel(book, SELL_TIER)}`).join(' '),
+                    Book: () => (this.target ? this.target.name : '—'),
+                    Price: () => (this.target && this.target.orderPrice ? formatCoins(this.target.orderPrice) : '—'),
+                    'To Sell': () => this.enabledBooks().map((book) => `${book.name[0]}V x${this.countLevel(book, SELL_TIER)}`).join(' ') || '—',
+                    Error: () => this.lastError || '—',
                 },
             },
         ]);
 
-        this.commandTokens = COMMAND_CAPACITY;
-        this.commandRefillAt = Date.now();
         this.on('tick', () => this.tick());
         this.on('chat', (event) => this.onChat(event));
         v5Command('bazaar books', () => this.report());
         this.reset();
     }
 
+    setEnchantingPending() {
+        this.needsSkills = true;
+        this.bazaarData = null;
+    }
+
     onEnable() {
         this.reset();
         Recovery.setActive(true, this.name);
-        this.message('&aEnabled');
         if (!Recovery.isReady()) {
             this.pendingEnable = true;
             this.status = 'Recovering';
@@ -144,75 +144,67 @@ class BookFlipper extends ModuleBase {
     finishEnable() {
         const inventory = Player.getInventory();
         if (!inventory) return this.fail('Could not snapshot your inventory.');
-        const dirty = inventory.getItems().slice(0, 36).some((item) => item && item.getStackSize() > 0 && !clean(item.getName()).startsWith('skyblock menu'));
+        const dirty = inventory
+            .getItems()
+            .slice(0, 36)
+            .some((item) => item && item.getStackSize() > 0 && !clean(item.getName()).startsWith('skyblock menu'));
         if (dirty && this.toggleContext === 'user') return this.fail('Empty your inventory before enabling the macro.');
-        if (dirty) this.message('&eInventory not empty; resuming with current inventory.');
-        this.startingInventory = this.inventorySnapshot(inventory.getItems());
-        this.lastCheckedInventory = this.startingInventory;
+        if (dirty) this.status = 'Inventory not empty; resuming';
         this.inventoryReady = true;
         this.cleanupPhase = this.cleanOnEnable ? 'buys' : null;
-        this.setAction(this.readSkills, 'Reading Enchanting', 0, 15_000);
+        this.task = this.startTask('Read enchanting', [this.readSkillsStep()]);
     }
 
     onDisable() {
         Recovery.setActive(false, this.name);
-        const combine = getModule('Auto Combine');
-        if (this.combining && combine?.enabled) combine.toggle(false);
         this.requestToken++;
         closeInventory();
         this.reset();
-        this.message('&cDisabled');
+        this.log('&cDisabled');
     }
 
     reset() {
-        this.action = null;
+        this.task = null;
         this.status = 'Idle';
         this.target = null;
         this.orderQueue = [];
         this.activeTargets = [];
-        this.orderCheckQueue = [];
-        this.sellCheckQueue = [];
         this.openBuyOrders = [];
         this.openSellOrders = [];
         this.openOrderCount = 0;
-        this.orderLimitReached = false;
-        this.orderPricesChecked = false;
-        this.cancelQuantity = 0;
-        this.confirmSlot = -1;
-        this.placingSell = false;
+        this.orderCheckQueue = [];
+        this.sellCheckQueue = [];
+        this.cleanupPhase = null;
+        this.lastCancelEmpty = false;
         this.bazaarData = null;
         this.enchantingLevel = null;
         this.skillReadAttempts = 0;
-        this.recovering = false;
         this.pendingEnable = false;
-        this.combining = false;
-        this.afterCombine = null;
-        this.cleanupPhase = null;
-        this.claimNoSpace = false;
-        this.claimedSlots = new Set();
+        this.needsSkills = false;
         this.inventoryReady = false;
-        this.startingInventory = new Map();
-        this.lastCheckedInventory = new Map();
+        this.claimedSlots = new Map();
         this.orderCooldownUntil = 0;
-        this.orderMissingSince = 0;
-        this.nextActionAt = 0;
-        this.deadline = 0;
-        this.retryAction = null;
-        this.retryAt = 0;
-        this.timeoutCount = 0;
-        this.totalTimeouts = 0;
-        this.lastTimeoutStatus = null;
-        this.lastGuiDebugKey = null;
+        this.orderLimitReached = false;
+        this.lastRefresh = 0;
+        this.refreshRetryAt = 0;
+        this.ordersScanned = false;
+        this.ordersScannedAt = 0;
+        this.stepFailures = 0;
+        this.suspended = false;
+        this.chatLog = [];
+        this.chatSeq = 0;
+        this.lastError = null;
+        this.guiDebugSeen = {};
         this.requestToken = (this.requestToken || 0) + 1;
     }
 
-    enabledBooks() {
-        return BOOKS.filter((book) => !this.skillGate || (this.enchantingLevel != null && this.enchantingLevel >= book.required));
+    log(message) {
+        if (this.verbose) this.message(message);
     }
 
     readPurse() {
         try {
-            for (const line of (Scoreboard.getLines() || [])) {
+            for (const line of Scoreboard.getLines() || []) {
                 const text = ChatLib.removeFormatting(String(line));
                 const match = text.match(/(?:Purse|Piggy):\s*([\d,]+)/i);
                 if (match) return Number(match[1].replace(/,/g, ''));
@@ -221,140 +213,227 @@ class BookFlipper extends ModuleBase {
         return null;
     }
 
+    enabledBooks() {
+        return BOOKS.filter((book) => !this.skillGate || (this.enchantingLevel != null && this.enchantingLevel >= book.required));
+    }
+
+    // ───────────────────────────── chat mailbox ─────────────────────────────
+
+    onChat(event) {
+        const text = event?.message?.getUnformattedText?.() ?? event?.message?.getString?.() ?? '';
+        if (!text) return;
+        this.chatSeq++;
+        this.chatLog.push({ seq: this.chatSeq, text, at: Date.now() });
+        if (this.chatLog.length > 60) this.chatLog.splice(0, this.chatLog.length - 60);
+        const now = Date.now();
+        if (/Placing orders is on cooldown/i.test(text)) this.orderCooldownUntil = now + 20_000;
+        if (/reached your maximum of [\d,]+ Bazaar orders/i.test(text)) this.orderLimitReached = true;
+    }
+
+    chatSince(mark, pattern) {
+        return this.chatLog.some((line) => line.seq > mark && pattern.test(line.text));
+    }
+
+    // ───────────────────────────── driver ─────────────────────────────
+
     tick() {
+        if (!this.enabled) return;
         if (!Recovery.isReady()) {
-            if (!this.recovering) {
-                this.recovering = true;
+            if (!this.suspended) {
+                this.suspended = true;
                 this.status = 'Recovering';
-                this.action = null;
-                this.retryAction = null;
                 closeInventory();
             }
             return;
         }
-        if (this.recovering) {
-            this.recovering = false;
-            if (this.pendingEnable) {
-                this.pendingEnable = false;
-                this.finishEnable();
+        if (this.pendingEnable) {
+            this.pendingEnable = false;
+            this.suspended = false;
+            this.finishEnable();
+            return;
+        }
+        if (this.suspended) {
+            this.suspended = false;
+            this.task = null;
+            this.stepFailures = 0;
+        }
+        try {
+            this.drive();
+        } catch (error) {
+            console.error('[BookFlipper] tick error: ' + error);
+            this.task = null;
+            this.onTaskFailed('tick error');
+        }
+    }
+
+    drive() {
+        if (!this.task) {
+            this.task = this.pickTask();
+            if (!this.task) return;
+        }
+        const task = this.task;
+        const step = task.steps[task.i];
+        if (!step) {
+            this.task = null;
+            return;
+        }
+        const now = Date.now();
+        if (!step._entered) {
+            step._entered = true;
+            step._started = now;
+            if (step.status) this.status = step.status;
+            try {
+                step.enter?.();
+            } catch (error) {
+                console.error('[BookFlipper] step enter error (' + step.name + '): ' + error);
+            }
+        }
+        let done = false;
+        try {
+            done = !!step.done?.();
+        } catch (error) {
+            console.error('[BookFlipper] step done error (' + step.name + '): ' + error);
+        }
+        if (done) {
+            if (step.next) {
+                task.steps = step.next() || [];
+                task.i = 0;
             } else {
-                this.restart('Back on your island.');
+                task.i++;
+            }
+            task.retries = 0;
+            if (task.i >= task.steps.length) {
+                this.task = null;
+                this.stepFailures = 0;
             }
             return;
         }
-        try {
-            const now = Date.now();
-            if (this.deadline && now >= this.deadline) return this.onTimeout(`Timed out while ${this.status.toLowerCase()}.`);
-            if (this.retryAction && now >= this.retryAt) {
-                this.retryAt = now + STUCK_RETRY_DELAY;
-                this.nextActionAt = now + this.clickDelay;
-                this.retryAction.call(this);
-                return;
+        const timeout = step.timeout === undefined ? this.stepTimeout : step.timeout;
+        if (timeout > 0 && now - step._started >= timeout) this.onStepTimeout(task, step);
+    }
+
+    onStepTimeout(task, step) {
+        task.retries = (task.retries || 0) + 1;
+        this.debugGui('timeout: ' + step.name);
+        if (task.retries > this.maxRetries) {
+            console.log(`[BookFlipper] task "${task.name}" failed after ${task.retries} tries`);
+            this.task = null;
+            closeInventory();
+            this.onTaskFailed(step.name);
+            return;
+        }
+        console.log(`[BookFlipper] step "${step.name}" timed out; retry ${task.retries}/${this.maxRetries}`);
+        step._entered = false;
+    }
+
+    onTaskFailed(reason) {
+        this.lastError = 'Retry after: ' + reason;
+        this.stepFailures++;
+        if (this.stepFailures >= 3) {
+            this.stepFailures = 0;
+            this.lastError = null;
+            this.log('&eStuck; re-syncing from scratch.');
+            closeInventory();
+            this.hardReset();
+        }
+    }
+
+    hardReset() {
+        const snap = {
+            bazaarData: this.bazaarData,
+            enchantingLevel: this.enchantingLevel,
+            cleanupPhase: this.cleanupPhase,
+            activeTargets: this.activeTargets,
+            openSellOrders: this.openSellOrders,
+            openOrderCount: this.openOrderCount,
+        };
+        this.reset();
+        Object.assign(this, snap);
+        this.inventoryReady = true;
+    }
+
+    startTask(name, steps) {
+        return { name, steps, i: 0, retries: 0 };
+    }
+
+    doneStep(action) {
+        return { name: 'Finish', enter: () => action(), done: () => true, timeout: 0 };
+    }
+
+    // ───────────────────────────── task picker ─────────────────────────────
+
+    pickTask() {
+        this.computeOutbids();
+        if (this.needsSkills || this.enchantingLevel === null) {
+            this.needsSkills = false;
+            return this.startTask('Read enchanting', [this.readSkillsStep()]);
+        }
+        if (!this.bazaarData) {
+            if (Date.now() < (this.refreshRetryAt || 0)) return this.startTask('Idle', this.idleSteps(5_000));
+            return this.startTask('Fetch prices', [this.refreshStep()]);
+        }
+        if (Date.now() - this.lastRefresh >= this.refreshSeconds * 1_000) {
+            return this.startTask('Fetch prices', [this.refreshStep()]);
+        }
+
+        if (this.cleanupPhase) {
+            if (this.inventoryFull() || this.hasPair()) return this.startTask('Combine', this.combineSteps());
+            if (this.lastCancelEmpty) {
+                this.lastCancelEmpty = false;
+                if (this.cleanupPhase === 'buys') {
+                    this.cleanupPhase = 'sells';
+                    return null;
+                }
+                this.cleanupPhase = null;
+                this.log('&aCleanup complete; starting fresh.');
+                return null;
             }
-            if (now < this.nextActionAt) return;
-            if (this.action) this.action.call(this);
-        } catch (error) {
-            console.error('[BookFlipper] tick error: ' + error);
-            this.restart('Error; retrying.');
+            return this.startTask('Cleanup ' + this.cleanupPhase, this.cleanupSteps(this.cleanupPhase));
         }
-    }
 
-    onTimeout(message) {
-        const status = this.status;
-        this.totalTimeouts++;
-        if (status === this.lastTimeoutStatus) this.timeoutCount++;
-        else {
-            this.timeoutCount = 1;
-            this.lastTimeoutStatus = status;
+        if (this.needsOrderScan()) return this.startTask('Scan orders', this.scanOrdersSteps());
+        if (this.orderCheckQueue.length) return this.startTask('Relist order', this.relistBuySteps());
+        if (this.sellCheckQueue.length) return this.startTask('Relist offer', this.relistSellSteps());
+        if (this.containsClaimableV()) return this.startTask('Claim orders', this.claimSteps());
+        if (this.inventoryFull() || this.hasPair()) return this.startTask('Combine', this.combineSteps());
+        if (this.hasSellableV()) return this.startTask('Sell books', this.sellSteps());
+        if (this.orderQueue.length && this.activeTargets.length < this.maxBuyOrders && Date.now() >= this.orderCooldownUntil) {
+            return this.startTask('Buy book', this.buySteps(this.orderQueue[0]));
         }
-        if (this.timeoutCount >= MAX_TIMEOUTS_BEFORE_RESTART || this.totalTimeouts >= MAX_TOTAL_TIMEOUTS) {
-            this.timeoutCount = 0;
-            this.totalTimeouts = 0;
-            this.lastTimeoutStatus = null;
-            return this.restart(message);
-        }
-        this.message(`&e${message} Re-syncing (${this.timeoutCount}/${MAX_TIMEOUTS_BEFORE_RESTART})...`);
-        this.logGuiDebug(`timeout while ${status}`);
-        closeInventory();
-        this.action = null;
-        this.retryAction = null;
-        this.deadline = 0;
-        const delay = Math.min(this.clickDelay * this.timeoutCount * 4, 4_000);
-        this.setAction(this.openOrders, 'Re-syncing orders', delay, GUI_TIMEOUT);
+        return this.startTask('Idle', this.idleSteps());
     }
 
-    logGuiDebug(context) {
-        const key = `${context}|${clean(getGuiName())}`;
-        if (this.lastGuiDebugKey === key) return;
-        this.lastGuiDebugKey = key;
-        const names = (Player.getContainer()?.getItems() || [])
-            .map((item, slot) => `${slot}:${clean(item?.getName?.())}`)
-            .filter((entry) => !entry.endsWith(':'));
-        console.log(`[BookFlipper] GUI DEBUG (${context}) gui="${clean(getGuiName())}" slots=${names.join(' | ')}`);
+    needsOrderScan() {
+        return !this.ordersScanned || Date.now() - this.ordersScannedAt >= 90_000;
     }
 
-    setAction(action, status, delay = this.clickDelay, timeout = GUI_TIMEOUT, retryAction = null) {
-        this.action = action;
-        this.status = status;
-        this.nextActionAt = Date.now() + delay;
-        this.deadline = timeout ? Date.now() + timeout : 0;
-        this.retryAction = retryAction;
-        this.retryAt = retryAction ? Date.now() + STUCK_RETRY_DELAY : 0;
-    }
+    // ───────────────────────────── shared steps ─────────────────────────────
 
-    clickAndWait(slot, action, status, delay = this.clickDelay, timeout = GUI_TIMEOUT) {
-        const gui = clean(getGuiName());
-        const click = () => {
-            if (clean(getGuiName()) !== gui) return;
-            clickSlot(slot);
+    openOrdersStep() {
+        return {
+            name: 'Open orders',
+            status: 'Opening orders',
+            enter: () => {
+                if (!this.guiIs('bazaar orders')) this.runCommand('managebazaarorders');
+            },
+            done: () => this.guiIs('bazaar orders'),
         };
-        this.setAction(action, status, delay, timeout, click);
-        click();
     }
 
-    commandAndWait(command, action, status, delay = 0, timeout = GUI_TIMEOUT) {
-        const previousGui = getGuiName();
-        const run = () => {
-            const wait = this.runCommand(command);
-            if (wait) return this.setAction(run, status, wait, 0);
-            this.setAction(waitForGui, status, delay, timeout, retry);
+    closeGuiStep() {
+        return {
+            name: 'Close GUI',
+            enter: () => {
+                if (this.isInGui()) closeInventory();
+            },
+            done: () => !this.isInGui(),
+            timeout: 3_000,
         };
-        const waitForGui = () => {
-            action.call(this);
-            if (this.action === waitForGui || !this.retryAction) return;
-            if (this.action?.__bzCommand) return;
-            const nextRetry = this.retryAction;
-            this.retryAction = () => {
-                const nextAction = this.action;
-                nextRetry?.call(this);
-                if (this.action === nextAction && getGuiName() === previousGui) run();
-            };
-            this.retryAt = Date.now() + STUCK_RETRY_DELAY;
-        };
-        waitForGui.__bzCommand = command;
-        const retry = () => {
-            waitForGui();
-            if (this.action === waitForGui && this.retryAction === retry) run();
-        };
-        run();
     }
 
-    runCommand(command) {
-        const now = Date.now();
-        const restored = Math.floor((now - this.commandRefillAt) / COMMAND_RESTORE_TIME);
-        if (restored) {
-            this.commandTokens = Math.min(COMMAND_CAPACITY, this.commandTokens + restored);
-            this.commandRefillAt = this.commandTokens === COMMAND_CAPACITY ? now : this.commandRefillAt + restored * COMMAND_RESTORE_TIME;
-        }
-        if (!this.commandTokens) return COMMAND_RESTORE_TIME - (now - this.commandRefillAt);
-        this.commandTokens--;
-        ChatLib.command(command);
-        return 0;
-    }
-
-    readSkills() {
-        const gui = clean(getGuiName());
-        if (gui.includes('skill')) {
+    readSkillsStep() {
+        const st = { sent: 0, t0: 0 };
+        const finish = () => {
             try {
                 const result = readEnchantingFromContainer(Player.getContainer());
                 if (result?.level != null) {
@@ -364,49 +443,502 @@ class BookFlipper extends ModuleBase {
             } catch (error) {
                 console.error('[BookFlipper] skills read error: ' + error);
             }
-            try {
-                closeInventory();
-            } catch (error) {}
-            this.setAction(this.fetchPrices, 'Fetching bazaar', 300, 25_000);
-            return;
-        }
-        this.skillReadAttempts++;
-        if (this.skillReadAttempts > 4) {
-            console.log('[BookFlipper] could not open /skills; skill gate disabled');
-            this.setAction(this.fetchPrices, 'Fetching bazaar', 0, 25_000);
-            return;
-        }
-        const wait = this.runCommand('skills');
-        this.setAction(this.readSkills, 'Opening skills', wait || 800, 15_000);
+            closeInventory();
+            if (this.enchantingLevel == null) this.enchantingLevel = 0;
+            this.ordersScanned = false;
+            return true;
+        };
+        return {
+            name: 'Read enchanting',
+            status: 'Reading enchanting',
+            timeout: 15_000,
+            enter: () => {
+                if (this.guiIs('skill')) return;
+                this.runCommand('skills');
+                st.sent = 1;
+                st.t0 = Date.now();
+            },
+            done: () => {
+                if (this.guiIs('skill')) return finish();
+                if (Date.now() - st.t0 > 3_000) {
+                    if (st.sent < 3) {
+                        st.sent++;
+                        st.t0 = Date.now();
+                        this.runCommand('skills');
+                        return false;
+                    }
+                    console.log('[BookFlipper] could not open /skills; skill gate disabled');
+                    this.enchantingLevel = 0;
+                    this.ordersScanned = false;
+                    return true;
+                }
+                return false;
+            },
+        };
     }
 
-    fetchPrices() {
-        this.setAction(null, 'Loading prices', 0, 25_000);
-        const token = ++this.requestToken;
-        const retry = () => this.setAction(this.fetchPrices, 'Retrying', FAIL_RETRY_MS, 0);
-        requestV2({ url: BAZAAR_URL, method: 'GET', json: true, timeout: 10_000 })
-            .then((bazaar) => {
-                if (!this.enabled || token !== this.requestToken) return;
-                if (!bazaar?.success) {
-                    this.fail('Could not load Hypixel Bazaar prices.');
-                    retry();
+    refreshStep() {
+        const st = { done: false };
+        return {
+            name: 'Fetch prices',
+            status: 'Loading prices',
+            timeout: 25_000,
+            enter: () => {
+                const token = ++this.requestToken;
+                requestV2({ url: BAZAAR_URL, method: 'GET', json: true, timeout: 10_000 })
+                    .then((bazaar) => {
+                        if (!this.enabled || token !== this.requestToken) return;
+                        if (!bazaar?.success) {
+                            this.lastError = 'Price fetch failed';
+                            this.refreshRetryAt = Date.now() + 15_000;
+                            this.message('&cCould not load Hypixel Bazaar prices.');
+                            st.done = true;
+                            return;
+                        }
+                        this.lastError = null;
+                        this.bazaarData = bazaar;
+                        this.orderQueue = this.computeFlips(bazaar);
+                        this.lastRefresh = Date.now();
+                        this.refreshRetryAt = 0;
+                        this.orderLimitReached = false;
+                        this.ordersScanned = false;
+                        st.done = true;
+                    })
+                    .catch((error) => {
+                        console.error('[BookFlipper] fetch error: ' + error);
+                        if (this.enabled && token === this.requestToken) {
+                            this.lastError = 'Price fetch failed';
+                            this.refreshRetryAt = Date.now() + 15_000;
+                            st.done = true;
+                        }
+                    });
+            },
+            done: () => st.done,
+        };
+    }
+
+    idleSteps(ms) {
+        const wait = ms || this.refreshSeconds * 1_000;
+        const st = { until: 0 };
+        return {
+            name: 'Idle',
+            status: 'Idle',
+            timeout: 0,
+            enter: () => {
+                st.until = Date.now() + wait;
+            },
+            done: () => Date.now() >= st.until,
+        };
+    }
+
+    scanOrdersSteps() {
+        return [
+            this.openOrdersStep(),
+            this.doneStep(() => {
+                this.scanOrders();
+                this.adoptOrders();
+                this.ordersScanned = true;
+                this.ordersScannedAt = Date.now();
+            }),
+        ];
+    }
+
+    claimSteps() {
+        const st = { slot: -1, none: false };
+        return [
+            this.openOrdersStep(),
+            {
+                name: 'Claim orders',
+                status: 'Claiming books',
+                enter: () => {
+                    if (!this.guiIs('bazaar orders')) {
+                        this.runCommand('managebazaarorders');
+                        return;
+                    }
+                    this.scanOrders();
+                    const slot = this.findClaimableVSlot();
+                    if (slot < 0) {
+                        st.none = true;
+                        return;
+                    }
+                    this.claimedSlots.set(slot, Date.now());
+                    this.safeClick(slot);
+                    st.clickedAt = Date.now();
+                },
+                done: () => st.none || (st.clickedAt && this.guiIs('bazaar orders') && Date.now() - st.clickedAt > 600),
+                next: () => (st.none ? [this.doneStep(() => {})] : this.claimSteps()),
+            },
+        ];
+    }
+
+    // ───────────────────────────── cleanup ─────────────────────────────
+
+    cleanupSteps(phase) {
+        const st = { target: null, empty: false, qty: 0 };
+        const prefix = phase === 'sells' ? 'sell ' : 'buy ';
+        return [
+            this.openOrdersStep(),
+            {
+                name: 'Find ' + phase + ' order',
+                status: 'Cleaning ' + phase,
+                enter: () => {
+                    if (!this.guiIs('bazaar orders')) {
+                        this.runCommand('managebazaarorders');
+                        return;
+                    }
+                    this.scanOrders();
+                    const orders = phase === 'buys' ? this.openBuyOrders : this.openSellOrders;
+                    if (!orders.length) {
+                        st.empty = true;
+                        return;
+                    }
+                    st.target = orders[0];
+                    const slot = this.findOrderSlot(st.target, new Set(), prefix);
+                    if (slot < 0) {
+                        st.empty = true;
+                        return;
+                    }
+                    this.safeClick(slot);
+                },
+                done: () => st.empty || this.guiIs('order options'),
+                next: () =>
+                    st.empty
+                        ? [this.doneStep(() => (this.lastCancelEmpty = true))]
+                        : [this.cancelOrderClickStep(st), this.doneStep(() => this.removeTarget(st.target))],
+            },
+        ];
+    }
+
+    cancelOrderClickStep(st) {
+        return {
+            name: 'Cancel order',
+            status: 'Cancelling',
+            enter: () => {
+                const slot = this.findItem(null, 'Cancel Order');
+                if (slot < 0) {
+                    this.debugGui('cancel: no Cancel Order');
                     return;
                 }
-                this.bazaarData = bazaar;
-                this.orderQueue = this.computeFlips(bazaar);
-                this.timeoutCount = 0;
-                this.totalTimeouts = 0;
-                this.lastTimeoutStatus = null;
-                this.openOrders();
-            })
-            .catch((error) => {
-                console.error('[BookFlipper] fetch error: ' + error);
-                if (this.enabled && token === this.requestToken) {
-                    this.fail('Could not load Hypixel Bazaar prices.');
-                    retry();
-                }
-            });
+                const missing = lore(this.items()[slot]).find((line) => /missing items?/i.test(line));
+                st.qty = Number(missing?.match(/([\d,]+)x/i)?.[1]?.replace(/,/g, '')) || 0;
+                this.safeClick(slot);
+            },
+            done: () => this.guiIs('bazaar orders'),
+        };
     }
+
+    // ───────────────────────────── combine (forked anvil) ─────────────────────────────
+
+    combineSteps() {
+        const st = { first: -1, second: -1, none: false, t0: 0 };
+        return [
+            this.anvilOpenStep(),
+            {
+                name: 'Anvil: ready',
+                status: 'Combining',
+                enter: () => {
+                    st.none = !this.findCombinePair();
+                },
+                done: () => st.none || this.anvilHint('left and right'),
+                next: () => (st.none ? [] : this.anvilPairSteps(st)),
+            },
+        ];
+    }
+
+    anvilPairSteps(st) {
+        return [
+            {
+                name: 'Anvil: place books',
+                status: 'Combining',
+                enter: () => {
+                    const pair = this.findCombinePair();
+                    if (!pair) {
+                        st.none = true;
+                        return;
+                    }
+                    st.first = pair[0].slot;
+                    st.second = pair[1].slot;
+                    this.safeClick(st.first, true);
+                    st.t0 = Date.now();
+                },
+                done: () => st.none || Date.now() - st.t0 >= Math.max(this.clickDelay, 250),
+                next: () => (st.none ? [] : this.anvilFinishSteps(st)),
+            },
+        ];
+    }
+
+    anvilFinishSteps(st) {
+        return [
+            {
+                name: 'Anvil: place second',
+                enter: () => {
+                    if (st.second >= 0) this.safeClick(st.second, true);
+                },
+                done: () => this.anvilHint('cost'),
+            },
+            {
+                name: 'Anvil: take result',
+                enter: () => {
+                    if (this.items().length > 22) this.safeClick(22);
+                },
+                done: () => this.anvilHint('claim the result'),
+            },
+            {
+                name: 'Anvil: extract',
+                enter: () => {
+                    if (this.items().length > 13) this.safeClick(13, true);
+                },
+                done: () => this.anvilHint('left and right') || !this.findCombinePair(),
+                next: () => (this.findCombinePair() ? this.combineSteps() : []),
+            },
+        ];
+    }
+
+    anvilOpenStep() {
+        return {
+            name: 'Open anvil',
+            status: 'Combining',
+            enter: () => {
+                if (!this.guiIs('anvil')) this.runCommand('anvil');
+            },
+            done: () => this.guiIs('anvil'),
+        };
+    }
+
+    anvilHint(text) {
+        const item = this.items()[22];
+        return lore(item).join(' ').toLowerCase().includes(text);
+    }
+
+    findCombinePair() {
+        const items = this.items();
+        const groups = new Map();
+        for (let slot = 30; slot < items.length; slot++) {
+            const info = bookFromItem(items[slot]);
+            if (!info || info.level > SELL_TIER - 1) continue;
+            const key = info.book.key + ':' + info.level;
+            if (!groups.has(key)) groups.set(key, { slots: [] });
+            groups.get(key).slots.push(slot);
+        }
+        for (const group of groups.values()) {
+            if (group.slots.length >= 2) return [{ slot: group.slots[0] }, { slot: group.slots[1] }];
+        }
+        return null;
+    }
+
+    // ───────────────────────────── buy ─────────────────────────────
+
+    buySteps(target) {
+        const st = { amount: target.quantity, price: target.orderPrice || 0, mark: 0, ok: false };
+        this.target = target;
+        return [
+            this.closeGuiStep(),
+            {
+                name: 'Open ' + target.name,
+                status: 'Buying ' + target.name,
+                enter: () => this.runCommand('bz ' + target.name),
+                done: () => this.findBookSlot(target.book, target.input) >= 0,
+            },
+            {
+                name: 'Select ' + target.name,
+                enter: () => this.clickSlotOf(() => this.findBookSlot(target.book, target.input)),
+                done: () => this.hasItem('map', 'Create Buy Order'),
+            },
+            {
+                name: 'Create Buy Order',
+                enter: () => this.clickItem('map', 'Create Buy Order'),
+                done: () => this.hasItem('sign', 'Custom Amount'),
+            },
+            {
+                name: 'Custom Amount',
+                enter: () => {
+                    const slot = this.findItem('sign', 'Custom Amount');
+                    if (slot < 0) {
+                        this.debugGui('buy amount');
+                        return;
+                    }
+                    this.capAmount(slot, st);
+                    this.safeClick(slot);
+                },
+                done: () => this.isSignGui(),
+            },
+            {
+                name: 'Enter amount',
+                enter: () => {
+                    setSignLine(1, st.amount);
+                    Client.currentGui?.close();
+                },
+                done: () => this.hasItem('gold_nugget', 'Top Order +0.1'),
+            },
+            {
+                name: 'Top Order +0.1',
+                enter: () => {
+                    const slot = this.findItem('gold_nugget', 'Top Order +0.1');
+                    if (slot < 0) {
+                        this.debugGui('buy price');
+                        return;
+                    }
+                    st.price = this.unitPrice(this.items()[slot]);
+                    this.safeClick(slot);
+                },
+                done: () => this.hasItem('enchanted_book', 'Buy Order'),
+            },
+            {
+                name: 'Submit buy order',
+                enter: () => {
+                    st.mark = this.chatSeq;
+                    this.clickItem('enchanted_book', 'Buy Order');
+                },
+                done: () => {
+                    if (this.chatSince(st.mark, /Buy Order Setup!/i)) {
+                        st.ok = true;
+                        return true;
+                    }
+                    return (
+                        this.chatSince(st.mark, /maximum of [\d,]+ Bazaar orders/i) ||
+                        this.chatSince(st.mark, /not enough coins|couldn't afford|can't afford/i) ||
+                        this.chatSince(st.mark, /on cooldown/i)
+                    );
+                },
+            },
+            this.doneStep(() => {
+                this.orderQueue.shift();
+                if (st.ok) {
+                    this.activeTargets.push({ ...target, orderPrice: Number.isFinite(st.price) ? st.price : target.orderPrice, quantity: st.amount });
+                } else {
+                    this.ordersScanned = false;
+                }
+                this.target = null;
+            }),
+        ];
+    }
+
+    // ───────────────────────────── sell ─────────────────────────────
+
+    sellSteps() {
+        const book = this.enabledBooks().find((candidate) => this.countLevel(candidate, SELL_TIER) > 0);
+        const name = bookName(book, SELL_TIER);
+        const st = { mark: 0 };
+        this.target = { name, book, level: SELL_TIER, orderPrice: 0 };
+        return [
+            this.closeGuiStep(),
+            {
+                name: 'Open bazaar',
+                status: 'Selling ' + name,
+                enter: () => this.runCommand('bz'),
+                done: () => this.guiIs('bazaar'),
+            },
+            {
+                name: 'Select ' + name,
+                enter: () => this.clickSlotOf(() => this.findInventoryBookSlot(book, SELL_TIER)),
+                done: () => this.hasItem('paper', 'Create Sell Offer'),
+            },
+            {
+                name: 'Create Sell Offer',
+                enter: () => this.clickItem('paper', 'Create Sell Offer'),
+                done: () => this.hasItem('gold_nugget', 'Best Offer -0.1'),
+            },
+            {
+                name: 'Best Offer -0.1',
+                enter: () => this.clickItem('gold_nugget', 'Best Offer -0.1'),
+                done: () => this.hasItem('enchanted_book', 'Sell Offer'),
+            },
+            {
+                name: 'Submit sell offer',
+                enter: () => {
+                    st.mark = this.chatSeq;
+                    this.clickItem('enchanted_book', 'Sell Offer');
+                },
+                done: () => this.chatSince(st.mark, /Sell Offer Setup!/i),
+            },
+            this.doneStep(() => {
+                this.target = null;
+                this.ordersScanned = false;
+            }),
+        ];
+    }
+
+    // ───────────────────────────── relist ─────────────────────────────
+
+    relistBuySteps() {
+        const target = this.orderCheckQueue[0];
+        const st = { missing: false, qty: 0 };
+        this.target = target;
+        return [
+            this.openOrdersStep(),
+            {
+                name: 'Open order',
+                status: 'Relisting ' + target.name,
+                enter: () => {
+                    this.scanOrders();
+                    const slot = this.findOrderSlot(target, new Set(), 'buy ');
+                    if (slot < 0) {
+                        st.missing = true;
+                        return;
+                    }
+                    this.safeClick(slot);
+                },
+                done: () => st.missing || this.guiIs('order options'),
+                next: () =>
+                    st.missing
+                        ? [this.doneStep(() => this.skipRelistBuy())]
+                        : [this.cancelOrderClickStep(st), this.doneStep(() => this.finishRelistBuy(target, st))],
+            },
+        ];
+    }
+
+    skipRelistBuy() {
+        this.orderCheckQueue.shift();
+        this.ordersScanned = false;
+    }
+
+    finishRelistBuy(target, st) {
+        this.orderCheckQueue.shift();
+        this.removeTarget(target);
+        this.ordersScanned = false;
+        const product = this.bazaarData?.products?.[bookId(target.book, target.input)];
+        const top = askPrice(product);
+        if (!(top > 0)) return;
+        const price = Math.ceil((top + 0.1) * 10) / 10;
+        const units = target.units;
+        const qty = st.qty > 0 ? st.qty : target.quantity;
+        const quantity = Math.floor(Math.min(qty, Math.floor(this.budget / price)) / units) * units;
+        if (quantity >= units && this.flipProfit(target.book, target.input, price) >= this.minProfit) {
+            this.orderQueue.unshift({ ...target, quantity, orderPrice: price, expectedOrderPrice: price, outputCount: quantity / units });
+        }
+    }
+
+    relistSellSteps() {
+        const target = this.sellCheckQueue[0];
+        const st = { missing: false, qty: 0 };
+        this.target = target;
+        return [
+            this.openOrdersStep(),
+            {
+                name: 'Open offer',
+                status: 'Relisting offer',
+                enter: () => {
+                    this.scanOrders();
+                    const slot = this.findOrderSlot(target, new Set(), 'sell ');
+                    if (slot < 0) {
+                        st.missing = true;
+                        return;
+                    }
+                    this.safeClick(slot);
+                },
+                done: () => st.missing || this.guiIs('order options'),
+                next: () =>
+                    st.missing
+                        ? [this.doneStep(() => (this.sellCheckQueue.shift(), (this.ordersScanned = false)))]
+                        : [
+                              this.cancelOrderClickStep(st),
+                              this.doneStep(() => (this.sellCheckQueue.shift(), (this.ordersScanned = false))),
+                          ],
+            },
+        ];
+    }
+
+    // ───────────────────────────── prices ─────────────────────────────
 
     computeFlips(bazaar) {
         const products = bazaar?.products || {};
@@ -442,7 +974,7 @@ class BookFlipper extends ModuleBase {
         let available = purse != null ? Math.floor(purse * 0.98) : Number.MAX_SAFE_INTEGER;
         const chosen = [];
         for (const candidate of candidates) {
-            if (chosen.length >= this.maxBuyOrders) break;
+            if (chosen.length >= Math.max(0, this.maxBuyOrders - this.activeTargets.length)) break;
             if (available <= 0) break;
             const funds = Math.min(this.budget, available);
             const maxQuantity = Math.floor(funds / candidate.orderPrice);
@@ -457,92 +989,84 @@ class BookFlipper extends ModuleBase {
         return chosen;
     }
 
-    openOrders() {
-        this.orderPricesChecked = false;
-        this.sellCheckQueue = [];
-        this.claimNoSpace = false;
-        this.claimedSlots = new Set();
-        this.commandAndWait('managebazaarorders', this.inspectOrder, 'Opening Bazaar orders');
+    flipProfit(book, input, price) {
+        const outProduct = this.bazaarData?.products?.[bookId(book, SELL_TIER)];
+        const revenuePerV = askPrice(outProduct) * (1 - this.undercutPercent / 100) * (1 - this.taxPercent / 100);
+        return revenuePerV - price * unitsFor(input);
     }
 
-    inspectOrder() {
-        if (!clean(getGuiName()).includes('bazaar orders')) return;
-        this.scanOpenOrders();
-        this.adoptOpenOrders();
-        this.reconcileOrders();
-
-        const claimSlot = this.findClaimSlot();
-        if (claimSlot !== -1) {
-            this.claimedSlots.add(claimSlot);
-            clickSlot(claimSlot);
-            this.setAction(this.inspectOrder, 'Claiming books', Math.max(250, this.clickDelay), GUI_TIMEOUT);
-            return;
-        }
-
-        if (this.cleanupPhase) return this.cleanupStep();
-
-        if (!this.orderPricesChecked) {
-            this.orderPricesChecked = true;
-            this.orderCheckQueue = [...this.activeTargets];
-            return this.checkNextOrder();
-        }
-
-        this.finishCycle();
-    }
-
-    cleanupStep() {
-        if (this.cleanupPhase === 'buys') {
-            const target = this.activeTargets[0];
-            if (target) {
-                this.target = target;
-                const slot = this.findOrderSlot(target);
-                if (slot === -1) return this.setAction(this.inspectOrder, 'Re-checking orders', this.clickDelay, GUI_TIMEOUT);
-                return this.clickAndWait(slot, this.cleanupCancel, 'Opening order');
+    computeOutbids() {
+        if (!this.bazaarData) return;
+        const products = this.bazaarData.products || {};
+        const buyKeys = new Set(this.orderCheckQueue.map((target) => target.book.key + ':' + target.input));
+        for (const target of this.activeTargets) {
+            if (!target.book) continue;
+            const key = target.book.key + ':' + target.input;
+            if (buyKeys.has(key)) continue;
+            const product = products[bookId(target.book, target.input)];
+            if (product && askPrice(product) > target.orderPrice + 0.01) {
+                this.orderCheckQueue.push(target);
+                buyKeys.add(key);
             }
-            this.cleanupPhase = 'combine';
-            return this.combineBooks(() => {
-                this.cleanupPhase = 'sells';
-                this.openOrders();
-            });
         }
-        if (this.cleanupPhase === 'sells') {
-            const sell = this.openSellOrders.find((order) => order.book);
-            if (sell) {
-                this.target = sell;
-                const slot = this.findOrderSlot(sell, new Set(), 'sell ');
-                if (slot === -1) return this.setAction(this.inspectOrder, 'Re-checking offers', this.clickDelay, GUI_TIMEOUT);
-                return this.clickAndWait(slot, this.cleanupCancel, 'Opening offer');
+        const sellKeys = new Set(this.sellCheckQueue.map((order) => order.book && order.book.key));
+        for (const order of this.openSellOrders) {
+            if (!order.book || order.level !== SELL_TIER || sellKeys.has(order.book.key)) continue;
+            const product = products[bookId(order.book, SELL_TIER)];
+            if (product && Number.isFinite(order.price) && bidPrice(product) < order.price - 0.01) {
+                this.sellCheckQueue.push(order);
+                sellKeys.add(order.book.key);
             }
-            this.cleanupPhase = null;
-            this.message('&aCleanup complete; resuming.');
-            return this.finishCycle();
         }
-        return this.finishCycle();
     }
 
-    cleanupCancel() {
-        const gui = clean(getGuiName());
-        if (gui.includes('bazaar orders')) return;
-        if (!gui.includes('order options')) return;
-        const slot = this.findSlotChecked('Cancel Order', 'cleanup cancel');
-        if (slot === -1) return;
-        this.clickAndWait(slot, this.inspectOrder, 'Cancelling order', 500);
+    // ───────────────────────────── orders ─────────────────────────────
+
+    scanOrders() {
+        const items = this.items();
+        const end = this.guiEnd();
+        const buyOrders = [];
+        const sellOrders = [];
+        let count = 0;
+        for (let slot = 0; slot < end; slot++) {
+            const stack = items[slot];
+            const name = clean(stack?.getName?.());
+            const match = name.match(/^(buy|sell) (.+)$/);
+            if (!match) continue;
+            count++;
+            const amount = Number(
+                lore(stack)
+                    .find((line) => /^(order amount|amount):\s*[\d,]+x/i.test(line))
+                    ?.match(/[\d,]+/)?.[0]
+                    ?.replace(/,/g, '')
+            );
+            const info = bookFromText(match[2]) || bookFromItem(stack);
+            const claimMatch = lore(stack).join(' ').match(/you have ([\d,]+) items? to claim/i);
+            const order = {
+                id: this.skyblockItemId(stack),
+                name: ChatLib.removeFormatting(String(stack.getName())).trim().replace(/^(BUY|SELL)\s+/i, ''),
+                book: info ? info.book : null,
+                level: info ? info.level : null,
+                amount,
+                claimable: claimMatch ? Number(claimMatch[1].replace(/,/g, '')) : 0,
+                price: this.unitPrice(stack),
+                slot,
+            };
+            (match[1] === 'buy' ? buyOrders : sellOrders).push(order);
+        }
+        this.openBuyOrders = buyOrders;
+        this.openSellOrders = sellOrders;
+        this.openOrderCount = count;
     }
 
-    reconcileOrders() {
-        const held = new Set(this.activeTargets.map((target) => `${target.book.key}:${target.input}`));
-        this.orderQueue = this.orderQueue.filter((candidate) => !held.has(`${candidate.book.key}:${candidate.input}`));
-        this.orderQueue = this.orderQueue.slice(0, Math.max(0, this.maxBuyOrders - this.activeTargets.length));
-    }
-
-    adoptOpenOrders() {
+    adoptOrders() {
         const adopted = [];
         for (const order of this.openBuyOrders) {
             if (!order.book || order.level == null || order.level >= SELL_TIER) continue;
             if (!order.book.buyTiers.includes(order.level)) continue;
             const units = unitsFor(order.level);
             const amount = Number.isFinite(order.amount) && order.amount > 0 ? order.amount : units;
-            const profitPerV = Number.isFinite(order.price) && order.price > 0 ? this.flipProfit(order.book, order.level, order.price) : 0;
+            const price = Number.isFinite(order.price) ? order.price : 0;
             adopted.push({
                 book: order.book,
                 id: bookId(order.book, order.level),
@@ -551,522 +1075,212 @@ class BookFlipper extends ModuleBase {
                 units,
                 quantity: amount,
                 outputCount: Math.floor(amount / units),
-                orderPrice: order.price,
-                expectedOrderPrice: Number.isFinite(order.price) ? order.price : 0,
-                profit: profitPerV * Math.floor(amount / units),
+                orderPrice: price,
+                expectedOrderPrice: price,
+                profit: 0,
             });
         }
         this.activeTargets = adopted;
     }
 
-    checkNextOrder() {
-        this.target = this.orderCheckQueue.shift() || null;
-        if (!this.target) return this.startSellChecks();
-        this.commandAndWait(`bz ${this.target.name}`, this.openOrderCheck, 'Checking order');
+    removeTarget(target) {
+        if (!target?.book) return;
+        const key = target.book.key + ':' + target.input;
+        this.activeTargets = this.activeTargets.filter((entry) => !entry.book || entry.book.key + ':' + entry.input !== key);
     }
 
-    openOrderCheck() {
-        if (!clean(getGuiName()).includes('bazaar')) return;
-        const slot = this.findBookSlot(this.target.book, this.target.input);
-        if (slot === -1) return this.commandAndWait('managebazaarorders', this.openOutbidOrder, 'Reopening orders');
-        this.clickAndWait(slot, this.checkProductOrder, 'Opening product');
+    // ───────────────────────────── claiming ─────────────────────────────
+
+    containsClaimableV() {
+        return this.findClaimableVSlot() >= 0;
     }
 
-    checkProductOrder() {
-        const slot = this.findSlot('Create Buy Order', true);
-        if (slot === -1) return;
-        const topPrice = this.topBuyOrderPrice(Player.getContainer()?.getStackInSlot(slot));
-        if (!Number.isFinite(topPrice)) return this.checkNextOrder();
-        if (topPrice <= this.target.orderPrice + 0.001) return this.checkNextOrder();
-        this.target.expectedOrderPrice = Math.ceil((topPrice + 0.1) * 10) / 10;
-        this.cancelQuantity = 0;
-        this.orderMissingSince = 0;
-        this.message(`&e${this.target.name} was outbid; relisting.`);
-        this.commandAndWait('managebazaarorders', this.openOutbidOrder, 'Opening outbid order');
-    }
-
-    openOutbidOrder() {
-        if (!clean(getGuiName()).includes('bazaar orders')) return;
-        const slot = this.findOrderSlot(this.target);
-        if (slot === -1) {
-            if (!this.orderMissingSince) this.orderMissingSince = Date.now();
-            if (Date.now() - this.orderMissingSince < STUCK_RETRY_DELAY * 2) return;
-            this.orderMissingSince = 0;
-            return this.finishOrderCancellation();
+    findClaimableVSlot() {
+        const items = this.items();
+        const end = this.guiEnd();
+        for (let slot = 0; slot < end; slot++) {
+            const claimedAt = this.claimedSlots.get(slot);
+            if (claimedAt && Date.now() - claimedAt < 5_000) continue;
+            const stack = items[slot];
+            if (!clean(stack?.getName?.()).startsWith('buy ')) continue;
+            const info = bookFromItem(stack);
+            if (!info || info.level >= SELL_TIER || !info.book.buyTiers.includes(info.level)) continue;
+            if (!lore(stack).some((line) => /^you have [\d,]+ items? to claim!?$/i.test(line))) continue;
+            if (!this.claimMakesV(info.book)) continue;
+            if (this.freeSlots() <= 2) continue;
+            return slot;
         }
-        this.orderMissingSince = 0;
-        this.clickAndWait(slot, this.cancelOutbidOrder, 'Opening outbid order');
+        return -1;
     }
 
-    cancelOutbidOrder() {
-        const gui = clean(getGuiName());
-        if (gui.includes('bazaar orders')) {
-            if (this.findOrderSlot(this.target) !== -1) return;
-            return this.openOutbidOrder();
+    claimMakesV(book) {
+        const counts = { 1: 0, 2: 0, 3: 0, 4: 0 };
+        for (let level = 1; level < SELL_TIER; level++) counts[level] = this.countLevel(book, level);
+        for (const order of this.openBuyOrders) {
+            if (!order.book || order.book.key !== book.key || order.level == null || order.level >= SELL_TIER) continue;
+            const amount = Number.isFinite(order.claimable) ? order.claimable : 0;
+            if (amount > 0) counts[order.level] = (counts[order.level] || 0) + amount;
         }
-        if (!gui.includes('order options')) return;
-        const slot = this.findSlotChecked('Cancel Order', 'cancel buy');
-        if (slot === -1) return;
-        const missingLine = lore(Player.getContainer()?.getStackInSlot(slot)).find((line) => /[\d,]+x missing items?/i.test(line));
-        const quantity = Number(missingLine?.match(/([\d,]+)x missing items?/i)?.[1]?.replace(/,/g, ''));
-        if (!Number.isFinite(quantity) || quantity <= 0) return this.fail('Could not read the remaining quantity before relisting.');
-        this.cancelQuantity += quantity;
-        this.removeTarget(this.target);
-        this.clickAndWait(slot, this.afterOrderCancelled, 'Cancelling order', 500);
+        return this.canProduceV(counts);
     }
 
-    afterOrderCancelled() {
-        if (!clean(getGuiName()).includes('bazaar orders')) return;
-        const slot = this.findOrderSlot(this.target);
-        if (slot !== -1) return this.clickAndWait(slot, this.cancelOutbidOrder, 'Opening duplicate order');
-        this.finishOrderCancellation();
+    canProduceV(counts) {
+        const c = { 1: counts[1] || 0, 2: counts[2] || 0, 3: counts[3] || 0, 4: counts[4] || 0 };
+        for (let level = 1; level < SELL_TIER; level++) c[level + 1] = (c[level + 1] || 0) + Math.floor(c[level] / 2);
+        return (c[SELL_TIER] || 0) >= 1;
     }
 
-    finishOrderCancellation() {
-        const target = this.target;
-        if (this.cancelQuantity <= 0) return this.checkNextOrder();
-        const price = target.expectedOrderPrice;
-        const units = target.units;
-        const quantity = Math.floor(Math.min(this.cancelQuantity, Math.floor(this.budget / price)) / units) * units;
-        this.cancelQuantity = 0;
-        if (quantity >= units && this.flipProfit(target.book, target.input, price) >= this.minProfit) {
-            target.quantity = quantity;
-            target.outputCount = quantity / units;
-            target.orderPrice = price;
-            target.profit = this.flipProfit(target.book, target.input, price) * (quantity / units);
-            this.orderQueue.unshift(target);
-            this.message(`Relisting ${quantity.toLocaleString()}x ${target.name}.`);
-            return this.placeNextOrder();
+    // ───────────────────────────── inventory ─────────────────────────────
+
+    countLevel(book, level) {
+        const now = Date.now();
+        if (!this.countCache || now - this.countCacheAt > 500) {
+            this.countCache = new Map();
+            this.countCacheAt = now;
+            for (const item of Player.getInventory()?.getItems() || []) {
+                const info = bookFromItem(item);
+                if (!info || info.level >= SELL_TIER + 1) continue;
+                const key = info.book.key + ':' + info.level;
+                this.countCache.set(key, (this.countCache.get(key) || 0) + Number(item.getStackSize() || 0));
+            }
         }
-        this.message(`&eSkipping ${target.name}; the new top order is no longer profitable.`);
-        this.checkNextOrder();
+        return this.countCache.get(book.key + ':' + level) || 0;
     }
 
-    placeNextOrder() {
-        const cooldown = this.orderCooldownUntil - Date.now();
-        if (cooldown > 0) return this.setAction(this.placeNextOrder, 'Bazaar order cooldown', cooldown, 0);
-        this.target = this.orderQueue.shift() || null;
-        if (!this.target) return this.finishCycle();
-        this.placingSell = false;
-        this.message(`Buying &b${this.target.quantity}x ${this.target.name}&f (~${formatCoins(this.target.profit)} profit).`);
-        this.commandAndWait(`bz ${this.target.name}`, this.openProduct, 'Opening product');
-    }
-
-    openProduct() {
-        if (!clean(getGuiName()).includes('bazaar')) return;
-        const slot = this.findBookSlot(this.target.book, this.target.input);
-        if (slot === -1) return;
-        this.clickAndWait(slot, this.chooseBuyOrder, 'Selecting buy order');
-    }
-
-    chooseBuyOrder() {
-        const slot = this.findSlot('Create Buy Order', true);
-        if (slot === -1) return;
-        this.clickAndWait(slot, this.chooseAmount, 'Selecting amount');
-    }
-
-    chooseAmount() {
-        const slot = this.findSlotChecked('Custom Amount', 'buy amount');
-        if (slot === -1) return;
-        const limit = Number(
-            lore(Player.getContainer()?.getStackInSlot(slot))
-                .find((line) => /^buy up to [\d,]+x\.?$/i.test(line))
-                ?.match(/[\d,]+/)?.[0]
-                ?.replace(/,/g, '')
-        );
-        if (limit > 0) this.target.quantity = Math.min(this.target.quantity, limit);
-        this.clickAndWait(slot, this.enterAmount, 'Entering amount');
-    }
-
-    enterAmount() {
-        if (!Client.currentGui?.getClassName?.().includes('Sign')) return;
-        const submit = () => {
-            if (!Client.currentGui?.getClassName?.().includes('Sign')) return;
-            setSignLine(1, this.target.quantity);
-            Client.currentGui.close();
-        };
-        this.setAction(this.choosePrice, 'Selecting price', this.clickDelay, GUI_TIMEOUT, submit);
-        submit();
-    }
-
-    choosePrice() {
-        const slot = this.findBestOfferSlot();
-        if (slot === -1) return;
-        const price = this.unitPrice(Player.getContainer()?.getStackInSlot(slot));
-        if (!this.isSafePrice(price)) return this.retryPrices('The best-offer price moved too far or is no longer profitable.');
-        this.target.orderPrice = price;
-        this.clickAndWait(slot, this.confirmOrder, 'Confirming order');
-    }
-
-    confirmOrder() {
-        if (!clean(getGuiName()).includes('confirm buy order')) return;
-        const slot = this.findSlotChecked('Buy Order', 'confirm buy');
-        if (slot === -1) return;
-        const price = this.unitPrice(Player.getContainer()?.getStackInSlot(slot));
-        if (Number.isFinite(price)) this.target.orderPrice = price;
-        this.confirmSlot = slot;
-        this.clickAndWait(slot, this.awaitOrderCreated, 'Creating order', 500);
-    }
-
-    awaitOrderCreated() {
-        if (!Client.isInGui()) return;
-        if (clean(Player.getContainer()?.getStackInSlot(this.confirmSlot)?.getName?.()) !== 'warning') return;
-        this.setAction(this.waitForWarning, 'Waiting for Bazaar warning');
-    }
-
-    waitForWarning() {
-        const name = clean(Player.getContainer()?.getStackInSlot(this.confirmSlot)?.getName?.());
-        if (!name || name === 'warning') return;
-        this.clickAndWait(this.confirmSlot, this.awaitOrderCreated, 'Creating order', 500);
-    }
-
-    startSellChecks() {
-        this.sellCheckQueue = this.openSellOrders.filter((order) => order.book && order.level === SELL_TIER && Number.isFinite(order.price) && order.price > 0);
-        this.checkNextSellOrder();
-    }
-
-    checkNextSellOrder() {
-        this.target = this.sellCheckQueue.shift() || null;
-        if (!this.target) return this.finishCycle();
-        this.commandAndWait(`bz ${this.target.name}`, this.openSellCheck, 'Checking sell offer');
-    }
-
-    openSellCheck() {
-        if (!clean(getGuiName()).includes('bazaar')) return;
-        const slot = this.findBookSlot(this.target.book, SELL_TIER);
-        if (slot === -1) return this.commandAndWait('managebazaarorders', this.openSellCancel, 'Reopening orders');
-        this.clickAndWait(slot, this.checkSellProduct, 'Opening book');
-    }
-
-    checkSellProduct() {
-        const slot = this.findSlot('Create Sell Offer', true);
-        if (slot === -1) return;
-        const lowest = this.topSellOfferPrice(Player.getContainer()?.getStackInSlot(slot));
-        if (!Number.isFinite(lowest)) return this.checkNextSellOrder();
-        if (this.target.price <= lowest + 0.001) return this.checkNextSellOrder();
-        this.message(`&e${this.target.name} offer undercut; relisting.`);
-        this.commandAndWait('managebazaarorders', this.openSellCancel, 'Opening offer');
-    }
-
-    openSellCancel() {
-        if (!clean(getGuiName()).includes('bazaar orders')) return;
-        const slot = this.findOrderSlot(this.target, new Set(), 'sell ');
-        if (slot === -1) return this.checkNextSellOrder();
-        this.clickAndWait(slot, this.cancelSellOrder, 'Opening offer');
-    }
-
-    cancelSellOrder() {
-        const gui = clean(getGuiName());
-        if (gui.includes('bazaar orders')) {
-            if (this.findOrderSlot(this.target, new Set(), 'sell ') !== -1) return;
-            return this.openSellCancel();
+    hasPair() {
+        for (const book of this.enabledBooks()) {
+            for (let level = 1; level < SELL_TIER; level++) {
+                if (this.countLevel(book, level) >= 2) return true;
+            }
         }
-        if (!gui.includes('order options')) return;
-        const slot = this.findSlotChecked('Cancel Order', 'cancel sell');
-        if (slot === -1) return;
-        this.clickAndWait(slot, this.afterSellCancelled, 'Cancelling offer', 500);
+        return false;
     }
 
-    afterSellCancelled() {
-        if (!clean(getGuiName()).includes('bazaar orders')) return;
-        this.checkNextSellOrder();
-    }
-
-    finishCycle() {
-        this.timeoutCount = 0;
-        this.totalTimeouts = 0;
-        this.lastTimeoutStatus = null;
-        if (this.orderQueue.length) return this.placeNextOrder();
-        if (this.hasCombinableBooks()) return this.combineBooks(this.sellBooks);
-        if (this.hasSellables()) return this.sellBooks();
-        this.setAction(this.fetchPrices, 'Waiting for refresh', REFRESH_MS, 0);
-    }
-
-    combineBooks(after) {
-        this.afterCombine = after || this.sellBooks;
-        const combine = getModule('Auto Combine');
-        if (!combine || !this.hasCombinableBooks()) return this.afterCombine.call(this);
-        this.combining = true;
-        this.message('&eCombining books to level V...');
-        if (!combine.enabled) combine.toggle(true);
-        this.setAction(this.waitCombine, 'Combining books', 1_000, 0);
-    }
-
-    waitCombine() {
-        const combine = getModule('Auto Combine');
-        if (combine && combine.enabled) {
-            this.nextActionAt = Date.now() + 1_000;
-            return;
-        }
-        this.combining = false;
-        const next = this.afterCombine || this.sellBooks;
-        this.afterCombine = null;
-        next.call(this);
-    }
-
-    combineForSpace() {
-        this.message('&eInventory full; combining to free space.');
-        this.combineBooks(this.cleanupPhase ? this.openOrders : this.sellBooks);
-    }
-
-    hasSellables() {
+    hasSellableV() {
         return this.enabledBooks().some((book) => this.countLevel(book, SELL_TIER) > 0);
     }
 
-    sellBooks() {
-        const book = this.enabledBooks().find((candidate) => this.countLevel(candidate, SELL_TIER) > 0);
-        if (!book) return this.setAction(this.fetchPrices, 'Waiting for refresh', REFRESH_MS, 0);
-        const quantity = Math.min(this.countLevel(book, SELL_TIER), 256);
-        this.target = { book, id: bookId(book, SELL_TIER), name: bookName(book, SELL_TIER), input: SELL_TIER, level: SELL_TIER, units: 1, quantity, outputCount: quantity };
-        this.placingSell = true;
-        this.message(`Selling &b${quantity}x ${this.target.name}&f on the Bazaar.`);
-        this.commandAndWait(`bz ${this.target.name}`, this.openSellProduct, 'Opening sell item');
-    }
-
-    openSellProduct() {
-        if (!clean(getGuiName()).includes('bazaar')) return;
-        const slot = this.findBookSlot(this.target.book, SELL_TIER);
-        if (slot === -1) return;
-        this.clickAndWait(slot, this.chooseSellOffer, 'Selecting book');
-    }
-
-    chooseSellOffer() {
-        const slot = this.findSlot('Create Sell Offer', true);
-        if (slot === -1) return;
-        this.clickAndWait(slot, this.chooseSellAmount, 'Selecting amount');
-    }
-
-    chooseSellAmount() {
-        const slot = this.findSlotChecked('Custom Amount', 'sell amount');
-        if (slot === -1) return;
-        const limit = Number(
-            lore(Player.getContainer()?.getStackInSlot(slot))
-                .find((line) => /^sell up to [\d,]+x\.?$/i.test(line))
-                ?.match(/[\d,]+/)?.[0]
-                ?.replace(/,/g, '')
-        );
-        if (limit > 0) this.target.quantity = Math.min(this.target.quantity, limit);
-        this.clickAndWait(slot, this.enterSellAmount, 'Entering amount');
-    }
-
-    enterSellAmount() {
-        if (!Client.currentGui?.getClassName?.().includes('Sign')) return;
-        const submit = () => {
-            if (!Client.currentGui?.getClassName?.().includes('Sign')) return;
-            setSignLine(1, this.target.quantity);
-            Client.currentGui.close();
-        };
-        this.setAction(this.chooseSellPrice, 'Selecting price', this.clickDelay, GUI_TIMEOUT, submit);
-        submit();
-    }
-
-    chooseSellPrice() {
-        const slot = this.findSellPriceSlot();
-        if (slot === -1) return;
-        const price = this.unitPrice(Player.getContainer()?.getStackInSlot(slot));
-        if (Number.isFinite(price)) this.target.orderPrice = price;
-        this.clickAndWait(slot, this.confirmSellOffer, 'Confirming sell offer');
-    }
-
-    findSellPriceSlot() {
-        const items = Player.getContainer()?.getItems() || [];
-        const isNugget = (item) => {
-            try {
-                return clean(item?.getType?.()?.getRegistryName?.() ?? '').includes('gold_nugget');
-            } catch (error) {
-                return false;
-            }
-        };
-        for (let slot = 0; slot < items.length; slot++) {
-            const item = items[slot];
-            if (!item || !isNugget(item)) continue;
-            if (/best offer\s*-\s*0\.1/i.test(clean(item.getName?.()))) return slot;
+    freeSlots() {
+        const inv = Player.getInventory();
+        if (!inv) return 0;
+        const items = inv.getItems();
+        let free = 0;
+        for (let i = 0; i < Math.min(items.length, 36); i++) {
+            const item = items[i];
+            if (!item || item.getStackSize() <= 0) free++;
         }
-        const fallback = 13;
-        const item = items[fallback];
-        if (item && isNugget(item)) return fallback;
-        return -1;
+        return free;
     }
 
-    confirmSellOffer() {
-        if (!clean(getGuiName()).includes('confirm')) return;
-        const slot = this.findSlotChecked('Sell Offer', 'confirm sell');
-        if (slot === -1) return;
-        const price = this.unitPrice(Player.getContainer()?.getStackInSlot(slot));
-        if (Number.isFinite(price)) this.target.orderPrice = price;
-        this.confirmSlot = slot;
-        this.clickAndWait(slot, this.awaitSellCreated, 'Creating sell offer', 500);
+    inventoryFull() {
+        return this.freeSlots() <= 1;
     }
 
-    awaitSellCreated() {
-        if (!Client.isInGui()) return;
-        if (clean(Player.getContainer()?.getStackInSlot(this.confirmSlot)?.getName?.()) !== 'warning') return;
-        this.setAction(this.waitForSellWarning, 'Waiting for Bazaar warning');
+    // ───────────────────────────── lookups ─────────────────────────────
+
+    items() {
+        return Player.getContainer()?.getItems() || [];
     }
 
-    waitForSellWarning() {
-        const name = clean(Player.getContainer()?.getStackInSlot(this.confirmSlot)?.getName?.());
-        if (!name || name === 'warning') return;
-        this.clickAndWait(this.confirmSlot, this.awaitSellCreated, 'Creating sell offer', 500);
+    guiEnd() {
+        const items = this.items();
+        return items.length > 36 ? items.length - 36 : items.length;
     }
 
-    isCancelling() {
-        return (
-            this.action === this.openOutbidOrder ||
-            this.action === this.cancelOutbidOrder ||
-            this.action === this.afterOrderCancelled ||
-            this.action === this.openSellCancel ||
-            this.action === this.cancelSellOrder ||
-            this.action === this.afterSellCancelled ||
-            this.action === this.cleanupCancel
-        );
+    guiName() {
+        return clean(getGuiName());
     }
 
-    onChat(event) {
-        const message = event?.message?.getUnformattedText?.() ?? event?.message?.getString?.() ?? '';
-        const cancelling = this.isCancelling();
-        if (/you don't have the space required to claim that/i.test(message)) {
-            if (!this.claimNoSpace) {
-                this.claimNoSpace = true;
-                if (this.enabled && !cancelling) this.setAction(this.combineForSpace, 'Inventory full; combining', 500, 0);
-            }
-            return;
-        }
-        if (/^\[Bazaar\] You reached your maximum of [\d,]+ Bazaar orders!$/.test(message)) {
-            this.orderLimitReached = true;
-            this.orderQueue = [];
-            this.message('&eMaximum Bazaar orders reached; monitoring existing orders.');
-            if (cancelling) return;
-            return this.setAction(this.openOrders, 'Checking orders', this.clickDelay, 0);
-        }
-        if (message.includes('[Bazaar] Placing orders is on cooldown for up to 1 minute!')) {
-            if (this.action === this.awaitOrderCreated && this.target) this.orderQueue.unshift(this.target);
-            this.orderCooldownUntil = Date.now() + 20_000;
-            this.message('&eOrder placement is on cooldown; checking existing orders for 20 seconds.');
-            if (cancelling) return;
-            return this.setAction(this.openOrders, 'Bazaar order cooldown', this.clickDelay, 0);
-        }
-        if (this.action !== this.awaitOrderCreated && this.action !== this.awaitSellCreated) return;
-        if (message.includes('[Bazaar] Buy Order Setup!')) {
-            this.activeTargets.push(this.target);
-            this.placingSell = false;
-            this.setAction(this.placeNextOrder, 'Placing next order', this.clickDelay, 0);
-        } else if (message.includes('[Bazaar] Sell Offer Setup!')) {
-            this.openSellOrders.push(this.target);
-            this.placingSell = false;
-            this.setAction(this.finishCycle, 'Offer placed', this.clickDelay, 0);
-        } else if (/not enough coins|couldn't afford|cannot afford/i.test(message)) {
-            this.orderQueue = [];
-            this.message('&eNot enough coins for that order; monitoring placed orders.');
-            this.setAction(this.openOrders, 'Checking orders', this.clickDelay, 0);
+    guiIs(name) {
+        const current = this.guiName();
+        return !!current && current.includes(clean(name));
+    }
+
+    regName(item) {
+        try {
+            return clean(item?.getType?.()?.getRegistryName?.() ?? '');
+        } catch (error) {
+            return '';
         }
     }
 
-    scanOpenOrders() {
-        const items = Player.getContainer()?.getItems() || [];
-        const buyOrders = [];
-        const sellOrders = [];
-        let count = 0;
-        for (let slot = 0; slot < Math.max(0, items.length - 36); slot++) {
-            const stack = items[slot];
-            const name = clean(stack?.getName?.());
-            const match = name.match(/^(buy|sell) (.+)$/);
-            if (!match) continue;
-            count++;
-            const orderLore = lore(stack);
-            const amount = Number(
-                orderLore
-                    .find((line) => /^(order amount|amount):\s*[\d,]+x/i.test(line))
-                    ?.match(/[\d,]+/)?.[0]
-                    ?.replace(/,/g, '')
-            );
-            const info = bookFromText(match[2]) || bookFromItem(stack);
-            const order = {
-                id: this.skyblockItemId(stack),
-                name: ChatLib.removeFormatting(String(stack.getName())).trim().replace(/^(BUY|SELL)\s+/i, ''),
-                book: info ? info.book : null,
-                level: info ? info.level : null,
-                amount,
-                price: this.unitPrice(stack),
-            };
-            (match[1] === 'buy' ? buyOrders : sellOrders).push(order);
-        }
-        this.openBuyOrders = buyOrders;
-        this.openSellOrders = sellOrders;
-        if (count < this.openOrderCount) this.orderLimitReached = false;
-        this.openOrderCount = count;
-    }
-
-    findClaimSlot() {
-        const items = Player.getContainer()?.getItems() || [];
-        for (let slot = 0; slot < Math.max(0, items.length - 36); slot++) {
-            if (this.claimedSlots.has(slot)) continue;
-            const stack = items[slot];
-            if (!clean(stack?.getName?.()).startsWith('buy ')) continue;
-            if (!bookFromItem(stack)) continue;
-            if (lore(stack).some((line) => /^you have [\d,]+ items? to claim!?$/i.test(line))) return slot;
-        }
-        return -1;
-    }
-
-    findSlot(name, exact = false) {
-        const items = Player.getContainer()?.getItems() || [];
-        const target = clean(name);
-        for (let slot = 0; slot < items.length; slot++) {
+    findItem(type, name) {
+        const items = this.items();
+        const end = this.guiEnd();
+        const target = name ? clean(name) : null;
+        for (let slot = 0; slot < end; slot++) {
             const item = items[slot];
             if (!item) continue;
-            const itemName = clean(item.getName?.());
-            if (exact ? itemName === target : itemName.includes(target)) return slot;
+            if (type && !this.regName(item).includes(type)) continue;
+            if (target && !clean(item.getName?.()).includes(target)) continue;
+            return slot;
         }
         return -1;
     }
 
-    findSlotChecked(name, context) {
-        const slot = this.findSlot(name, true);
-        if (slot === -1) this.logGuiDebug(`${context} missing "${name}"`);
+    hasItem(type, name) {
+        return this.findItem(type, name) >= 0;
+    }
+
+    clickItem(type, name) {
+        const slot = this.findItem(type, name);
+        if (slot < 0) {
+            this.debugGui('missing ' + (type || 'item') + ' "' + name + '"');
+            return false;
+        }
+        this.safeClick(slot);
+        return true;
+    }
+
+    safeClick(slot, shift = false) {
+        if (slot < 0 || !Player.getContainer()) return false;
+        return clickSlot(slot, shift);
+    }
+
+    clickSlotOf(finder) {
+        const slot = finder();
+        if (slot < 0) {
+            this.debugGui('target not found');
+            return -1;
+        }
+        this.safeClick(slot);
         return slot;
     }
 
     findBookSlot(book, level) {
-        const items = Player.getContainer()?.getItems() || [];
-        const target = clean(bookName(book, level));
-        for (let slot = 0; slot < items.length; slot++) {
-            const item = items[slot];
-            if (!item) continue;
-            const info = bookFromItem(item);
+        const items = this.items();
+        const end = this.guiEnd();
+        for (let slot = 0; slot < end; slot++) {
+            const info = bookFromItem(items[slot]);
             if (info && info.book.key === book.key && info.level === level) return slot;
-            if (clean(item.getName?.()) === target) return slot;
         }
         return -1;
     }
 
-    findBestOfferSlot() {
-        const items = Player.getContainer()?.getItems() || [];
-        for (let slot = 0; slot < items.length; slot++) {
-            const item = items[slot];
-            if (!item) continue;
-            let registry = '';
-            try {
-                registry = clean(item.getType?.()?.getRegistryName?.() ?? '');
-            } catch (error) {}
-            const text = clean([item.getName?.(), ...lore(item)].join(' '));
-            if (registry.includes('gold_nugget') || /best offer|buy now|sell now/.test(text)) return slot;
+    findInventoryBookSlot(book, level) {
+        const items = this.items();
+        for (let slot = 36; slot < items.length; slot++) {
+            const info = bookFromItem(items[slot]);
+            if (info && info.book.key === book.key && info.level === level) return slot;
         }
         return -1;
     }
 
     findOrderSlot(target, excluded = new Set(), prefix = 'buy ') {
-        const items = Player.getContainer()?.getItems() || [];
+        const items = this.items();
+        const end = this.guiEnd();
         const targetName = clean(target.name);
         let fallback = -1;
-        for (let slot = 0; slot < Math.max(0, items.length - 36); slot++) {
+        for (let slot = 0; slot < end; slot++) {
             if (excluded.has(slot)) continue;
             const stack = items[slot];
             const name = clean(stack?.getName?.());
             if (!name.startsWith(prefix)) continue;
             const stripped = name.slice(prefix.length);
             const info = bookFromText(stripped) || bookFromItem(stack);
-            const matches = stripped === targetName || (info && target.book && info.book.key === target.book.key && (target.level == null || info.level === target.level));
+            const matches =
+                stripped === targetName ||
+                (info && target.book && info.book.key === target.book.key && (target.level == null || info.level === target.level));
             if (!matches) continue;
             if (fallback === -1) fallback = slot;
             const price = this.unitPrice(stack);
@@ -1075,23 +1289,44 @@ class BookFlipper extends ModuleBase {
         return fallback;
     }
 
-    topBuyOrderPrice(item) {
-        const prices = lore(item)
-            .map((line) => Number(line.match(/^- ([\d,.]+) coins? each\b/i)?.[1]?.replace(/,/g, '')))
-            .filter(Number.isFinite);
-        return prices.length ? Math.max(...prices) : NaN;
-    }
-
-    topSellOfferPrice(item) {
-        const prices = lore(item)
-            .map((line) => Number(line.match(/^- ([\d,.]+) coins? each\b/i)?.[1]?.replace(/,/g, '')))
-            .filter(Number.isFinite);
-        return prices.length ? Math.min(...prices) : NaN;
+    capAmount(slot, st) {
+        const limit = Number(
+            lore(this.items()[slot])
+                .find((line) => /^buy up to [\d,]+x\.?$/i.test(line))
+                ?.match(/[\d,]+/)?.[0]
+                ?.replace(/,/g, '')
+        );
+        if (limit > 0) st.amount = Math.min(st.amount, limit);
     }
 
     unitPrice(item) {
-        const line = lore(item).find((value) => /^(?:price per unit|unit price):\s*[\d,.]+/i.test(value));
-        return Number(line?.match(/[\d,.]+/)?.[0]?.replace(/,/g, ''));
+        const line = lore(item).find((value) => /(?:price per unit|unit price)/i.test(value));
+        if (!line) return NaN;
+        const match = line.match(/([\d,.]+)\s*([kmb])?/i);
+        if (!match) return NaN;
+        let value = Number(match[1].replace(/,/g, ''));
+        if (!Number.isFinite(value)) return NaN;
+        const suffix = (match[2] || '').toLowerCase();
+        if (suffix === 'k') value *= 1e3;
+        else if (suffix === 'm') value *= 1e6;
+        else if (suffix === 'b') value *= 1e9;
+        return value;
+    }
+
+    isSignGui() {
+        try {
+            return !!Client.currentGui?.getClassName?.().includes('Sign');
+        } catch (error) {
+            return false;
+        }
+    }
+
+    isInGui() {
+        try {
+            return !!Client.isInGui();
+        } catch (error) {
+            return false;
+        }
     }
 
     skyblockItemId(item) {
@@ -1103,91 +1338,23 @@ class BookFlipper extends ModuleBase {
         return data.match(/\bid\s*[:=]\s*"?([^",}\s]+)/i)?.[1] || null;
     }
 
-    itemKey(item) {
-        if (!item) return null;
-        let customData = '';
+    runCommand(command) {
         try {
-            customData = String(item.toMC()?.get?.(DataComponents.CUSTOM_DATA)?.copyTag?.() || '');
-        } catch (error) {}
-        if (!customData) customData = String(item.getNBT()).match(/\bid\s*[:=]\s*"?([^",}\s]+)/i)?.[1] || '';
-        return `${item.getType().getRegistryName()}|${item.getDamage()}|${customData}`;
-    }
-
-    inventorySnapshot(items = Player.getInventory()?.getItems() || []) {
-        const snapshot = new Map();
-        for (const item of items) {
-            const key = this.itemKey(item);
-            if (key) snapshot.set(key, (snapshot.get(key) || 0) + Number(item.getStackSize() || 0));
+            ChatLib.command(command);
+        } catch (error) {
+            console.error('[BookFlipper] command failed (' + command + '): ' + error);
         }
-        return snapshot;
     }
 
-    countLevel(book, level) {
-        let total = 0;
-        for (const item of Player.getInventory()?.getItems() || []) {
-            const info = bookFromItem(item);
-            if (info && info.book.key === book.key && info.level === level) total += Number(item.getStackSize() || 0);
-        }
-        return total;
-    }
-
-    hasCombinableBooks() {
-        for (const book of BOOKS) {
-            for (let level = 1; level <= 4; level++) {
-                if (this.countLevel(book, level) >= 2) return true;
-            }
-        }
-        return false;
-    }
-
-    flipProfit(book, input, price) {
-        const outProduct = this.bazaarData?.products?.[bookId(book, SELL_TIER)];
-        const revenuePerV = askPrice(outProduct) * (1 - this.undercutPercent / 100) * (1 - this.taxPercent / 100);
-        return revenuePerV - price * unitsFor(input);
-    }
-
-    isSafePrice(price) {
-        const expected = Number(this.target.expectedOrderPrice);
-        return (
-            Number.isFinite(price) &&
-            price > 0 &&
-            Number.isFinite(expected) &&
-            price <= expected * 1.1 + 1 &&
-            this.flipProfit(this.target.book, this.target.input, price) >= this.minProfit
-        );
-    }
-
-    removeTarget(target) {
-        const key = `${target.book.key}:${target.input}`;
-        this.activeTargets = this.activeTargets.filter((entry) => `${entry.book.key}:${entry.input}` !== key);
-        this.orderCheckQueue = this.orderCheckQueue.filter((entry) => `${entry.book.key}:${entry.input}` !== key);
-        this.orderQueue = this.orderQueue.filter((entry) => `${entry.book.key}:${entry.input}` !== key);
-    }
-
-    retryPrices(message) {
-        this.message(`&e${message}`);
-        this.placeNextOrder();
-    }
-
-    restart(message) {
-        const snapshot = {
-            bazaarData: this.bazaarData,
-            enchantingLevel: this.enchantingLevel,
-            startingInventory: this.startingInventory,
-            lastCheckedInventory: this.lastCheckedInventory,
-            cleanupPhase: this.cleanupPhase,
-        };
-        this.message(`&e${message} Restarting...`);
-        closeInventory();
-        this.reset();
-        Object.assign(this, snapshot);
-        this.inventoryReady = true;
-        this.setAction(this.fetchPrices, 'Restarting', 500, 25_000);
-    }
-
-    fail(message) {
-        this.message(`&c${message}`);
-        this.toggle(false);
+    debugGui(context) {
+        const gui = this.guiName();
+        const key = context + '|' + gui;
+        if (this.guiDebugSeen[key]) return;
+        this.guiDebugSeen[key] = true;
+        const slots = this.items()
+            .map((item, slot) => `${slot}:${clean(item?.getName?.())}`)
+            .filter((entry) => !entry.endsWith(':'));
+        console.log(`[BookFlipper] GUI DEBUG (${context}) gui="${gui}" slots=${slots.join(' | ')}`);
     }
 
     report() {
@@ -1196,6 +1363,11 @@ class BookFlipper extends ModuleBase {
         for (const target of this.activeTargets) {
             this.message(`  &7${target.name} @ ${formatCoins(target.orderPrice)} (${target.quantity}x)`);
         }
+    }
+
+    fail(message) {
+        this.message('&c' + message);
+        this.toggle(false);
     }
 }
 
