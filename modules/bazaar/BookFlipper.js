@@ -760,7 +760,6 @@ class BookFlipper extends ModuleBase {
     buySteps(target) {
         const st = { amount: target.quantity, price: target.orderPrice || 0, mark: 0, ok: false, safe: true };
         this.target = target;
-        const productScreen = () => this.guiIs('bazaar') && this.findBookSlot(target.book, target.input) >= 0;
         const buyMenu = () => this.guiIs('bazaar') && this.hasSlot('Create Buy Order');
         const amountScreen = () => this.hasSlot('Custom Amount');
         const priceScreen = () => this.hasSlot('Top Order +0.1');
@@ -770,15 +769,9 @@ class BookFlipper extends ModuleBase {
             {
                 name: 'Open ' + target.name,
                 status: 'Buying ' + target.name,
-                screen: () => this.guiIs('bazaar') && this.findBookSlot(target.book, target.input) >= 0,
+                screen: () => this.guiIs('bazaar') && this.hasSlot('Create Buy Order'),
                 open: () => this.runCommand('bz ' + target.name),
-                done: () => this.findBookSlot(target.book, target.input) >= 0,
-            },
-            {
-                name: 'Select ' + target.name,
-                screen: productScreen,
-                enter: () => this.safeClick(this.findBookSlot(target.book, target.input)),
-                done: buyMenu,
+                done: () => this.hasSlot('Create Buy Order'),
             },
             {
                 name: 'Create Buy Order',
@@ -919,22 +912,15 @@ class BookFlipper extends ModuleBase {
         const target = this.orderCheckQueue[0];
         const st = { missing: false, qty: 0, outbid: false, top: NaN };
         this.target = target;
-        const productScreen = () => this.guiIs('bazaar') && this.findBookSlot(target.book, target.input) >= 0;
         const buyMenu = () => this.guiIs('bazaar') && this.hasSlot('Create Buy Order');
         return [
             this.closeGuiStep(),
             {
                 name: 'Open ' + target.name,
                 status: 'Checking ' + target.name,
-                screen: productScreen,
+                screen: buyMenu,
                 open: () => this.runCommand('bz ' + target.name),
-                done: () => this.findBookSlot(target.book, target.input) >= 0,
-            },
-            {
-                name: 'Select ' + target.name,
-                screen: productScreen,
-                enter: () => this.safeClick(this.findBookSlot(target.book, target.input)),
-                done: buyMenu,
+                done: () => this.hasSlot('Create Buy Order'),
             },
             {
                 name: 'Read top order',
@@ -955,22 +941,15 @@ class BookFlipper extends ModuleBase {
         const target = this.sellCheckQueue[0];
         const st = { missing: false, qty: 0, undercut: false, top: NaN };
         this.target = target;
-        const productScreen = () => this.guiIs('bazaar') && this.findBookSlot(target.book, SELL_TIER) >= 0;
         const sellMenu = () => this.guiIs('bazaar') && this.hasSlot('Create Sell Offer');
         return [
             this.closeGuiStep(),
             {
                 name: 'Open ' + target.name,
                 status: 'Checking ' + target.name,
-                screen: productScreen,
+                screen: sellMenu,
                 open: () => this.runCommand('bz ' + target.name),
-                done: () => this.findBookSlot(target.book, SELL_TIER) >= 0,
-            },
-            {
-                name: 'Select ' + target.name,
-                screen: productScreen,
-                enter: () => this.safeClick(this.findBookSlot(target.book, SELL_TIER)),
-                done: sellMenu,
+                done: () => this.hasSlot('Create Sell Offer'),
             },
             {
                 name: 'Read best offer',
@@ -1313,10 +1292,10 @@ class BookFlipper extends ModuleBase {
     findSlot(name, exact = true) {
         const items = this.items();
         const end = this.guiEnd();
-        const target = clean(name);
+        const target = String(name);
         for (let slot = 0; slot < end; slot++) {
-            const itemName = clean(items[slot]?.getName?.());
-            if ((exact && itemName === target) || (!exact && itemName.includes(target))) return slot;
+            const itemName = ChatLib.removeFormatting(String(items[slot]?.getName?.() ?? '')).trim();
+            if ((exact && itemName === target) || (!exact && itemName.toLowerCase().includes(target.toLowerCase()))) return slot;
         }
         return -1;
     }
@@ -1328,16 +1307,6 @@ class BookFlipper extends ModuleBase {
     safeClick(slot, shift = false) {
         if (slot < 0 || !Player.getContainer()) return false;
         return clickSlot(slot, shift);
-    }
-
-    findBookSlot(book, level) {
-        const items = this.items();
-        const end = this.guiEnd();
-        for (let slot = 0; slot < end; slot++) {
-            const info = bookFromItem(items[slot]);
-            if (info && info.book.key === book.key && info.level === level) return slot;
-        }
-        return -1;
     }
 
     findInventoryBookSlot(book, level) {
