@@ -82,7 +82,7 @@ export class ModuleBase {
                     ChatLib.command('play skyblock');
                 });
                 ScheduleTask(60, () => {
-                    this.toggle(true);
+                    this.toggle(true, false, 'recovery');
                     chat('&aRecovered from limbo?');
                 });
             });
@@ -184,6 +184,8 @@ export class ModuleBase {
             if (this.oid && !this.isParentManaged) {
                 OverlayManager.startTime(this.oid, this.isMacro);
             }
+
+            this.toggleContext = toggleContext;
 
             try {
                 this.onEnable();

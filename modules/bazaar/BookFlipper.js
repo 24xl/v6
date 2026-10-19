@@ -143,8 +143,9 @@ class BookFlipper extends ModuleBase {
     finishEnable() {
         const inventory = Player.getInventory();
         if (!inventory) return this.fail('Could not snapshot your inventory.');
-        if (inventory.getItems().slice(0, 36).some((item) => item && item.getStackSize() > 0 && !clean(item.getName()).startsWith('skyblock menu')))
-            return this.fail('Empty your inventory before enabling the macro.');
+        const dirty = inventory.getItems().slice(0, 36).some((item) => item && item.getStackSize() > 0 && !clean(item.getName()).startsWith('skyblock menu'));
+        if (dirty && this.toggleContext === 'user') return this.fail('Empty your inventory before enabling the macro.');
+        if (dirty) this.message('&eInventory not empty; resuming with current inventory.');
         this.startingInventory = this.inventorySnapshot(inventory.getItems());
         this.lastCheckedInventory = this.startingInventory;
         this.inventoryReady = true;
@@ -810,11 +811,31 @@ class BookFlipper extends ModuleBase {
     }
 
     chooseSellPrice() {
-        const slot = this.findBestOfferSlot();
+        const slot = this.findSellPriceSlot();
         if (slot === -1) return;
         const price = this.unitPrice(Player.getContainer()?.getStackInSlot(slot));
         if (Number.isFinite(price)) this.target.orderPrice = price;
         this.clickAndWait(slot, this.confirmSellOffer, 'Confirming sell offer');
+    }
+
+    findSellPriceSlot() {
+        const items = Player.getContainer()?.getItems() || [];
+        const isNugget = (item) => {
+            try {
+                return clean(item?.getType?.()?.getRegistryName?.() ?? '').includes('gold_nugget');
+            } catch (error) {
+                return false;
+            }
+        };
+        for (let slot = 0; slot < items.length; slot++) {
+            const item = items[slot];
+            if (!item || !isNugget(item)) continue;
+            if (/best offer\s*-\s*0\.1/i.test(clean(item.getName?.()))) return slot;
+        }
+        const fallback = 13;
+        const item = items[fallback];
+        if (item && isNugget(item)) return fallback;
+        return -1;
     }
 
     confirmSellOffer() {
