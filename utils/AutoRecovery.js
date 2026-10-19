@@ -1,5 +1,6 @@
 import { ClientboundDisconnectPacket, ClientboundLoginDisconnectPacket } from './Packets';
-import { getArea } from './Area';
+import { getArea, normalizeArea } from './Area';
+import { subArea } from './Utils';
 import { registerSkyblockEvent } from './SkyblockEvents';
 import { closeInventory } from './player/Inventory';
 
@@ -73,11 +74,11 @@ class AutoRecovery {
 
     setActive(value) {
         this.active = !!value;
-        this.ready = !this.active;
+        this.ready = this.active ? this.inSkyBlock() && this.onIsland() : true;
         this.state = STATE.READY;
         this.notSkyBlock = false;
         this.notLoadedSince = 0;
-        console.log(`[Recovery] active=${this.active}`);
+        console.log(`[Recovery] active=${this.active} ready=${this.ready}`);
     }
 
     isReady() {
@@ -96,8 +97,7 @@ class AutoRecovery {
     }
 
     onIsland() {
-        if (sidebarLines().some((line) => line.includes('your island'))) return true;
-        return areaText().includes('private island');
+        return normalizeArea(getArea()).includes('private island') && normalizeArea(subArea()).includes('your island');
     }
 
     setState(state) {
