@@ -852,11 +852,15 @@ class BookFlipper extends ModuleBase {
             {
                 name: 'Select ' + name,
                 enter: () => this.clickSlotOf(() => this.findInventoryBookSlot(book, SELL_TIER)),
-                done: () => this.hasItem('paper', 'Create Sell Offer'),
+                done: () => this.findCreateOfferSlot() >= 0,
             },
             {
                 name: 'Create Sell Offer',
-                enter: () => this.clickItem('paper', 'Create Sell Offer'),
+                enter: () => {
+                    const slot = this.findCreateOfferSlot();
+                    if (slot >= 0) this.safeClick(slot);
+                    else this.debugGui('sell: no Create Sell Offer');
+                },
                 done: () => this.hasItem('gold_nugget', 'Best Offer -0.1'),
             },
             {
@@ -1347,6 +1351,17 @@ class BookFlipper extends ModuleBase {
     isSafePrice(book, input, price) {
         if (!Number.isFinite(price) || price <= 0) return false;
         return this.flipProfit(book, input, price) >= this.minProfit;
+    }
+
+    findCreateOfferSlot() {
+        const byName = this.findItem('paper', 'Create Sell Offer');
+        if (byName >= 0) return byName;
+        const buySlot = this.findItem('map', 'Create Buy Order');
+        if (buySlot >= 0) {
+            const next = this.items()[buySlot + 1];
+            if (next && this.regName(next).includes('paper')) return buySlot + 1;
+        }
+        return -1;
     }
 
     capAmount(slot, st) {
