@@ -69,8 +69,7 @@ class BookFlipper extends ModuleBase {
         this.bindToggleKey();
 
         this.clickDelay = 350;
-        this.addSlider('Click Delay (ms)', 50, 2_000, 350, (value) => (this.clickDelay = value), 'Delay between Bazaar clicks.');
-        this.stepTimeout = 8_000;
+        this.addSlider('Click Delay (ms)', 50, 2_000, 350, (value) => (this.clickDelay = value), 'Delay between Bazaar clicks.');        this.stepTimeout = 8_000;
         this.addSlider('Step Timeout (ms)', 3_000, 20_000, 8_000, (value) => (this.stepTimeout = value), 'How long a single GUI step may stall before it retries.');
         this.maxRetries = 3;
         this.addSlider('Max Retries per Step', 1, 6, 3, (value) => (this.maxRetries = Math.round(value)), 'Retries of a stalled step before the task aborts.');
@@ -86,6 +85,8 @@ class BookFlipper extends ModuleBase {
         this.addSlider('Min Profit per V', 0, 10_000_000, 0, (value) => (this.minProfit = value), 'Minimum coins profit per finished level V book.');
         this.refreshSeconds = 60;
         this.addSlider('Refresh Interval (s)', 10, 300, 60, (value) => (this.refreshSeconds = value), 'How long to idle before re-fetching prices.');
+        this.sellOfferSlot = 16;
+        this.addSlider('Sell Offer Slot', 0, 53, 16, (value) => (this.sellOfferSlot = Math.round(value)), 'Fallback slot for the Create Sell Offer paper when its name is not readable.');
         this.skillGate = true;
         this.addToggle('Enchanting Skill Gate', (value) => (this.skillGate = !!value), 'Skip enchants whose required Enchanting level is above yours.', true);
         this.cleanOnEnable = true;
@@ -852,11 +853,12 @@ class BookFlipper extends ModuleBase {
             {
                 name: 'Select ' + name,
                 enter: () => this.clickSlotOf(() => this.findInventoryBookSlot(book, SELL_TIER)),
-                done: () => this.findCreateOfferSlot() >= 0,
+                done: () => this.findCreateOfferSlot() >= 0 || this.isSellMenu(),
             },
             {
                 name: 'Create Sell Offer',
                 enter: () => {
+                    if (this.isSellMenu()) this.debugGui('sell menu');
                     const slot = this.findCreateOfferSlot();
                     if (slot >= 0) this.safeClick(slot);
                     else this.debugGui('sell: no Create Sell Offer');
@@ -1354,14 +1356,24 @@ class BookFlipper extends ModuleBase {
     }
 
     findCreateOfferSlot() {
-        const byName = this.findItem('paper', 'Create Sell Offer');
+        const byName = this.findItem('paper', 'Create Sell Offer') || this.findItem('paper', 'Create Sell Order');
         if (byName >= 0) return byName;
         const buySlot = this.findItem('map', 'Create Buy Order');
         if (buySlot >= 0) {
             const next = this.items()[buySlot + 1];
             if (next && this.regName(next).includes('paper')) return buySlot + 1;
         }
+        if (this.isSellMenu()) return this.sellOfferSlot;
         return -1;
+    }
+
+    isSellMenu() {
+        const items = this.items();
+        return items.some((item) => this.regName(item).includes('paper')) && items.some((item) => this.regName(item).includes('gold_nugget'));
+    }
+
+    sellOfferByName() {
+        return this.findItem('paper', 'Create Sell Offer') || this.findItem('paper', 'Create Sell Order');
     }
 
     capAmount(slot, st) {
