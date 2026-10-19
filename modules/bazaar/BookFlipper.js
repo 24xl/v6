@@ -283,6 +283,7 @@ class BookFlipper extends ModuleBase {
         const waitForGui = () => {
             action.call(this);
             if (this.action === waitForGui || !this.retryAction) return;
+            if (this.action?.__bzCommand) return;
             const nextRetry = this.retryAction;
             this.retryAction = () => {
                 const nextAction = this.action;
@@ -291,6 +292,7 @@ class BookFlipper extends ModuleBase {
             };
             this.retryAt = Date.now() + STUCK_RETRY_DELAY;
         };
+        waitForGui.__bzCommand = command;
         const retry = () => {
             waitForGui();
             if (this.action === waitForGui && this.retryAction === retry) run();
