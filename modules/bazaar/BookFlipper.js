@@ -824,15 +824,14 @@ class BookFlipper extends ModuleBase {
                 enter: () => {
                     const slot = this.findSlot('Top Order +0.1');
                     st.price = this.unitPrice(this.items()[slot]);
-                    st.safe = this.isSafePrice(target.book, target.input, st.price);
-                    if (st.safe) this.safeClick(slot);
-                    else {
-                        this.debugGui('buy price moved; skipping ' + target.name);
-                        this.skippedIds.set(target.id, Date.now() + 60_000);
-                    }
+                    this.safeClick(slot);
                 },
-                done: () => (st.safe ? confirmScreen() : true),
-                next: () => (st.safe ? undefined : [this.finishBuyStep(target, st)]),
+                while: () => {
+                    if (confirmScreen()) return;
+                    const slot = this.findSlot('Top Order +0.1');
+                    if (slot >= 0) this.safeClick(slot);
+                },
+                done: () => confirmScreen(),
             },
             {
                 name: 'Submit buy order',
@@ -925,6 +924,11 @@ class BookFlipper extends ModuleBase {
                 name: 'Best Offer -0.1',
                 screen: priceScreen,
                 enter: () => this.safeClick(this.findSlot('Best Offer -0.1')),
+                while: () => {
+                    if (confirmScreen()) return;
+                    const slot = this.findSlot('Best Offer -0.1');
+                    if (slot >= 0) this.safeClick(slot);
+                },
                 done: confirmScreen,
             },
             {
