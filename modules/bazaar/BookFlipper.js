@@ -839,18 +839,36 @@ class BookFlipper extends ModuleBase {
                 screen: confirmScreen,
                 enter: () => {
                     st.mark = this.chatSeq;
-                    this.safeClick(this.findSlot('Buy Order'));
+                    st.clicked = false;
+                    st.slot = this.findSlot('Buy Order');
+                    this.debugGui('confirm screen');
+                },
+                while: () => {
+                    if (this.chatSince(st.mark, /Buy Order Setup!/i)) return;
+                    if (!this.isInGui() || st.slot < 0) return;
+                    const name = ChatLib.removeFormatting(String(Player.getContainer()?.getStackInSlot(st.slot)?.getName?.() ?? '')).trim().toLowerCase();
+                    if (name === 'warning' || name === 'confirm') {
+                        this.safeClick(st.slot);
+                        return;
+                    }
+                    if (!st.clicked) {
+                        st.clicked = true;
+                        this.safeClick(st.slot);
+                    }
                 },
                 done: () => {
                     if (this.chatSince(st.mark, /Buy Order Setup!/i)) {
                         st.ok = true;
                         return true;
                     }
-                    return (
-                        this.chatSince(st.mark, /maximum of [\d,]+ Bazaar orders/i) ||
-                        this.chatSince(st.mark, /not enough coins|couldn't afford|can't afford/i) ||
-                        this.chatSince(st.mark, /on cooldown/i)
-                    );
+                    if (this.chatSince(st.mark, /maximum of [\d,]+ Bazaar orders/i)) return true;
+                    if (this.chatSince(st.mark, /not enough coins|couldn't afford|can't afford/i)) return true;
+                    if (this.chatSince(st.mark, /on cooldown/i)) return true;
+                    if (st.clicked && !this.isInGui()) {
+                        st.ok = true;
+                        return true;
+                    }
+                    return false;
                 },
             },
             this.finishBuyStep(target, st),
@@ -914,9 +932,30 @@ class BookFlipper extends ModuleBase {
                 screen: confirmScreen,
                 enter: () => {
                     st.mark = this.chatSeq;
-                    this.safeClick(this.findSlot('Sell Offer'));
+                    st.clicked = false;
+                    st.slot = this.findSlot('Sell Offer');
                 },
-                done: () => this.chatSince(st.mark, /Sell Offer Setup!/i),
+                while: () => {
+                    if (this.chatSince(st.mark, /Sell Offer Setup!/i)) return;
+                    if (!this.isInGui() || st.slot < 0) return;
+                    const label = ChatLib.removeFormatting(String(Player.getContainer()?.getStackInSlot(st.slot)?.getName?.() ?? '')).trim().toLowerCase();
+                    if (label === 'warning' || label === 'confirm') {
+                        this.safeClick(st.slot);
+                        return;
+                    }
+                    if (!st.clicked) {
+                        st.clicked = true;
+                        this.safeClick(st.slot);
+                    }
+                },
+                done: () => {
+                    if (this.chatSince(st.mark, /Sell Offer Setup!/i)) return true;
+                    if (this.chatSince(st.mark, /maximum of [\d,]+ Bazaar orders/i)) return true;
+                    if (this.chatSince(st.mark, /not enough coins|couldn't afford|can't afford/i)) return true;
+                    if (this.chatSince(st.mark, /on cooldown/i)) return true;
+                    if (st.clicked && !this.isInGui()) return true;
+                    return false;
+                },
             },
             this.doneStep(() => {
                 this.target = null;
