@@ -1113,7 +1113,6 @@ class BookFlipper extends ModuleBase {
 
     computeFlips(bazaar) {
         const products = bazaar?.products || {};
-        const purse = this.readPurse();
         const candidates = [];
         for (const book of this.enabledBooks()) {
             const outProduct = products[bookId(book, SELL_TIER)];
@@ -1124,9 +1123,12 @@ class BookFlipper extends ModuleBase {
                 const inProduct = products[bookId(book, input)];
                 if (!inProduct) continue;
                 if (this.skippedIds.get(bookId(book, input)) > Date.now()) continue;
+                if (this.hasOpenBuyOrder(book, input)) continue;
+                if (this.hasStockForTier(book, input)) continue;
                 const price = Math.ceil((askPrice(inProduct) + 0.1) * 10) / 10;
                 if (price <= 0) continue;
                 const units = unitsFor(input);
+                if (units * price > this.budget) continue;
                 const profitPerV = revenuePerV - price * units;
                 if (profitPerV < this.minProfit) continue;
                 candidates.push({
@@ -1137,28 +1139,24 @@ class BookFlipper extends ModuleBase {
                     units,
                     orderPrice: price,
                     expectedOrderPrice: price,
+                    quantity: units,
+                    outputCount: 1,
                     profitPerV,
+                    profit: profitPerV,
                     profitPerHour: profitPerV * ((Number(outProduct?.quick_status?.buyMovingWeek) || 0) / 168),
                 });
             }
         }
-        candidates.sort((a, b) => b.profitPerHour - a.profitPerHour);
-        let available = purse != null ? Math.floor(purse * 0.98) : Number.MAX_SAFE_INTEGER;
-        const chosen = [];
-        for (const candidate of candidates) {
-            if (chosen.length >= Math.max(0, this.maxBuyOrders - this.activeTargets.length)) break;
-            if (available <= 0) break;
-            const funds = Math.min(this.budget, available);
-            const maxQuantity = Math.floor(funds / candidate.orderPrice);
-            const quantity = Math.floor(maxQuantity / candidate.units) * candidate.units;
-            if (quantity < candidate.units) continue;
-            candidate.quantity = quantity;
-            candidate.outputCount = quantity / candidate.units;
-            candidate.profit = candidate.profitPerV * candidate.outputCount;
-            chosen.push(candidate);
-            available -= quantity * candidate.orderPrice;
-        }
-        return chosen;
+        candidates.sort((a, b) => a.input - b.input || b.profitPerHour - a.profitPerHour);
+        return candidates.slice(0, Math.max(0, this.maxBuyOrders - this.activeTargets.length));
+    }
+
+    hasOpenBuyOrder(book, input) {
+        return this.activeTargets.some((target) => target.book?.key === book.key && target.input === input);
+    }
+
+    hasStockForTier(book, input) {
+        return this.countLevel(book, input) >= unitsFor(input);
     }
 
     flipProfit(book, input, price) {
