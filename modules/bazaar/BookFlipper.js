@@ -500,6 +500,7 @@ class BookFlipper extends ModuleBase {
     findMissingTier() {
         for (const book of this.enabledBooks()) {
             for (const input of book.buyTiers) {
+                if (this.skippedIds.get(bookId(book, input)) > Date.now()) continue;
                 if (this.hasOpenBuyOrder(book, input)) continue;
                 if (this.hasStockForTier(book, input)) continue;
                 const target = this.tierTarget(book, input);
