@@ -674,6 +674,7 @@ class BookFlipper extends ModuleBase {
 
     scanOrdersSteps() {
         return [
+            this.closeGuiStep(),
             this.openOrdersStep(),
             this.doneStep(() => {
                 this.scanOrders();
@@ -980,6 +981,7 @@ class BookFlipper extends ModuleBase {
                 screen: confirmScreen,
                 enter: () => {
                     if (st.mark === undefined) st.mark = this.chatSeq;
+                    if (st.clicks === undefined) st.clicks = 0;
                     st.slot = this.findSlot('Buy Order') >= 0 ? this.findSlot('Buy Order') : st.slot;
                     this.debugGui('confirm screen');
                 },
@@ -996,6 +998,13 @@ class BookFlipper extends ModuleBase {
                     if (!st.submitted) {
                         st.submitted = true;
                         st.submittedAt = Date.now();
+                        st.clicks++;
+                        this.safeClick(st.slot);
+                        return;
+                    }
+                    if (name === 'buy order' && st.clicks < 3 && Date.now() - st.submittedAt > 1_200) {
+                        st.submittedAt = Date.now();
+                        st.clicks++;
                         this.safeClick(st.slot);
                     }
                 },
@@ -1007,7 +1016,7 @@ class BookFlipper extends ModuleBase {
                     if (this.chatSince(st.mark, /maximum of [\d,]+ Bazaar orders/i)) return true;
                     if (this.chatSince(st.mark, /not enough coins|couldn't afford|can't afford/i)) return true;
                     if (this.chatSince(st.mark, /on cooldown/i)) return true;
-                    if (st.submitted && st.submittedAt && Date.now() - st.submittedAt > 1_500) {
+                    if (st.submitted && !this.isInGui()) {
                         st.ok = true;
                         return true;
                     }
@@ -1025,9 +1034,12 @@ class BookFlipper extends ModuleBase {
         return this.doneStep(() => {
             const index = this.orderQueue.indexOf(target);
             if (index >= 0) this.orderQueue.splice(index, 1);
+            const key = target.book.key + ':' + target.input;
             if (st.ok) {
+                this.activeTargets = this.activeTargets.filter((entry) => !entry.book || entry.book.key + ':' + entry.input !== key);
                 this.activeTargets.push({ ...target, orderPrice: Number.isFinite(st.price) ? st.price : target.orderPrice, quantity: st.amount });
                 this.skippedIds.delete(target.id);
+                this.orderOutbidCheckedAt = Date.now();
             } else {
                 this.skippedIds.set(target.id, Date.now() + 60_000);
             }
@@ -1083,6 +1095,7 @@ class BookFlipper extends ModuleBase {
                 screen: confirmScreen,
                 enter: () => {
                     if (st.mark === undefined) st.mark = this.chatSeq;
+                    if (st.clicks === undefined) st.clicks = 0;
                     if (st.slot === undefined || st.slot < 0) st.slot = this.findSlot('Sell Offer');
                 },
                 while: () => {
@@ -1097,6 +1110,14 @@ class BookFlipper extends ModuleBase {
                     }
                     if (!st.submitted) {
                         st.submitted = true;
+                        st.submittedAt = Date.now();
+                        st.clicks++;
+                        this.safeClick(st.slot);
+                        return;
+                    }
+                    if (label === 'sell offer' && st.clicks < 3 && Date.now() - st.submittedAt > 1_200) {
+                        st.submittedAt = Date.now();
+                        st.clicks++;
                         this.safeClick(st.slot);
                     }
                 },
