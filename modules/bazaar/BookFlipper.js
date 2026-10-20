@@ -758,7 +758,7 @@ class BookFlipper extends ModuleBase {
     // ───────────────────────────── buy ─────────────────────────────
 
     buySteps(target) {
-        const st = { amount: target.quantity, price: target.orderPrice || 0, mark: 0, ok: false, safe: true };
+        const st = { amount: Math.max(1, Math.floor(Number(target.quantity) || Number(target.units) || 0)) || 1, price: target.orderPrice || 0, mark: 0, ok: false, safe: true };
         this.target = target;
         const productScreen = () => this.findBookSlot(target.book, target.input) >= 0;
         const buyMenu = () => this.hasSlot('Create Buy Order');
@@ -800,8 +800,12 @@ class BookFlipper extends ModuleBase {
                 name: 'Enter amount',
                 screen: () => this.isSignGui(),
                 enter: () => {
-                    setSignLine(1, st.amount);
-                    Client.currentGui?.close();
+                    const submit = () => {
+                        if (!this.isSignGui()) return;
+                        setSignLine(1, st.amount);
+                        Client.currentGui.close();
+                    };
+                    submit();
                 },
                 done: priceScreen,
             },
@@ -1046,7 +1050,7 @@ class BookFlipper extends ModuleBase {
         if (!(top > 0)) return;
         const price = Math.ceil((top + 0.1) * 10) / 10;
         const units = target.units;
-        const qty = st.qty > 0 ? st.qty : target.quantity;
+        const qty = st.qty > 0 ? st.qty : Number(target.quantity) || units;
         const quantity = Math.floor(Math.min(qty, Math.floor(this.budget / price)) / units) * units;
         if (quantity >= units && this.flipProfit(target.book, target.input, price) >= this.minProfit) {
             this.orderQueue.unshift({ ...target, quantity, orderPrice: price, expectedOrderPrice: price, outputCount: quantity / units });
@@ -1396,6 +1400,7 @@ class BookFlipper extends ModuleBase {
                 ?.replace(/,/g, '')
         );
         if (limit > 0) st.amount = Math.min(st.amount, limit);
+        st.amount = Math.max(1, Math.floor(Number(st.amount) || 0)) || 1;
     }
 
     unitPrice(item) {
