@@ -494,7 +494,10 @@ class BookFlipper extends ModuleBase {
             return this.startTask('Cleanup ' + this.cleanupPhase, this.cleanupSteps(this.cleanupPhase));
         }
 
-        if (this.needsOrderScan() || this.hasResolvableWork()) return this.startTask('Resolve', this.resolveSteps());
+        if (this.needsOrderScan() || this.hasResolvableWork()) {
+            this.resolveAct = null;
+            return this.startTask('Resolve', this.resolveSteps());
+        }
         if (this.hasSellableV() && !this.pendingSell) return this.startTask('Sell books', this.sellSteps());
         if (!this.orderCheckQueue.length && this.needsOrderPriceCheck()) {
             this.orderOutbidCheckedAt = Date.now();
@@ -720,9 +723,16 @@ class BookFlipper extends ModuleBase {
                 name: 'Resolve',
                 status: 'Resolving inventory',
                 while: () => {
-                    if (!this.isOrdersGui()) return;
+                    if (this.resolveAct !== null) return;
                     if (st.actions >= 6) {
-                        this.resolveAct = null;
+                        this.resolveAct = false;
+                        return;
+                    }
+                    if (!this.isOrdersGui()) {
+                        if (Date.now() - (st.sentAt || 0) > STUCK_RETRY_DELAY) {
+                            st.sentAt = Date.now();
+                            this.runCommand('managebazaarorders');
+                        }
                         return;
                     }
                     this.scanOrders();
@@ -740,9 +750,9 @@ class BookFlipper extends ModuleBase {
                         this.resolveAct = 'claim';
                         return;
                     }
-                    this.resolveAct = null;
+                    this.resolveAct = false;
                 },
-                done: () => !this.resolveAct,
+                done: () => this.resolveAct !== null,
                 next: () => {
                     const act = this.resolveAct;
                     this.resolveAct = null;
