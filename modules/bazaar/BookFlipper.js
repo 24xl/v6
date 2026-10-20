@@ -205,6 +205,7 @@ class BookFlipper extends ModuleBase {
         this.chatSeq = 0;
         this.lastError = null;
         this.guiDebugSeen = {};
+        this.traceLast = null;
         this.commandTokens = COMMAND_CAPACITY;
         this.commandRefillAt = Date.now();
         this.requestToken = (this.requestToken || 0) + 1;
@@ -290,6 +291,7 @@ class BookFlipper extends ModuleBase {
             this.stepFailures = 0;
         }
         this.watchdog();
+        this.traceGui();
         try {
             this.drive();
         } catch (error) {
@@ -297,6 +299,19 @@ class BookFlipper extends ModuleBase {
             this.task = null;
             this.onTaskFailed('tick error');
         }
+    }
+
+    traceGui() {
+        const gui = this.guiName();
+        const step = this.task ? `${this.task.name}#${this.task.i}` : '-';
+        const signature = gui + '|' + step;
+        if (this.traceLast === signature) return;
+        this.traceLast = signature;
+        const slots = this.items()
+            .map((item, slot) => `${slot}:${clean(item?.getName?.())}`)
+            .filter((entry) => !entry.endsWith(':'))
+            .join(' ');
+        this.message(`&8[TR] &7${step} &f${gui || '(none)'} &7${slots}`);
     }
 
     watchdog() {
