@@ -191,6 +191,7 @@ class BookFlipper extends ModuleBase {
         this.claimedSlots = new Map();
         this.claimNoSpace = false;
         this.filledNotice = null;
+        this.buySetupNotice = null;
         this.orderOutbidCheckedAt = 0;
         this.orderCooldownUntil = 0;
         this.orderLimitReached = false;
@@ -245,6 +246,12 @@ class BookFlipper extends ModuleBase {
         if (buyFill) this.onOrderFilled('buy', buyFill[2], buyFill[3], Number(buyFill[1].replace(/,/g, '')));
         const sellFill = text.match(/Your Sell Offer for ([\d,]+)x (Rejuvenate) ([IVX]+) was filled!/i);
         if (sellFill) this.onOrderFilled('sell', sellFill[2], sellFill[3], Number(sellFill[1].replace(/,/g, '')));
+        const setup = text.match(/\[Bazaar\]\s*Buy Order Setup!\s*([\d,]+)x\s+(.+?)\s+([IVXL]+)\s+for\s+[\d.,]+\s*[kmb]?\s*coins?/i);
+        if (setup) {
+            const level = ROMAN.indexOf(String(setup[3]).toUpperCase()) + 1;
+            const book = level >= 1 ? BOOKS.find((candidate) => candidate.names.some((value) => clean(value) === clean(setup[2]))) : null;
+            this.buySetupNotice = { book, level, amount: Number(setup[1].replace(/,/g, '')), at: Date.now() };
+        }
     }
 
     onOrderFilled(kind, bookNameText, roman, amount) {
@@ -264,6 +271,10 @@ class BookFlipper extends ModuleBase {
 
     chatSince(mark, pattern) {
         return this.chatLog.some((line) => line.seq > mark && pattern.test(line.text));
+    }
+
+    setupSeen(st) {
+        return !!this.buySetupNotice && this.buySetupNotice.at > (st.noticeAt || 0);
     }
 
     // ───────────────────────────── driver ─────────────────────────────
@@ -475,12 +486,7 @@ class BookFlipper extends ModuleBase {
             return this.startTask('Cleanup ' + this.cleanupPhase, this.cleanupSteps(this.cleanupPhase));
         }
 
-        if (this.needsOrderScan()) return this.startTask('Scan orders', this.scanOrdersSteps());
-        if (this.inventoryFull() && this.shouldClaim()) {
-            if (this.hasSellableV() && !this.pendingSell) return this.startTask('Sell books', this.sellSteps());
-            if (this.hasPair()) return this.startTask('Combine', this.combineSteps());
-        }
-        if (this.shouldClaim()) return this.startTask('Claim orders', this.claimSteps());
+        if (this.needsOrderScan() || this.hasResolvableWork()) return this.startTask('Resolve', this.resolveSteps());
         if (this.hasSellableV() && !this.pendingSell) return this.startTask('Sell books', this.sellSteps());
         if (!this.orderCheckQueue.length && this.needsOrderPriceCheck()) {
             this.orderOutbidCheckedAt = Date.now();
@@ -490,7 +496,7 @@ class BookFlipper extends ModuleBase {
         if (this.orderCheckQueue.length) return this.startTask('Relist order', this.relistBuySteps());
         if (this.sellCheckQueue.length) return this.startTask('Relist offer', this.relistSellSteps());
         if (this.pendingSell && !this.inventoryFull()) return this.startTask('Sell books', this.sellSteps());
-        if (this.inventoryFull() || this.hasPair()) return this.startTask('Combine', this.combineSteps());
+        if (this.findCombinePair()) return this.startTask('Combine', this.combineSteps());
         if (this.orderQueue.length && this.activeTargets.length < this.maxBuyOrders && Date.now() >= this.orderCooldownUntil) {
             return this.startTask('Buy book', this.buySteps(this.orderQueue[0]));
         }
@@ -689,6 +695,129 @@ class BookFlipper extends ModuleBase {
         ];
     }
 
+    hasResolvableWork() {
+        if (this.inventoryFull()) {
+            if (this.findCombinePair()) return true;
+            if (this.hasSellableV()) return true;
+        }
+        if (this.freeSlots() < 1) return false;
+        return this.findClaimSlot() >= 0;
+    }
+
+    resolveSteps(shared) {
+        const st = shared || { actions: 0 };
+        return [
+            this.ensureOrdersStep(),
+            {
+                name: 'Resolve',
+                status: 'Resolving inventory',
+                while: () => {
+                    if (!this.isOrdersGui()) return;
+                    if (st.actions >= 6) {
+                        this.resolveAct = null;
+                        return;
+                    }
+                    this.scanOrders();
+                    if (this.inventoryFull()) {
+                        if (this.findCombinePair()) {
+                            this.resolveAct = 'combine';
+                            return;
+                        }
+                        if (this.hasSellableV()) {
+                            this.resolveAct = 'sell';
+                            return;
+                        }
+                    }
+                    if (this.freeSlots() >= 1 && this.findClaimSlot() >= 0) {
+                        this.resolveAct = 'claim';
+                        return;
+                    }
+                    this.resolveAct = null;
+                },
+                done: () => !this.resolveAct,
+                next: () => {
+                    const act = this.resolveAct;
+                    this.resolveAct = null;
+                    st.actions++;
+                    if (act === 'combine') return [...this.resolveCombineSteps(), ...this.resolveSteps(st)];
+                    if (act === 'sell') return [...this.resolveSellSteps(), ...this.resolveSteps(st)];
+                    if (act === 'claim') return [...this.resolveClaimSteps(), ...this.resolveSteps(st)];
+                    return [];
+                },
+            },
+        ];
+    }
+
+    ensureOrdersStep() {
+        return {
+            name: 'Ensure orders',
+            status: 'Opening orders',
+            enter: () => {
+                if (!this.isOrdersGui()) this.runCommand('managebazaarorders');
+            },
+            done: () => this.isOrdersGui(),
+            timeout: GUI_TIMEOUT,
+        };
+    }
+
+    resolveCombineSteps() {
+        return [
+            this.closeGuiStep(),
+            ...this.combineSteps(),
+        ];
+    }
+
+    resolveSellSteps() {
+        const book = this.enabledBooks().find((candidate) => this.countLevel(candidate, SELL_TIER) > 0);
+        if (!book) return [this.doneStep(() => {})];
+        this.pendingSell = { book, level: SELL_TIER, price: 0 };
+        return [
+            this.closeGuiStep(),
+            ...this.sellSteps(),
+        ];
+    }
+
+    resolveClaimSteps() {
+        const st = { done: false };
+        return [
+            {
+                name: 'Resolve claim',
+                status: 'Claiming books',
+                screen: () => this.isOrdersGui(),
+                enter: () => {
+                    st.done = false;
+                    this.scanOrders();
+                    const slot = this.findClaimSlot();
+                    if (slot < 0) {
+                        st.done = true;
+                        return;
+                    }
+                    this.claimedSlots.set(slot, Date.now());
+                    this.safeClick(slot);
+                    st.clickedAt = Date.now();
+                    st.mark = this.chatSeq;
+                },
+                while: () => {
+                    if (st.done) return;
+                    if (st.clickedAt && Date.now() - st.clickedAt >= 700) return;
+                    const slot = this.findClaimSlot();
+                    if (slot < 0) return;
+                    const claimedAt = this.claimedSlots.get(slot);
+                    if (claimedAt && Date.now() - claimedAt < 5_000) return;
+                    this.claimedSlots.set(slot, Date.now());
+                    this.safeClick(slot);
+                    st.clickedAt = Date.now();
+                    st.mark = this.chatSeq;
+                },
+                done: () =>
+                    st.done ||
+                    this.chatSince(st.mark, /you don't have the space required to claim that/i) ||
+                    (st.clickedAt && Date.now() - st.clickedAt >= 700),
+                next: () => [],
+            },
+        ];
+    }
+
     claimSteps() {
         const st = { slot: -1, none: false };
         return [
@@ -712,24 +841,11 @@ class BookFlipper extends ModuleBase {
                     st.clickedAt = Date.now();
                     st.mark = this.chatSeq;
                 },
-                while: () => {
-                    if (!this.isOrdersGui()) return;
-                    if (st.clickedAt && Date.now() - st.clickedAt < 600) return;
-                    if (st.none) return;
-                    this.scanOrders();
-                    const slot = this.findClaimSlot();
-                    if (slot < 0 || slot === st.slot) return;
-                    st.slot = slot;
-                    this.claimedSlots.set(slot, Date.now());
-                    this.safeClick(slot);
-                    st.clickedAt = Date.now();
-                    st.mark = this.chatSeq;
-                },
                 done: () =>
                     st.none ||
                     this.chatSince(st.mark, /you don't have the space required to claim that/i) ||
                     (st.clickedAt && this.isOrdersGui() && Date.now() - st.clickedAt > 600 && this.findClaimSlot() < 0),
-                next: () => (st.none ? [this.doneStep(() => {})] : this.claimSteps()),
+                next: () => [],
             },
         ];
     }
@@ -998,11 +1114,13 @@ class BookFlipper extends ModuleBase {
                 screen: confirmScreen,
                 enter: () => {
                     if (st.mark === undefined) st.mark = this.chatSeq;
+                    if (st.noticeAt === undefined) st.noticeAt = this.buySetupNotice?.at || 0;
                     if (st.clicks === undefined) st.clicks = 0;
                     st.slot = this.findSlot('Buy Order') >= 0 ? this.findSlot('Buy Order') : st.slot;
                     this.debugGui('confirm screen');
                 },
                 while: () => {
+                    if (this.setupSeen(st)) return;
                     if (this.chatSince(st.mark, /Buy Order Setup!/i)) return;
                     if (!this.isInGui()) return;
                     if (st.slot < 0) st.slot = this.findSlot('Buy Order');
@@ -1026,6 +1144,10 @@ class BookFlipper extends ModuleBase {
                     }
                 },
                 done: () => {
+                    if (this.setupSeen(st)) {
+                        st.ok = true;
+                        return true;
+                    }
                     if (this.chatSince(st.mark, /Buy Order Setup!/i)) {
                         st.ok = true;
                         return true;
@@ -1061,6 +1183,7 @@ class BookFlipper extends ModuleBase {
                 this.skippedIds.set(target.id, Date.now() + 60_000);
             }
             this.ordersScanned = false;
+            this.buySetupNotice = null;
             this.target = null;
         });
         return [settle, this.resyncStep()];
@@ -1111,6 +1234,19 @@ class BookFlipper extends ModuleBase {
 
     sellSteps() {
         const book = (this.pendingSell && this.pendingSell.book) || this.enabledBooks().find((candidate) => this.countLevel(candidate, SELL_TIER) > 0);
+        const existing = book && this.openSellOrders.find((order) => order.book?.key === book.key && order.level === SELL_TIER);
+        if (existing && !this.pendingSell?.cancelled) {
+            const target = {
+                book,
+                input: SELL_TIER,
+                level: SELL_TIER,
+                name: bookName(book, SELL_TIER),
+                orderPrice: existing.price,
+            };
+            this.pendingSell = { book, level: SELL_TIER, price: 0, cancelled: true };
+            const st = { missing: false, qty: 0, top: NaN };
+            return [...this.cancelOrderSteps(target, st, 'sell', true), ...this.sellSteps()];
+        }
         const name = bookName(book, SELL_TIER);
         const st = { mark: undefined, slot: -1, submitted: false };
         this.target = { name, book, level: SELL_TIER, orderPrice: 0 };
