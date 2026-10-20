@@ -140,7 +140,7 @@ class BookFlipper extends ModuleBase {
         Recovery.setActive(true, this.name);
         if (!Recovery.isReady()) {
             this.pendingEnable = true;
-            this.status = 'Recovering';
+            this.setStatus('Recovering');
             return;
         }
         this.finishEnable();
@@ -154,7 +154,7 @@ class BookFlipper extends ModuleBase {
             .slice(0, 36)
             .some((item) => item && item.getStackSize() > 0 && !clean(item.getName()).startsWith('skyblock menu'));
         if (dirty && this.toggleContext === 'user') return this.fail('Empty your inventory before enabling the macro.');
-        if (dirty) this.status = 'Inventory not empty; resuming';
+        if (dirty) this.setStatus('Inventory not empty; resuming');
         this.inventoryReady = true;
         this.cleanupPhase = this.cleanOnEnable ? 'buys' : null;
         this.task = this.startTask('Read enchanting', [this.readSkillsStep()]);
@@ -213,6 +213,14 @@ class BookFlipper extends ModuleBase {
 
     log(message) {
         if (this.verbose) this.message(message);
+    }
+
+    setStatus(value) {
+        if (this.status === value) return;
+        this.status = value;
+        const step = this.task?.steps?.[this.task.i];
+        const where = this.task?.name ? ` &7[${this.task.name}${step?.name ? ' / ' + step.name : ''}]` : '';
+        this.message(`&b[BF]&7 ${value}${where}`);
     }
 
     readPurse() {
@@ -284,7 +292,7 @@ class BookFlipper extends ModuleBase {
         if (!Recovery.isReady()) {
             if (!this.suspended) {
                 this.suspended = true;
-                this.status = 'Recovering';
+                this.setStatus('Recovering');
                 closeInventory();
             }
             return;
@@ -365,7 +373,7 @@ class BookFlipper extends ModuleBase {
             }
             step._entered = true;
             step._started = now;
-            if (step.status) this.status = step.status;
+            if (step.status) this.setStatus(step.status);
             try {
                 step.enter?.();
             } catch (error) {
