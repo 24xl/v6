@@ -476,17 +476,17 @@ class BookFlipper extends ModuleBase {
         }
 
         if (this.needsOrderScan()) return this.startTask('Scan orders', this.scanOrdersSteps());
+        if (!this.inventoryFull() && this.containsClaimableV()) return this.startTask('Claim orders', this.claimSteps());
+        if (this.hasSellableV() && !this.pendingSell) return this.startTask('Sell books', this.sellSteps());
         if (!this.orderCheckQueue.length && this.needsOrderPriceCheck()) {
             this.orderOutbidCheckedAt = Date.now();
-            this.orderCheckQueue = [...this.activeTargets];
+            this.orderCheckQueue = this.activeTargets.filter((target) => !this.hasClaimableOrder(target));
             this.sellCheckQueue = [...this.openSellOrders];
         }
         if (this.orderCheckQueue.length) return this.startTask('Relist order', this.relistBuySteps());
         if (this.sellCheckQueue.length) return this.startTask('Relist offer', this.relistSellSteps());
         if (this.pendingSell && !this.inventoryFull()) return this.startTask('Sell books', this.sellSteps());
-        if (!this.inventoryFull() && this.containsClaimableV()) return this.startTask('Claim orders', this.claimSteps());
         if (this.inventoryFull() || this.hasPair()) return this.startTask('Combine', this.combineSteps());
-        if (this.hasSellableV()) return this.startTask('Sell books', this.sellSteps());
         if (this.orderQueue.length && this.activeTargets.length < this.maxBuyOrders && Date.now() >= this.orderCooldownUntil) {
             return this.startTask('Buy book', this.buySteps(this.orderQueue[0]));
         }
@@ -1026,12 +1026,12 @@ class BookFlipper extends ModuleBase {
                     if (this.isInGui()) closeInventory();
                 },
             },
-            this.finishBuyStep(target, st),
+            ...this.finishBuyStep(target, st),
         ];
     }
 
     finishBuyStep(target, st) {
-        return this.doneStep(() => {
+        const settle = this.doneStep(() => {
             const index = this.orderQueue.indexOf(target);
             if (index >= 0) this.orderQueue.splice(index, 1);
             const key = target.book.key + ':' + target.input;
@@ -1046,6 +1046,36 @@ class BookFlipper extends ModuleBase {
             this.ordersScanned = false;
             this.target = null;
         });
+        return [settle, this.resyncStep()];
+    }
+
+    resyncStep() {
+        return {
+            name: 'Resync orders',
+            status: 'Resyncing orders',
+            screen: () => this.isOrdersGui(),
+            enter: () => {
+                if (!this.isOrdersGui()) this.runCommand('managebazaarorders');
+            },
+            while: () => {
+                if (!this.isOrdersGui()) {
+                    this.closeGuiStep().enter();
+                    this.runCommand('managebazaarorders');
+                }
+            },
+            done: () => {
+                if (!this.isOrdersGui()) return false;
+                this.scanOrders();
+                this.adoptOrders();
+                this.ordersScanned = true;
+                this.ordersScannedAt = Date.now();
+                return true;
+            },
+            recover: () => {
+                if (this.isInGui() && !this.isOrdersGui()) closeInventory();
+            },
+        };
+    }
     }
 
     // ───────────────────────────── sell ─────────────────────────────
@@ -1138,6 +1168,7 @@ class BookFlipper extends ModuleBase {
                 this.pendingSell = null;
                 this.ordersScanned = false;
             }),
+            this.resyncStep(),
         ];
     }
 
@@ -1170,8 +1201,9 @@ class BookFlipper extends ModuleBase {
                 enter: () => {
                     const slot = this.findSlot('Create Buy Order');
                     st.top = this.topBuyOrderPrice(this.items()[slot]);
-                    st.outbid = Number.isFinite(st.top) && st.top > target.orderPrice + 0.001;
-                    this.log(`&7${target.name}: top ${formatCoins(st.top)} vs ours ${formatCoins(target.orderPrice)} -> ${st.outbid ? 'outbid' : 'ok'}`);
+                    const claimable = this.hasClaimableOrder(target);
+                    st.outbid = !claimable && Number.isFinite(st.top) && Number.isFinite(target.orderPrice) && target.orderPrice > 0 && st.top > target.orderPrice + 0.5;
+                    this.log(`&7${target.name}: top ${formatCoins(st.top)} vs ours ${formatCoins(target.orderPrice)} -> ${st.outbid ? 'outbid' : claimable ? 'claimable' : 'ok'}`);
                 },
                 done: () => Number.isFinite(st.top),
                 next: () => (st.outbid ? this.cancelOrderSteps(target, st, 'buy', true) : [this.skipRelistStep(target, 'buy')]),
@@ -1351,6 +1383,11 @@ class BookFlipper extends ModuleBase {
 
     hasStockForTier(book, input) {
         return this.countLevel(book, input) >= unitsFor(input);
+    }
+
+    hasClaimableOrder(target) {
+        if (!target?.book) return false;
+        return this.openBuyOrders.some((order) => order.book?.key === target.book.key && order.level === target.input && order.claimable > 0);
     }
 
     flipProfit(book, input, price) {
