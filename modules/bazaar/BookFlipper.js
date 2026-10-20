@@ -305,6 +305,13 @@ class BookFlipper extends ModuleBase {
                 console.error('[BookFlipper] step enter error (' + step.name + '): ' + error);
             }
         }
+        if (step.while) {
+            try {
+                step.while();
+            } catch (error) {
+                console.error('[BookFlipper] step while error (' + step.name + '): ' + error);
+            }
+        }
         let done = false;
         try {
             done = !!step.done?.();
@@ -794,18 +801,20 @@ class BookFlipper extends ModuleBase {
                     this.capAmount(slot, st);
                     this.safeClick(slot);
                 },
+                while: () => {
+                    if (this.isSignGui()) return;
+                    const slot = this.findSlot('Custom Amount');
+                    if (slot >= 0) this.safeClick(slot);
+                },
                 done: () => this.isSignGui(),
             },
             {
                 name: 'Enter amount',
-                screen: () => this.isSignGui(),
                 enter: () => {
-                    const submit = () => {
-                        if (!this.isSignGui()) return;
-                        setSignLine(1, st.amount);
-                        Client.currentGui.close();
-                    };
-                    submit();
+                    if (this.isSignGui()) this.submitSign(st.amount);
+                },
+                while: () => {
+                    if (this.isSignGui()) this.submitSign(st.amount);
                 },
                 done: priceScreen,
             },
@@ -1423,6 +1432,12 @@ class BookFlipper extends ModuleBase {
         } catch (error) {
             return false;
         }
+    }
+
+    submitSign(amount) {
+        if (!this.isSignGui()) return;
+        setSignLine(1, Math.max(1, Math.floor(Number(amount) || 0)) || 1);
+        Client.currentGui.close();
     }
 
     isInGui() {
