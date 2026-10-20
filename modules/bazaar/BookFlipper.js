@@ -8,6 +8,10 @@ import { Recovery } from '../../utils/AutoRecovery';
 import { readEnchantingFromContainer } from '../../utils/Skills';
 
 const BAZAAR_URL = 'https://api.hypixel.net/v2/skyblock/bazaar';
+const STUCK_RETRY_DELAY = 1_000;
+const GUI_TIMEOUT = 10_000;
+const COMMAND_CAPACITY = 10;
+const COMMAND_RESTORE_TIME = 1_050;
 const SELL_TIER = 5;
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
 const BOOK_LIMIT = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x'];
@@ -69,8 +73,8 @@ class BookFlipper extends ModuleBase {
         this.bindToggleKey();
 
         this.clickDelay = 350;
-        this.addSlider('Click Delay (ms)', 50, 2_000, 350, (value) => (this.clickDelay = value), 'Delay between Bazaar clicks.');        this.stepTimeout = 8_000;
-        this.addSlider('Step Timeout (ms)', 3_000, 20_000, 8_000, (value) => (this.stepTimeout = value), 'How long a single GUI step may stall before it retries.');
+        this.addSlider('Click Delay (ms)', 50, 2_000, 350, (value) => (this.clickDelay = value), 'Delay between Bazaar clicks.');        this.stepTimeout = GUI_TIMEOUT;
+        this.addSlider('Step Timeout (ms)', 3_000, 20_000, 10_000, (value) => (this.stepTimeout = value), 'How long a single GUI step may stall before it retries.');
         this.maxRetries = 3;
         this.addSlider('Max Retries per Step', 1, 6, 3, (value) => (this.maxRetries = Math.round(value)), 'Retries of a stalled step before the task aborts.');
         this.maxBuyOrders = 8;
@@ -121,6 +125,8 @@ class BookFlipper extends ModuleBase {
         this.on('tick', () => this.tick());
         this.on('chat', (event) => this.onChat(event));
         v5Command('bazaar books', () => this.report());
+        this.commandTokens = COMMAND_CAPACITY;
+        this.commandRefillAt = Date.now();
         this.reset();
     }
 
@@ -184,6 +190,7 @@ class BookFlipper extends ModuleBase {
         this.inventoryReady = false;
         this.claimedSlots = new Map();
         this.claimNoSpace = false;
+        this.filledNotice = null;
         this.orderOutbidCheckedAt = 0;
         this.orderCooldownUntil = 0;
         this.orderLimitReached = false;
@@ -193,10 +200,13 @@ class BookFlipper extends ModuleBase {
         this.ordersScannedAt = 0;
         this.stepFailures = 0;
         this.suspended = false;
+        this.lastProgressAt = Date.now();
         this.chatLog = [];
         this.chatSeq = 0;
         this.lastError = null;
         this.guiDebugSeen = {};
+        this.commandTokens = COMMAND_CAPACITY;
+        this.commandRefillAt = Date.now();
         this.requestToken = (this.requestToken || 0) + 1;
     }
 
@@ -231,6 +241,25 @@ class BookFlipper extends ModuleBase {
         if (/Placing orders is on cooldown/i.test(text)) this.orderCooldownUntil = now + 20_000;
         if (/reached your maximum of [\d,]+ Bazaar orders/i.test(text)) this.orderLimitReached = true;
         if (/you don't have the space required to claim that/i.test(text)) this.claimNoSpace = true;
+        const buyFill = text.match(/Your Buy Order for ([\d,]+)x (Rejuvenate) ([IVX]+) was filled!/i);
+        if (buyFill) this.onOrderFilled('buy', buyFill[2], buyFill[3], Number(buyFill[1].replace(/,/g, '')));
+        const sellFill = text.match(/Your Sell Offer for ([\d,]+)x (Rejuvenate) ([IVX]+) was filled!/i);
+        if (sellFill) this.onOrderFilled('sell', sellFill[2], sellFill[3], Number(sellFill[1].replace(/,/g, '')));
+    }
+
+    onOrderFilled(kind, bookNameText, roman, amount) {
+        const level = ROMAN.indexOf(String(roman).toUpperCase()) + 1;
+        if (level < 1) return;
+        const book = BOOKS.find((candidate) => candidate.names.some((name) => clean(name) === clean(bookNameText)));
+        if (!book) return;
+        if (kind === 'sell') {
+            this.pendingSell = null;
+            this.log(`&aFilled sell: ${amount}x ${bookNameText} ${roman}`);
+            return;
+        }
+        this.filledNotice = { book, level, amount, at: Date.now() };
+        this.ordersScanned = false;
+        this.log(`&aFilled buy: ${amount}x ${bookNameText} ${roman}`);
     }
 
     chatSince(mark, pattern) {
@@ -260,6 +289,7 @@ class BookFlipper extends ModuleBase {
             this.task = null;
             this.stepFailures = 0;
         }
+        this.watchdog();
         try {
             this.drive();
         } catch (error) {
@@ -267,6 +297,32 @@ class BookFlipper extends ModuleBase {
             this.task = null;
             this.onTaskFailed('tick error');
         }
+    }
+
+    watchdog() {
+        const now = Date.now();
+        if (this.unexpectedGui()) {
+            this.log('&eUnexpected menu; closing it.');
+            closeInventory();
+            this.lastProgressAt = now;
+            return;
+        }
+        if (now - this.lastProgressAt < GUI_TIMEOUT) return;
+        this.lastProgressAt = now;
+        this.log('&eNo progress for ' + Math.round(GUI_TIMEOUT / 1000) + 's; re-syncing.');
+        closeInventory();
+        this.ordersScanned = false;
+        this.task = null;
+        this.stepFailures = 0;
+    }
+
+    unexpectedGui() {
+        if (!this.isInGui()) return false;
+        if (this.guiIs('bazaar') || this.guiIs('orders') || this.guiIs('skill') || this.guiIs('anvil')) return false;
+        const task = this.task?.name || '';
+        const busy = task.startsWith('Buy') || task.startsWith('Sell') || task.startsWith('Relist') || task.startsWith('Cancel') || task.startsWith('Claim') || task.startsWith('Combine') || task.startsWith('Read') || task.startsWith('Scan') || task.startsWith('Cleanup');
+        if (busy) return false;
+        return this.hasSlot('Buy Instantly', false) || this.hasSlot('Sell Instantly', false) || this.hasSlot('Create Buy Order', false) || this.hasSlot('Create Sell Offer', false);
     }
 
     drive() {
@@ -285,7 +341,7 @@ class BookFlipper extends ModuleBase {
             if (step.screen && !this.screenMatches(step.screen)) {
                 if (step.open) {
                     step._openedAt = step._openedAt || 0;
-                    if (now - step._openedAt > 1_000) {
+                    if (now - step._openedAt > STUCK_RETRY_DELAY) {
                         step._openedAt = now;
                         try {
                             step.open();
@@ -304,6 +360,7 @@ class BookFlipper extends ModuleBase {
             } catch (error) {
                 console.error('[BookFlipper] step enter error (' + step.name + '): ' + error);
             }
+            this.lastProgressAt = now;
         }
         if (step.while) {
             try {
@@ -319,6 +376,7 @@ class BookFlipper extends ModuleBase {
             console.error('[BookFlipper] step done error (' + step.name + '): ' + error);
         }
         if (done) {
+            this.lastProgressAt = now;
             if (step.next) {
                 task.steps = step.next() || [];
                 task.i = 0;
@@ -347,7 +405,13 @@ class BookFlipper extends ModuleBase {
             return;
         }
         console.log(`[BookFlipper] step "${step.name}" timed out; retry ${task.retries}/${this.maxRetries}`);
+        try {
+            step.recover?.();
+        } catch (error) {
+            console.error('[BookFlipper] step recover error (' + step.name + '): ' + error);
+        }
         step._entered = false;
+        step._started = Date.now();
     }
 
     onTaskFailed(reason) {
@@ -426,7 +490,52 @@ class BookFlipper extends ModuleBase {
         if (this.orderQueue.length && this.activeTargets.length < this.maxBuyOrders && Date.now() >= this.orderCooldownUntil) {
             return this.startTask('Buy book', this.buySteps(this.orderQueue[0]));
         }
+        const duplicate = this.findDuplicateOrder();
+        if (duplicate) return this.startTask('Cancel duplicate', this.dedupeSteps(duplicate));
+        const missing = this.findMissingTier();
+        if (missing) return this.startTask('Cover tier', this.buySteps(missing));
         return this.startTask('Idle', this.idleSteps());
+    }
+
+    findMissingTier() {
+        for (const book of this.enabledBooks()) {
+            for (const input of book.buyTiers) {
+                if (this.hasOpenBuyOrder(book, input)) continue;
+                if (this.hasStockForTier(book, input)) continue;
+                const target = this.tierTarget(book, input);
+                if (target) return target;
+            }
+        }
+        return null;
+    }
+
+    tierTarget(book, input) {
+        const products = this.bazaarData?.products || {};
+        const outProduct = products[bookId(book, SELL_TIER)];
+        const inProduct = products[bookId(book, input)];
+        if (!inProduct || !outProduct) return null;
+        const outAsk = askPrice(outProduct);
+        if (outAsk <= 0) return null;
+        const revenuePerV = outAsk * (1 - this.undercutPercent / 100) * (1 - this.taxPercent / 100);
+        const price = Math.ceil((askPrice(inProduct) + 0.1) * 10) / 10;
+        if (price <= 0) return null;
+        const units = unitsFor(input);
+        if (units * price > this.budget) return null;
+        const profitPerV = revenuePerV - price * units;
+        if (profitPerV < this.minProfit) return null;
+        return {
+            book,
+            id: bookId(book, input),
+            name: bookName(book, input),
+            input,
+            units,
+            orderPrice: price,
+            expectedOrderPrice: price,
+            quantity: units,
+            outputCount: 1,
+            profitPerV,
+            profit: profitPerV,
+        };
     }
 
     needsOrderPriceCheck() {
@@ -609,7 +718,7 @@ class BookFlipper extends ModuleBase {
     // ───────────────────────────── cleanup ─────────────────────────────
 
     cleanupSteps(phase) {
-        const st = { target: null, empty: false, qty: 0 };
+        const st = { target: null, empty: false, qty: 0, orderSlot: -1 };
         const prefix = phase === 'sells' ? 'sell ' : 'buy ';
         return [
             this.openOrdersStep(),
@@ -633,9 +742,17 @@ class BookFlipper extends ModuleBase {
                         st.empty = true;
                         return;
                     }
+                    st.orderSlot = slot;
                     this.safeClick(slot);
                 },
-                done: () => st.empty || this.guiIs('order options'),
+                while: () => {
+                    if (st.empty || this.isOrderOptions()) return;
+                    if (this.isOrdersGui() && st.orderSlot >= 0) this.safeClick(st.orderSlot);
+                },
+                done: () => st.empty || this.isOrderOptions(),
+                recover: () => {
+                    if (this.isInGui() && !this.isOrdersGui()) closeInventory();
+                },
                 next: () =>
                     st.empty
                         ? [this.doneStep(() => (this.lastCancelEmpty = true))]
@@ -648,19 +765,43 @@ class BookFlipper extends ModuleBase {
         return {
             name: 'Cancel order',
             status: 'Cancelling',
-            screen: () => this.guiIs('order options'),
+            screen: () => this.isOrderOptions(),
             enter: () => {
-                const slot = this.findSlot('Cancel Order', false);
-                if (slot < 0) {
-                    this.debugGui('cancel: no Cancel Order');
-                    return;
-                }
-                const missing = lore(this.items()[slot]).find((line) => /missing items?/i.test(line));
-                st.qty = Number(missing?.match(/([\d,]+)x/i)?.[1]?.replace(/,/g, '')) || 0;
-                this.safeClick(slot);
+                this.clickCancelButton(st);
             },
-            done: () => this.isOrdersGui(),
+            while: () => {
+                this.clickCancelButton(st);
+            },
+            done: () => !this.isOrderOptions(),
+            recover: () => {
+                if (this.isInGui()) closeInventory();
+            },
+            timeout: GUI_TIMEOUT,
         };
+    }
+
+    isOrderOptions() {
+        if (this.isOrdersGui()) return false;
+        return this.hasSlot('Cancel Order', false) || this.hasSlot('Flip Order', false);
+    }
+
+    clickCancelButton(st) {
+        if (!this.isOrderOptions()) return;
+        const cancel = this.findSlot('Cancel Order', false);
+        if (cancel >= 0) {
+            const missing = lore(this.items()[cancel]).find((line) => /missing items?/i.test(line));
+            const qty = Number(missing?.match(/([\d,]+)x/i)?.[1]?.replace(/,/g, '')) || 0;
+            if (qty > 0) st.qty = qty;
+            this.safeClick(cancel);
+            return;
+        }
+        const confirm = this.findSlot('Confirm', false);
+        if (confirm >= 0) {
+            this.safeClick(confirm);
+            return;
+        }
+        const warning = this.findSlot('Warning', false);
+        if (warning >= 0) this.safeClick(warning);
     }
 
     // ───────────────────────────── combine (forked anvil) ─────────────────────────────
@@ -837,21 +978,22 @@ class BookFlipper extends ModuleBase {
                 name: 'Submit buy order',
                 screen: confirmScreen,
                 enter: () => {
-                    st.mark = this.chatSeq;
-                    st.clicked = false;
-                    st.slot = this.findSlot('Buy Order');
+                    if (st.mark === undefined) st.mark = this.chatSeq;
+                    st.slot = this.findSlot('Buy Order') >= 0 ? this.findSlot('Buy Order') : st.slot;
                     this.debugGui('confirm screen');
                 },
                 while: () => {
                     if (this.chatSince(st.mark, /Buy Order Setup!/i)) return;
-                    if (!this.isInGui() || st.slot < 0) return;
-                    const name = ChatLib.removeFormatting(String(Player.getContainer()?.getStackInSlot(st.slot)?.getName?.() ?? '')).trim().toLowerCase();
+                    if (!this.isInGui()) return;
+                    if (st.slot < 0) st.slot = this.findSlot('Buy Order');
+                    if (st.slot < 0) return;
+                    const name = clean(this.items()[st.slot]?.getName?.());
                     if (name === 'warning' || name === 'confirm') {
                         this.safeClick(st.slot);
                         return;
                     }
-                    if (!st.clicked) {
-                        st.clicked = true;
+                    if (!st.submitted) {
+                        st.submitted = true;
                         this.safeClick(st.slot);
                     }
                 },
@@ -863,11 +1005,14 @@ class BookFlipper extends ModuleBase {
                     if (this.chatSince(st.mark, /maximum of [\d,]+ Bazaar orders/i)) return true;
                     if (this.chatSince(st.mark, /not enough coins|couldn't afford|can't afford/i)) return true;
                     if (this.chatSince(st.mark, /on cooldown/i)) return true;
-                    if (st.clicked && !this.isInGui()) {
+                    if (st.submitted && !this.isInGui()) {
                         st.ok = true;
                         return true;
                     }
                     return false;
+                },
+                recover: () => {
+                    if (this.isInGui()) closeInventory();
                 },
             },
             this.finishBuyStep(target, st),
@@ -894,7 +1039,7 @@ class BookFlipper extends ModuleBase {
     sellSteps() {
         const book = (this.pendingSell && this.pendingSell.book) || this.enabledBooks().find((candidate) => this.countLevel(candidate, SELL_TIER) > 0);
         const name = bookName(book, SELL_TIER);
-        const st = { mark: 0 };
+        const st = { mark: undefined, slot: -1, submitted: false };
         this.target = { name, book, level: SELL_TIER, orderPrice: 0 };
         const sellMenu = () => this.hasSlot('Create Sell Offer');
         const priceScreen = () => this.hasSlot('Best Offer -0.1');
@@ -935,20 +1080,21 @@ class BookFlipper extends ModuleBase {
                 name: 'Submit sell offer',
                 screen: confirmScreen,
                 enter: () => {
-                    st.mark = this.chatSeq;
-                    st.clicked = false;
-                    st.slot = this.findSlot('Sell Offer');
+                    if (st.mark === undefined) st.mark = this.chatSeq;
+                    if (st.slot === undefined || st.slot < 0) st.slot = this.findSlot('Sell Offer');
                 },
                 while: () => {
                     if (this.chatSince(st.mark, /Sell Offer Setup!/i)) return;
-                    if (!this.isInGui() || st.slot < 0) return;
-                    const label = ChatLib.removeFormatting(String(Player.getContainer()?.getStackInSlot(st.slot)?.getName?.() ?? '')).trim().toLowerCase();
+                    if (!this.isInGui()) return;
+                    if (st.slot < 0) st.slot = this.findSlot('Sell Offer');
+                    if (st.slot < 0) return;
+                    const label = clean(this.items()[st.slot]?.getName?.());
                     if (label === 'warning' || label === 'confirm') {
                         this.safeClick(st.slot);
                         return;
                     }
-                    if (!st.clicked) {
-                        st.clicked = true;
+                    if (!st.submitted) {
+                        st.submitted = true;
                         this.safeClick(st.slot);
                     }
                 },
@@ -957,8 +1103,11 @@ class BookFlipper extends ModuleBase {
                     if (this.chatSince(st.mark, /maximum of [\d,]+ Bazaar orders/i)) return true;
                     if (this.chatSince(st.mark, /not enough coins|couldn't afford|can't afford/i)) return true;
                     if (this.chatSince(st.mark, /on cooldown/i)) return true;
-                    if (st.clicked && !this.isInGui()) return true;
+                    if (st.submitted && !this.isInGui()) return true;
                     return false;
+                },
+                recover: () => {
+                    if (this.isInGui()) closeInventory();
                 },
             },
             this.doneStep(() => {
@@ -1043,6 +1192,18 @@ class BookFlipper extends ModuleBase {
         ];
     }
 
+    dedupeSteps(order) {
+        const target = {
+            book: order.book,
+            input: order.level,
+            name: bookName(order.book, order.level),
+            orderPrice: order.price,
+            level: order.level,
+        };
+        const st = { missing: false, qty: 0, orderSlot: -1 };
+        return this.cancelOrderSteps(target, st, 'buy', false);
+    }
+
     cancelOrderSteps(target, st, phase, relist) {
         const prefix = phase === 'sell' ? 'sell ' : 'buy ';
         return [
@@ -1059,9 +1220,17 @@ class BookFlipper extends ModuleBase {
                         st.missing = true;
                         return;
                     }
+                    st.orderSlot = slot;
                     this.safeClick(slot);
                 },
-                done: () => st.missing || this.guiIs('order options'),
+                while: () => {
+                    if (st.missing || this.isOrderOptions()) return;
+                    if (this.isOrdersGui() && st.orderSlot >= 0) this.safeClick(st.orderSlot);
+                },
+                done: () => st.missing || this.isOrderOptions(),
+                recover: () => {
+                    if (this.isInGui() && !this.isOrdersGui()) closeInventory();
+                },
                 next: () =>
                     st.missing
                         ? [this.skipRelistStep(target, phase)]
@@ -1125,6 +1294,7 @@ class BookFlipper extends ModuleBase {
                 if (this.skippedIds.get(bookId(book, input)) > Date.now()) continue;
                 if (this.hasOpenBuyOrder(book, input)) continue;
                 if (this.hasStockForTier(book, input)) continue;
+                if (this.orderQueue.some((entry) => entry.book === book && entry.input === input)) continue;
                 const price = Math.ceil((askPrice(inProduct) + 0.1) * 10) / 10;
                 if (price <= 0) continue;
                 const units = unitsFor(input);
@@ -1152,7 +1322,8 @@ class BookFlipper extends ModuleBase {
     }
 
     hasOpenBuyOrder(book, input) {
-        return this.activeTargets.some((target) => target.book?.key === book.key && target.input === input);
+        if (this.activeTargets.some((target) => target.book?.key === book.key && target.input === input)) return true;
+        return this.openBuyOrders.some((order) => order.book?.key === book.key && order.level === input);
     }
 
     hasStockForTier(book, input) {
@@ -1213,13 +1384,26 @@ class BookFlipper extends ModuleBase {
         this.openBuyOrders = buyOrders;
         this.openSellOrders = sellOrders;
         this.openOrderCount = count;
+        const seen = new Map();
+        for (const order of buyOrders) {
+            if (!order.book || order.level == null) continue;
+            const key = order.book.key + ':' + order.level;
+            const first = seen.get(key);
+            if (first === undefined) seen.set(key, order.slot);
+            else order.duplicate = true;
+        }
     }
 
     adoptOrders() {
         const adopted = [];
+        const counts = new Map();
         for (const order of this.openBuyOrders) {
             if (!order.book || order.level == null || order.level >= SELL_TIER) continue;
             if (!order.book.buyTiers.includes(order.level)) continue;
+            const key = order.book.key + ':' + order.level;
+            const seenCount = counts.get(key) || 0;
+            counts.set(key, seenCount + 1);
+            if (seenCount > 0) continue;
             const units = unitsFor(order.level);
             const amount = Number.isFinite(order.amount) && order.amount > 0 ? order.amount : units;
             const price = Number.isFinite(order.price) ? order.price : 0;
@@ -1237,6 +1421,13 @@ class BookFlipper extends ModuleBase {
             });
         }
         this.activeTargets = adopted;
+    }
+
+    findDuplicateOrder() {
+        for (const order of this.openBuyOrders) {
+            if (order.duplicate) return order;
+        }
+        return null;
     }
 
     removeTarget(target) {
@@ -1499,11 +1690,20 @@ class BookFlipper extends ModuleBase {
     }
 
     runCommand(command) {
+        const now = Date.now();
+        const restored = Math.floor((now - this.commandRefillAt) / COMMAND_RESTORE_TIME);
+        if (restored > 0) {
+            this.commandTokens = Math.min(COMMAND_CAPACITY, this.commandTokens + restored);
+            this.commandRefillAt = this.commandTokens === COMMAND_CAPACITY ? now : this.commandRefillAt + restored * COMMAND_RESTORE_TIME;
+        }
+        if (this.commandTokens <= 0) return COMMAND_RESTORE_TIME - (now - this.commandRefillAt);
+        this.commandTokens--;
         try {
             ChatLib.command(command);
         } catch (error) {
             console.error('[BookFlipper] command failed (' + command + '): ' + error);
         }
+        return 0;
     }
 
     debugGui(context) {
