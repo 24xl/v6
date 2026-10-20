@@ -218,7 +218,7 @@ class BookFlipper extends ModuleBase {
     setStatus(value) {
         if (this.status === value) return;
         this.status = value;
-        const step = this.task?.steps?.[this.task.i];
+        const step = this.task?.steps?.[this.task?.i];
         const where = this.task?.name ? ` &7[${this.task.name}${step?.name ? ' / ' + step.name : ''}]` : '';
         this.message(`&b[BF]&7 ${value}${where}`);
     }
