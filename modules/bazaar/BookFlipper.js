@@ -307,6 +307,7 @@ class BookFlipper extends ModuleBase {
             this.lastProgressAt = now;
             return;
         }
+        if (!this.isInGui()) return;
         if (now - this.lastProgressAt < GUI_TIMEOUT) return;
         this.lastProgressAt = now;
         this.log('&eNo progress for ' + Math.round(GUI_TIMEOUT / 1000) + 's; re-syncing.');
@@ -318,10 +319,9 @@ class BookFlipper extends ModuleBase {
 
     unexpectedGui() {
         if (!this.isInGui()) return false;
-        if (this.guiIs('bazaar') || this.guiIs('orders') || this.guiIs('skill') || this.guiIs('anvil')) return false;
         const task = this.task?.name || '';
-        const busy = task.startsWith('Buy') || task.startsWith('Sell') || task.startsWith('Relist') || task.startsWith('Cancel') || task.startsWith('Claim') || task.startsWith('Combine') || task.startsWith('Read') || task.startsWith('Scan') || task.startsWith('Cleanup');
-        if (busy) return false;
+        if (task && task !== 'Idle') return false;
+        if (this.guiIs('bazaar') || this.guiIs('orders') || this.guiIs('skill') || this.guiIs('anvil')) return false;
         return this.hasSlot('Buy Instantly', false) || this.hasSlot('Sell Instantly', false) || this.hasSlot('Create Buy Order', false) || this.hasSlot('Create Sell Offer', false);
     }
 
