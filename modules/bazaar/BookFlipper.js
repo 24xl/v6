@@ -476,7 +476,11 @@ class BookFlipper extends ModuleBase {
         }
 
         if (this.needsOrderScan()) return this.startTask('Scan orders', this.scanOrdersSteps());
-        if (!this.inventoryFull() && this.containsClaimableV()) return this.startTask('Claim orders', this.claimSteps());
+        if (this.inventoryFull() && this.shouldClaim()) {
+            if (this.hasSellableV() && !this.pendingSell) return this.startTask('Sell books', this.sellSteps());
+            if (this.hasPair()) return this.startTask('Combine', this.combineSteps());
+        }
+        if (this.shouldClaim()) return this.startTask('Claim orders', this.claimSteps());
         if (this.hasSellableV() && !this.pendingSell) return this.startTask('Sell books', this.sellSteps());
         if (!this.orderCheckQueue.length && this.needsOrderPriceCheck()) {
             this.orderOutbidCheckedAt = Date.now();
@@ -698,7 +702,7 @@ class BookFlipper extends ModuleBase {
                         return;
                     }
                     this.scanOrders();
-                    const slot = this.findClaimableVSlot();
+                    const slot = this.findClaimSlot();
                     if (slot < 0) {
                         st.none = true;
                         return;
@@ -708,10 +712,23 @@ class BookFlipper extends ModuleBase {
                     st.clickedAt = Date.now();
                     st.mark = this.chatSeq;
                 },
+                while: () => {
+                    if (!this.isOrdersGui()) return;
+                    if (st.clickedAt && Date.now() - st.clickedAt < 600) return;
+                    if (st.none) return;
+                    this.scanOrders();
+                    const slot = this.findClaimSlot();
+                    if (slot < 0 || slot === st.slot) return;
+                    st.slot = slot;
+                    this.claimedSlots.set(slot, Date.now());
+                    this.safeClick(slot);
+                    st.clickedAt = Date.now();
+                    st.mark = this.chatSeq;
+                },
                 done: () =>
                     st.none ||
                     this.chatSince(st.mark, /you don't have the space required to claim that/i) ||
-                    (st.clickedAt && this.isOrdersGui() && Date.now() - st.clickedAt > 600),
+                    (st.clickedAt && this.isOrdersGui() && Date.now() - st.clickedAt > 600 && this.findClaimSlot() < 0),
                 next: () => (st.none ? [this.doneStep(() => {})] : this.claimSteps()),
             },
         ];
@@ -1212,12 +1229,16 @@ class BookFlipper extends ModuleBase {
                 screen: buyMenu,
                 enter: () => {
                     const slot = this.findSlot('Create Buy Order');
-                    st.top = this.topBuyOrderPrice(this.items()[slot]);
-                    const claimable = this.hasClaimableOrder(target);
-                    st.outbid = !claimable && Number.isFinite(st.top) && Number.isFinite(target.orderPrice) && target.orderPrice > 0 && st.top > target.orderPrice + 0.5;
-                    this.log(`&7${target.name}: top ${formatCoins(st.top)} vs ours ${formatCoins(target.orderPrice)} -> ${st.outbid ? 'outbid' : claimable ? 'claimable' : 'ok'}`);
+                    const button = this.items()[slot];
+                    st.listed = this.topBuyOrderPrice(button);
+                    this.scanOrders();
+                    const own = this.findOwnOrder(target);
+                    st.ours = own && Number.isFinite(own.price) ? own.price : target.orderPrice;
+                    st.claimable = !!(own && (own.claimable > 0 || own.filled));
+                    st.outbid = !st.claimable && Number.isFinite(st.listed) && Number.isFinite(st.ours) && st.ours > 0 && st.listed > st.ours + 0.5;
+                    this.log(`&7${target.name}: top ${formatCoins(st.listed)} vs ours ${formatCoins(st.ours)} -> ${st.outbid ? 'outbid' : st.claimable ? 'claimable' : 'ok'}`);
                 },
-                done: () => Number.isFinite(st.top),
+                done: () => Number.isFinite(st.listed),
                 next: () => (st.outbid ? this.cancelOrderSteps(target, st, 'buy', true) : [this.skipRelistStep(target, 'buy')]),
             },
         ];
@@ -1334,11 +1355,13 @@ class BookFlipper extends ModuleBase {
         this.removeTarget(target);
         this.ordersScanned = false;
         this.target = null;
-        const top = st.top;
+        const top = Number.isFinite(st.listed) ? st.listed : st.top;
         if (!(top > 0)) return;
         const price = Math.ceil((top + 0.1) * 10) / 10;
         const units = target.units;
-        const qty = st.qty > 0 ? st.qty : Number(target.quantity) || units;
+        const own = this.findOwnOrder(target);
+        const ownQty = own && Number.isFinite(own.amount) && own.amount > 0 ? own.amount : 0;
+        const qty = Math.max(st.qty > 0 ? st.qty : 0, ownQty, Number(target.quantity) || units);
         const quantity = Math.floor(Math.min(qty, Math.floor(this.budget / price)) / units) * units;
         if (quantity >= units && this.flipProfit(target.book, target.input, price) >= this.minProfit) {
             this.orderQueue.unshift({ ...target, quantity, orderPrice: price, expectedOrderPrice: price, outputCount: quantity / units });
@@ -1399,7 +1422,15 @@ class BookFlipper extends ModuleBase {
 
     hasClaimableOrder(target) {
         if (!target?.book) return false;
-        return this.openBuyOrders.some((order) => order.book?.key === target.book.key && order.level === target.input && order.claimable > 0);
+        return this.openBuyOrders.some((order) => order.book?.key === target.book.key && order.level === target.input && (order.claimable > 0 || order.filled));
+    }
+
+    findOwnOrder(target) {
+        if (!target?.book) return null;
+        const matches = this.openBuyOrders.filter((order) => order.book?.key === target.book.key && order.level === target.input);
+        if (!matches.length) return null;
+        matches.sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
+        return matches[0];
     }
 
     flipProfit(book, input, price) {
@@ -1440,7 +1471,8 @@ class BookFlipper extends ModuleBase {
                     ?.replace(/,/g, '')
             );
             const info = bookFromText(match[2]) || bookFromItem(stack);
-            const claimMatch = lore(stack).join(' ').match(/you have ([\d,]+) items? to claim/i);
+            const orderLore = lore(stack);
+            const claimMatch = orderLore.join(' ').match(/you have ([\d,]+) items? to claim/i);
             const order = {
                 id: this.skyblockItemId(stack),
                 name: ChatLib.removeFormatting(String(stack.getName())).trim().replace(/^(BUY|SELL)\s+/i, ''),
@@ -1448,6 +1480,7 @@ class BookFlipper extends ModuleBase {
                 level: info ? info.level : null,
                 amount,
                 claimable: claimMatch ? Number(claimMatch[1].replace(/,/g, '')) : 0,
+                filled: orderLore.some((line) => /^filled: .+ 100%!$/i.test(line)),
                 price: this.unitPrice(stack),
                 slot,
             };
@@ -1510,12 +1543,15 @@ class BookFlipper extends ModuleBase {
 
     // ───────────────────────────── claiming ─────────────────────────────
 
-    containsClaimableV() {
+    shouldClaim() {
         if (this.claimNoSpace) return false;
-        return this.findClaimableVSlot() >= 0;
+        if (this.freeSlots() < 1) return false;
+        return this.openBuyOrders.some(
+            (order) => order.book && order.level != null && order.level < SELL_TIER && order.book.buyTiers.includes(order.level) && (order.filled || order.claimable > 0)
+        );
     }
 
-    findClaimableVSlot() {
+    findClaimSlot() {
         const items = this.items();
         const end = this.guiEnd();
         for (let slot = 0; slot < end; slot++) {
@@ -1525,24 +1561,35 @@ class BookFlipper extends ModuleBase {
             if (!clean(stack?.getName?.()).startsWith('buy ')) continue;
             const info = bookFromItem(stack);
             if (!info || info.level >= SELL_TIER || !info.book.buyTiers.includes(info.level)) continue;
-            if (!lore(stack).some((line) => /^you have [\d,]+ items? to claim!?$/i.test(line))) continue;
-            if (!this.claimMakesV(info.book)) continue;
-            if (this.freeSlots() <= 2) continue;
-            return slot;
+            if (!this.enabledBooks().some((book) => book.key === info.book.key)) continue;
+            const orderLore = lore(stack);
+            const hasClaim = orderLore.some((line) => /items? to claim/i.test(line));
+            if (!hasClaim) continue;
+            const filled = orderLore.some((line) => /^filled: .+ 100%!$/i.test(line));
+            if (filled) return slot;
+            if (this.claimAdvancesV(info.book)) return slot;
         }
         return -1;
     }
 
-    claimMakesV(book) {
+    claimAdvancesV(book) {
+        if (this.freeSlots() < 1) return false;
+        return this.canProduceV(this.claimCounts(book));
+    }
+
+    claimCounts(book) {
         const counts = { 1: 0, 2: 0, 3: 0, 4: 0 };
-        if (this.noRoomToClaim()) return false;
         for (let level = 1; level < SELL_TIER; level++) counts[level] = this.countLevel(book, level);
         for (const order of this.openBuyOrders) {
             if (!order.book || order.book.key !== book.key || order.level == null || order.level >= SELL_TIER) continue;
             const amount = Number.isFinite(order.claimable) ? order.claimable : 0;
             if (amount > 0) counts[order.level] = (counts[order.level] || 0) + amount;
         }
-        return this.canProduceV(counts);
+        return counts;
+    }
+
+    inventoryMakesV() {
+        return this.enabledBooks().some((book) => this.canProduceV(this.claimCounts(book)));
     }
 
     canProduceV(counts) {
