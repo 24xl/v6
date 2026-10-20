@@ -205,7 +205,6 @@ class BookFlipper extends ModuleBase {
         this.chatSeq = 0;
         this.lastError = null;
         this.guiDebugSeen = {};
-        this.traceLast = null;
         this.commandTokens = COMMAND_CAPACITY;
         this.commandRefillAt = Date.now();
         this.requestToken = (this.requestToken || 0) + 1;
@@ -291,7 +290,6 @@ class BookFlipper extends ModuleBase {
             this.stepFailures = 0;
         }
         this.watchdog();
-        this.traceGui();
         try {
             this.drive();
         } catch (error) {
@@ -299,19 +297,6 @@ class BookFlipper extends ModuleBase {
             this.task = null;
             this.onTaskFailed('tick error');
         }
-    }
-
-    traceGui() {
-        const gui = this.guiName();
-        const step = this.task ? `${this.task.name}#${this.task.i}` : '-';
-        const signature = gui + '|' + step;
-        if (this.traceLast === signature) return;
-        this.traceLast = signature;
-        const slots = this.items()
-            .map((item, slot) => `${slot}:${clean(item?.getName?.())}`)
-            .filter((entry) => !entry.endsWith(':'))
-            .join(' ');
-        this.message(`&8[TR] &7${step} &f${gui || '(none)'} &7${slots}`);
     }
 
     watchdog() {
@@ -922,7 +907,7 @@ class BookFlipper extends ModuleBase {
     // ───────────────────────────── buy ─────────────────────────────
 
     buySteps(target) {
-        const st = { amount: Math.max(1, Math.floor(Number(target.quantity) || Number(target.units) || 0)) || 1, price: target.orderPrice || 0, mark: 0, ok: false, safe: true };
+        const st = { amount: Math.max(1, Math.floor(Number(target.quantity) || Number(target.units) || 0)) || 1, price: target.orderPrice || 0, mark: undefined, slot: -1, submitted: false, ok: false };
         this.target = target;
         const productScreen = () => this.findBookSlot(target.book, target.input) >= 0;
         const buyMenu = () => this.hasSlot('Create Buy Order');
@@ -1010,6 +995,7 @@ class BookFlipper extends ModuleBase {
                     }
                     if (!st.submitted) {
                         st.submitted = true;
+                        st.submittedAt = Date.now();
                         this.safeClick(st.slot);
                     }
                 },
@@ -1021,7 +1007,7 @@ class BookFlipper extends ModuleBase {
                     if (this.chatSince(st.mark, /maximum of [\d,]+ Bazaar orders/i)) return true;
                     if (this.chatSince(st.mark, /not enough coins|couldn't afford|can't afford/i)) return true;
                     if (this.chatSince(st.mark, /on cooldown/i)) return true;
-                    if (st.submitted && !this.isInGui()) {
+                    if (st.submitted && st.submittedAt && Date.now() - st.submittedAt > 1_500) {
                         st.ok = true;
                         return true;
                     }
