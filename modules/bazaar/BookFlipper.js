@@ -1050,32 +1050,44 @@ class BookFlipper extends ModuleBase {
     }
 
     resyncStep() {
+        const st = { closed: false, done: false };
         return {
             name: 'Resync orders',
             status: 'Resyncing orders',
-            screen: () => this.isOrdersGui(),
+            screen: () => true,
             enter: () => {
-                if (!this.isOrdersGui()) this.runCommand('managebazaarorders');
+                st.closed = false;
+                st.done = false;
             },
             while: () => {
-                if (!this.isOrdersGui()) {
-                    this.closeGuiStep().enter();
-                    this.runCommand('managebazaarorders');
+                if (this.isOrdersGui()) return;
+                if (this.isInGui()) {
+                    if (!st.closed) {
+                        st.closed = true;
+                        closeInventory();
+                    }
+                    return;
                 }
+                if (Date.now() - (st.sentAt || 0) < STUCK_RETRY_DELAY) return;
+                st.sentAt = Date.now();
+                this.runCommand('managebazaarorders');
             },
             done: () => {
                 if (!this.isOrdersGui()) return false;
-                this.scanOrders();
-                this.adoptOrders();
-                this.ordersScanned = true;
-                this.ordersScannedAt = Date.now();
+                if (!st.done) {
+                    st.done = true;
+                    this.scanOrders();
+                    this.adoptOrders();
+                    this.ordersScanned = true;
+                    this.ordersScannedAt = Date.now();
+                }
                 return true;
             },
             recover: () => {
                 if (this.isInGui() && !this.isOrdersGui()) closeInventory();
             },
+            timeout: GUI_TIMEOUT,
         };
-    }
     }
 
     // ───────────────────────────── sell ─────────────────────────────
