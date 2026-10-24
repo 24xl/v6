@@ -10,18 +10,10 @@ class AlwaysSprint extends ModuleBase {
 
         this.on('tick', () => {
             if (!this.enabled) return;
-            try {
-                const mc = Client.getMinecraft();
-                const player = Player.getPlayer();
-                if (!mc || !player) return;
-                if (mc.thePlayer?.capabilities?.isCreativeMode) return;
-                const movementInput = mc.thePlayer?.movementInput;
-                if (!movementInput) return;
-                if (movementInput.moveForward === 0 && movementInput.moveStrafe === 0) return;
-                if (player.isSprinting()) return;
-                mc.thePlayer.setSprinting(true);
-            } catch (e) {
-                // ignore
+            if (Client.isInGui()) return;
+            if (!Player.getPlayer()) return;
+            if (!Client.isKeyDown('sprint')) {
+                Client.setKey('sprint', true);
             }
         });
     }
