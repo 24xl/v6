@@ -91,6 +91,7 @@ import './bazaar/BookFlipper';
 /* OTHER */
 import './other/AutoBeg';
 import './other/AutoConversation';
+import './other/AlwaysSprint';
 import './other/AutoForge';
 import './other/AuctionHelper';
 import './other/BeachBaller';
