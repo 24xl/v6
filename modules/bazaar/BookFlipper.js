@@ -19,6 +19,32 @@ const COMBINE_LEVELS = ['i', 'ii', 'iii', 'iv'];
 const BOOKS = [
     { key: 'rejuvenate', idPrefix: 'ENCHANTMENT_REJUVENATE_', name: 'Rejuvenate', names: ['Rejuvenate'], buyTiers: [1, 2, 3], required: 10 },
 ];
+
+const BOOK_REGISTRY = {
+    book1: {
+        key: 'rejuvenate',
+        idPrefix: 'ENCHANTMENT_REJUVENATE_',
+        displayName: 'Rejuvenate',
+        names: ['Rejuvenate'],
+        allowedTiers: [1, 2, 3],
+        enabled: true,
+    },
+};
+
+const getBook = (idOrAlias) => {
+    const key = String(idOrAlias || 'book1').toLowerCase();
+    if (BOOK_REGISTRY[key]) return BOOK_REGISTRY[key];
+    if (key === 'rejuvenate') return BOOK_REGISTRY.book1;
+    return BOOK_REGISTRY.book1;
+};
+
+const getAllowedTiers = (bookKeyOrAlias) => {
+    const book = getBook(bookKeyOrAlias);
+    return Array.isArray(book.allowedTiers) ? book.allowedTiers.slice() : [1, 2, 3];
+};
+
+const isTierAllowed = (bookKeyOrAlias, level) => getAllowedTiers(bookKeyOrAlias).includes(Number(level));
+
 const bookId = (book, level) => `${book.idPrefix}${level}`;
 const bookName = (book, level) => `${book.name} ${ROMAN[level - 1]}`;
 const unitsFor = (input) => 2 ** (SELL_TIER - input);
@@ -125,8 +151,23 @@ class BookFlipper extends ModuleBase {
         this.on('tick', () => this.tick());
         this.on('chat', (event) => this.onChat(event));
         v5Command('bazaar books', () => this.report());
+        v5Command('book buy', (...args) => this.handleBookBuy(args), ['greedyString']);
         this.commandTokens = COMMAND_CAPACITY;
         this.commandRefillAt = Date.now();
+        this.bookBuySeq = {
+            active: false,
+            manualOnly: true,
+            bookKey: 'book1',
+            tiers: [],
+            amount: 16,
+            idx: 0,
+            retries: 0,
+            maxRetries: 3,
+            retryDelayMs: 5000,
+            lastQueuedAt: 0,
+            waitingForSetup: false,
+            expected: null,
+        };
         this.reset();
     }
 
@@ -199,6 +240,8 @@ class BookFlipper extends ModuleBase {
         this.refreshRetryAt = 0;
         this.ordersScanned = false;
         this.ordersScannedAt = 0;
+        this.resolveIdleUntil = 0;
+        this.resolveAct = null;
         this.stepFailures = 0;
         this.suspended = false;
         this.lastProgressAt = Date.now();
@@ -259,6 +302,7 @@ class BookFlipper extends ModuleBase {
             const level = ROMAN.indexOf(String(setup[3]).toUpperCase()) + 1;
             const book = level >= 1 ? BOOKS.find((candidate) => candidate.names.some((value) => clean(value) === clean(setup[2]))) : null;
             this.buySetupNotice = { book, level, amount: Number(setup[1].replace(/,/g, '')), at: Date.now() };
+            this.onBookBuySetup(setup[1].replace(/,/g, ''), setup[2], setup[3], level);
         }
     }
 
@@ -283,6 +327,177 @@ class BookFlipper extends ModuleBase {
 
     setupSeen(st) {
         return !!this.buySetupNotice && this.buySetupNotice.at > (st.noticeAt || 0);
+    }
+
+    onBookBuySetup(amountStr, bookNameText, roman, level) {
+        const seq = this.bookBuySeq;
+        if (!seq || !seq.active || !seq.manualOnly) return;
+        const amount = Number(String(amountStr).replace(/,/g, ''));
+        const expected = seq.expected;
+        if (!expected) return;
+        const regBook = getBook(seq.bookKey);
+        const bookMatches = clean(bookNameText) === clean(regBook.displayName || regBook.name);
+        if (!bookMatches) return;
+        if (Number(expected.level) !== Number(level)) return;
+        if (Number(expected.amount) !== amount) return;
+        seq.waitingForSetup = false;
+        seq.retries = 0;
+        seq.idx++;
+        if (seq.idx >= seq.tiers.length) {
+            this.message(`&aBook buy sequence complete.&f ${seq.amount}x ${regBook.displayName} T${seq.tiers.map((t) => t).join('/')} done.`);
+            this.bookBuySeq = {
+                active: false,
+                manualOnly: true,
+                bookKey: 'book1',
+                tiers: [],
+                amount: 16,
+                idx: 0,
+                retries: 0,
+                maxRetries: 3,
+                retryDelayMs: 5000,
+                lastQueuedAt: 0,
+                waitingForSetup: false,
+                expected: null,
+            };
+            return;
+        }
+        const nextLevel = seq.tiers[seq.idx];
+        this.bookBuySeq = seq;
+        this.message(`&bBook buy sequence:&f Queuing next tier T${nextLevel}...`);
+        this.buyBook({ book: seq.bookKey, tiers: [nextLevel], amount: seq.amount, source: 'manual' });
+        seq.lastQueuedAt = Date.now();
+        seq.waitingForSetup = true;
+        seq.expected = { bookKey: seq.bookKey, level: nextLevel, amount: seq.amount };
+    }
+
+    handleBookBuy(rawArgs) {
+        let args = Array.isArray(rawArgs) ? rawArgs.join(' ') : String(rawArgs || '');
+        args = args.trim();
+        if (!args) {
+            this.message('&eUsage: &7/v5 book buy <T1|T2|T3|ALL> [amount]');
+            return;
+        }
+        const parts = args.split(/\s+/);
+        const tierToken = String(parts[0] || '').toUpperCase();
+        const amountToken = parts[1];
+        let amount = 16;
+        if (amountToken !== undefined) {
+            const parsed = Math.floor(Number(amountToken));
+            if (!Number.isFinite(parsed)) {
+                this.message('&cInvalid amount.');
+                return;
+            }
+            amount = parsed;
+            if (amount < 4) {
+                this.message(`&eAmount too low, clamping to &f4`);
+                amount = 4;
+            }
+            if (amount > 256) {
+                this.message(`&eAmount too high, clamping to &f256`);
+                amount = 256;
+            }
+        }
+        if (this.bookBuySeq && this.bookBuySeq.active) {
+            this.message('&cA book buy sequence already in progress. Please wait for it to finish or finish the current tier.');
+            return;
+        }
+        if (tierToken === 'ALL') {
+            const tiers = getAllowedTiers('book1');
+            if (!tiers.length) {
+                this.message('&cNo allowed tiers for book1.');
+                return;
+            }
+            this.bookBuySeq = {
+                active: true,
+                manualOnly: true,
+                bookKey: 'book1',
+                tiers: tiers.slice().sort((a, b) => a - b),
+                amount,
+                idx: 0,
+                retries: 0,
+                maxRetries: 3,
+                retryDelayMs: 5000,
+                lastQueuedAt: Date.now(),
+                waitingForSetup: true,
+                expected: { bookKey: 'book1', level: tiers.slice().sort((a, b) => a - b)[0], amount },
+            };
+            this.message(`&bBook buy sequence:&f Queuing T${this.bookBuySeq.expected.level} x${amount} first (waiting for Buy Order Setup)`);
+            this.buyBook({ book: 'book1', tiers: [this.bookBuySeq.expected.level], amount, source: 'manual' });
+            return;
+        }
+        const m = tierToken.match(/^T([123])$/);
+        if (!m) {
+            this.message('&eUsage: &7/v5 book buy <T1|T2|T3|ALL> [amount]');
+            return;
+        }
+        const level = Number(m[1]);
+        if (!isTierAllowed('book1', level)) {
+            this.message(`&cT${level} is not allowed for book1.`);
+            return;
+        }
+        this.buyBook({ book: 'book1', tiers: [level], amount, source: 'manual' });
+    }
+
+    buyBook(opts = {}) {
+        const bookKey = opts.book || 'book1';
+        const regBook = getBook(bookKey);
+        const book = BOOKS.find((b) => b.key === regBook.key) || BOOKS[0];
+        let tiers = opts.tiers;
+        if (tiers === 'ALL') tiers = getAllowedTiers(bookKey);
+        if (typeof tiers === 'number') tiers = [tiers];
+        if (!Array.isArray(tiers)) tiers = [];
+        tiers = tiers.map((t) => Number(t)).filter((t) => isTierAllowed(bookKey, t));
+        tiers.sort((a, b) => a - b);
+        if (!tiers.length) {
+            this.message('&cNo valid tiers to buy.');
+            return;
+        }
+        let amount = Math.floor(Number(opts.amount) || 16);
+        if (!Number.isFinite(amount)) amount = 16;
+        if (amount < 4) amount = 4;
+        if (amount > 256) amount = 256;
+        for (let i = 0; i < tiers.length; i++) {
+            const level = tiers[i];
+            if (this.hasOpenBuyOrder(book, level)) {
+                this.message(`&eSkipping T${level}: already has an open buy order.`);
+                continue;
+            }
+            const key = book.key + ':' + level;
+            if (this.skippedIds.get(bookId(book, level)) > Date.now()) {
+                this.message(`&eSkipping T${level}: on cooldown.`);
+                continue;
+            }
+            if ((this.activeTargets.length + this.orderQueue.length) >= this.maxBuyOrders) {
+                this.message('&eOrder limit reached, cannot queue more buy orders.');
+                break;
+            }
+            const units = unitsFor(level);
+            let orderPrice = 0;
+            const product = this.bazaarData?.products?.[bookId(book, level)];
+            if (product) {
+                const ask = askPrice(product);
+                if (ask > 0) orderPrice = Math.ceil((ask + 0.1) * 10) / 10;
+            }
+            if (orderPrice > 0 && units * orderPrice > this.budget) {
+                this.message(`&eSkipping T${level}: exceeds budget.`);
+                continue;
+            }
+            const target = {
+                book,
+                input: level,
+                level,
+                name: bookName(book, level),
+                id: bookId(book, level),
+                units,
+                quantity: amount,
+                orderPrice,
+                expectedOrderPrice: orderPrice,
+                outputCount: amount / units,
+            };
+            this.orderQueue.unshift(target);
+            if (!this.bazaarData) this.lastRefresh = 0;
+            this.message(`&aQueued ${amount}x ${book.name} ${ROMAN[level - 1]}&f.`);
+        }
     }
 
     // ───────────────────────────── driver ─────────────────────────────
@@ -494,7 +709,7 @@ class BookFlipper extends ModuleBase {
             return this.startTask('Cleanup ' + this.cleanupPhase, this.cleanupSteps(this.cleanupPhase));
         }
 
-        if (this.needsOrderScan() || this.hasResolvableWork()) {
+        if ((this.needsOrderScan() || this.hasResolvableWork()) && Date.now() >= (this.resolveIdleUntil || 0)) {
             this.resolveAct = null;
             return this.startTask('Resolve', this.resolveSteps());
         }
@@ -760,6 +975,9 @@ class BookFlipper extends ModuleBase {
                     if (act === 'combine') return [...this.resolveCombineSteps(), ...this.resolveSteps(st)];
                     if (act === 'sell') return [...this.resolveSellSteps(), ...this.resolveSteps(st)];
                     if (act === 'claim') return [...this.resolveClaimSteps(), ...this.resolveSteps(st)];
+                    this.ordersScanned = true;
+                    this.ordersScannedAt = Date.now();
+                    this.resolveIdleUntil = Date.now() + 2_000;
                     return [];
                 },
             },
