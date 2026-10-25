@@ -253,7 +253,7 @@ class Combat extends ModuleBase {
 
         const distance = this._getDistanceToPlayer(position);
 
-        if (distance.distance <= ATTACK_REACH && this.hasLineOfSight(position)) {
+        if (distance.distance <= this.getEngageRange() && this.hasLineOfSight(position)) {
             this.engage(position, distance);
             return;
         }
@@ -269,9 +269,7 @@ class Combat extends ModuleBase {
     }
 
     ensurePath(position) {
-        const moved =
-            !this.pathTargetPosition ||
-            this.getDistanceBetween(position, this.pathTargetPosition).distanceFlat >= REPATH_DISTANCE;
+        const moved = !this.pathTargetPosition || this.getDistanceBetween(position, this.pathTargetPosition).distanceFlat >= REPATH_DISTANCE;
         const stale = Date.now() - this.pathStartedAt >= REPATH_DELAY_MS;
         const navigating = this.state === STATES.PATHING && CombatNavigator.isPathing();
         if (!navigating || moved || stale) this.startPath(position);
@@ -283,12 +281,18 @@ class Combat extends ModuleBase {
         return isLineClear(eye.x(), eye.y(), eye.z(), position.x, position.y + 1, position.z, -99999, -99999, -99999);
     }
 
+    getEngageRange() {
+        const arrivalRadius = Number(CombatWalker.arrivalRadius);
+        return Math.max(ATTACK_REACH, Number.isFinite(arrivalRadius) ? arrivalRadius : 0);
+    }
+
     setTarget(target) {
         if (this.sameTarget(this.target, target)) return;
 
         this.cancelPath();
         Client.stopMovement();
         CombatRotations.stop();
+        CombatWalker.clearAimEntity();
         this.trackedTarget = null;
         this.target = target;
         this.nextAttackAt = 0;
@@ -307,6 +311,7 @@ class Combat extends ModuleBase {
     engage(position, distance) {
         if (this.state !== STATES.FIGHTING) {
             this.cancelPath();
+            this.trackedTarget = null;
             this.setState(STATES.FIGHTING);
         }
         this.trackTarget();
@@ -349,6 +354,7 @@ class Combat extends ModuleBase {
         const token = ++this.pathToken;
         const target = this.target;
 
+        CombatWalker.setAimEntity(target);
         CombatNavigator.findPath(goals, (success) => this.onPathComplete(token, target, success), {
             avoidPoints: this.activeBlackholes,
             avoidRadius: Math.ceil(BLACKHOLE_AVOID_RADIUS),
@@ -363,6 +369,13 @@ class Combat extends ModuleBase {
             this.trackedTarget = null;
             this.setState(STATES.FIGHTING);
             this.trackTarget();
+            const position = this.getTargetPosition(this.target);
+            if (position) {
+                const distance = this._getDistanceToPlayer(position);
+                if (distance.distance <= this.getEngageRange() && this.hasLineOfSight(position)) {
+                    this.engage(position, distance);
+                }
+            }
             return;
         }
 
@@ -381,6 +394,7 @@ class Combat extends ModuleBase {
         this.cancelPath();
         Client.stopMovement();
         CombatRotations.stop();
+        CombatWalker.clearAimEntity();
         this.trackedTarget = null;
         this.setState(STATES.IDLE);
     }
@@ -694,8 +708,7 @@ class Combat extends ModuleBase {
     }
 
     getTargets(radius = this.scanRadius) {
-        const targets =
-            this.externalTargets !== null ? this.externalTargets : this.targetNames.length ? this.findMob({ names: this.targetNames }, radius) : [];
+        const targets = this.externalTargets !== null ? this.externalTargets : this.targetNames.length ? this.findMob({ names: this.targetNames }, radius) : [];
         if (this.externalTargets === null) {
             this.enabledPresets.forEach((name) => {
                 if (COMBAT_PRESETS[name]) targets.push(...this.findMob(COMBAT_PRESETS[name], radius));
@@ -813,6 +826,7 @@ class Combat extends ModuleBase {
         this.cancelPath();
         Client.stopMovement();
         CombatRotations.stop();
+        CombatWalker.clearAimEntity();
         this.externalTargets = null;
         this.targets = [];
         this.targetUuids = new Set();

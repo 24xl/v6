@@ -10,6 +10,7 @@ const CURVE_STRENGTH = 0.14;
 const TALL_ENTITY_SPLIT = 2.5;
 const TALL_ENTITY_MULTIPLIER = 0.5;
 const SHORT_ENTITY_MULTIPLIER = 0.85;
+const POINT_SHIFT_RESET_DEGREES = 5;
 
 class CombatRotationController {
     constructor() {
@@ -48,8 +49,24 @@ class CombatRotationController {
         const py = Number(y);
         const pz = Number(z);
         if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) return;
+
+        const previous = this.request?.type === 'point' ? this.request.value : null;
         this.request = { type: 'point', value: { x: px, y: py, z: pz } };
+
+        if (!previous || this.getPointShift(previous, this.request.value) > POINT_SHIFT_RESET_DEGREES) {
+            const current = getCurrentRotation();
+            const target = calculateAbsoluteAngles(this.request.value);
+            const distance = current ? Math.hypot(getAngleDifference(current.yaw, target.yaw), target.pitch - current.pitch) : 0;
+            this.resetTiming(Date.now(), distance);
+        }
+
         this.start();
+    }
+
+    getPointShift(first, second) {
+        const a = calculateAbsoluteAngles(first);
+        const b = calculateAbsoluteAngles(second);
+        return Math.hypot(getAngleDifference(a.yaw, b.yaw), b.pitch - a.pitch);
     }
 
     isActive() {

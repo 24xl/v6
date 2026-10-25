@@ -11,7 +11,6 @@ const LOOKAHEAD_STEP = 0.4;
 const RECOVERY_MIN_LOOKAHEAD = 0.1;
 const RECOVERY_LOOKAHEAD_STEP = 0.15;
 const PROXIMITY_THRESHOLD = 4.0;
-const COMPLETION_RADIUS = 1.9;
 const MAX_ADVANCE_PER_TICK = 1.6;
 const MOVE_LOOKAHEAD = 0.9;
 const PROGRESS_DISTANCE = 0.2;
@@ -23,6 +22,10 @@ const GAP_MAX_HORIZONTAL = 20;
 const GAP_EDGE_DISTANCE = 1.35;
 const LOOK_POINT_HEIGHT = 1.6;
 const IGNORE_BLOCK = -99999;
+const ENTITY_AIM_DISTANCE = 8;
+const ENTITY_BLEND_RATE = 0.08;
+const MIN_HORIZONTAL_LOOK = 1.2;
+const MAX_WALK_PITCH = 60;
 
 const DEFAULT_FLAG_BITS = [1, 2, 4, 8, 16, 32, 64, 128];
 
@@ -43,6 +46,9 @@ class CombatPathWalker {
         this.lastX = 0;
         this.lastZ = 0;
         this.stuckAttempts = 0;
+        this.aimEntity = null;
+        this.aimBlend = 0;
+        this.lastEntityAimPoint = null;
         this.renderRegister = register('postRenderWorld', () => this.render()).unregister();
     }
 
@@ -75,6 +81,19 @@ class CombatPathWalker {
         return this.points.length > 0;
     }
 
+    setAimEntity(entity) {
+        if (this.aimEntity === entity) return;
+        this.aimEntity = entity;
+        this.aimBlend = 0;
+        this.lastEntityAimPoint = null;
+    }
+
+    clearAimEntity() {
+        this.aimEntity = null;
+        this.aimBlend = 0;
+        this.lastEntityAimPoint = null;
+    }
+
     tick() {
         if (!this.points.length) return 'ARRIVED';
 
@@ -86,7 +105,7 @@ class CombatPathWalker {
         const remaining = this.points.length - 1 - this.t;
         const last = this.points[this.points.length - 1];
         const endDistance = Math.hypot(player.getX() - last.x, player.getZ() - last.z);
-        if (remaining <= 0.25 || (remaining <= 2 && endDistance <= COMPLETION_RADIUS)) {
+        if (remaining <= 0.25 || (remaining <= 2 && endDistance <= this.arrivalRadius)) {
             this.stopKeys();
             return 'ARRIVED';
         }
@@ -127,7 +146,79 @@ class CombatPathWalker {
 
     steer(point) {
         if (!this.lookAlongPath || !point) return;
-        CombatRotations.lookAtPoint(point.x, point.y + LOOK_POINT_HEIGHT, point.z);
+
+        const eyes = Player.getPlayer()?.getEyePosition();
+        if (!eyes) return;
+
+        this.updateAimBlend();
+
+        let aim = this.blendAim({ x: point.x, y: point.y + LOOK_POINT_HEIGHT, z: point.z });
+        let dx = aim.x - eyes.x();
+        let dy = aim.y - eyes.y();
+        let dz = aim.z - eyes.z();
+        let horizontal = Math.hypot(dx, dz);
+
+        if (horizontal < MIN_HORIZONTAL_LOOK) {
+            const far = this.interpolate(this.t + MAX_LOOKAHEAD);
+            if (!far) return;
+
+            aim = this.blendAim({ x: far.x, y: far.y + LOOK_POINT_HEIGHT, z: far.z });
+            dx = aim.x - eyes.x();
+            dy = aim.y - eyes.y();
+            dz = aim.z - eyes.z();
+            horizontal = Math.hypot(dx, dz);
+            if (horizontal < MIN_HORIZONTAL_LOOK) return;
+        }
+
+        const pitch = -Math.atan2(dy, horizontal) * (180 / Math.PI);
+        if (Math.abs(pitch) > MAX_WALK_PITCH) {
+            const clamped = Math.sign(pitch) * MAX_WALK_PITCH;
+            aim.y = eyes.y() - Math.tan((clamped * Math.PI) / 180) * horizontal;
+        }
+
+        CombatRotations.lookAtPoint(aim.x, aim.y, aim.z);
+    }
+
+    updateAimBlend() {
+        const entityPoint = this.getEntityAimPoint();
+        if (entityPoint) this.lastEntityAimPoint = entityPoint;
+
+        const target = entityPoint ? 1 : 0;
+        this.aimBlend += (target - this.aimBlend) * ENTITY_BLEND_RATE;
+    }
+
+    blendAim(pathPoint) {
+        if (!this.lastEntityAimPoint || this.aimBlend < 0.001) return pathPoint;
+
+        return {
+            x: pathPoint.x + (this.lastEntityAimPoint.x - pathPoint.x) * this.aimBlend,
+            y: pathPoint.y + (this.lastEntityAimPoint.y - pathPoint.y) * this.aimBlend,
+            z: pathPoint.z + (this.lastEntityAimPoint.z - pathPoint.z) * this.aimBlend,
+        };
+    }
+
+    getEntityAimPoint() {
+        if (!this.aimEntity) return null;
+
+        try {
+            const entity = this.aimEntity?.toMC ? this.aimEntity.toMC() : this.aimEntity;
+            if (!entity || entity.isRemoved?.() || entity.isDeadOrDying?.()) return null;
+
+            const box = entity.getBoundingBox?.();
+            if (!box) return null;
+
+            const x = (box.minX + box.maxX) / 2;
+            const y = box.minY + (box.maxY - box.minY) * 0.85;
+            const z = (box.minZ + box.maxZ) / 2;
+            const eyes = Player.getPlayer()?.getEyePosition();
+            if (!eyes) return null;
+            if (Math.hypot(eyes.x() - x, eyes.y() - y, eyes.z() - z) > ENTITY_AIM_DISTANCE) return null;
+            if (!isLineClear(eyes.x(), eyes.y(), eyes.z(), x, y, z, IGNORE_BLOCK, IGNORE_BLOCK, IGNORE_BLOCK)) return null;
+
+            return { x, y, z };
+        } catch (e) {
+            return null;
+        }
     }
 
     isStraight() {
@@ -249,9 +340,7 @@ class CombatPathWalker {
         while (closeLookahead >= RECOVERY_MIN_LOOKAHEAD) {
             const point = this.interpolate(this.t + closeLookahead);
             if (this.isPointVisible(point)) return point;
-            lookahead -= RECOVERY_LOOKAHEAD_STEP;
-            lookahead = Math.max(lookahead, 0);
-            closeLookahead = lookahead;
+            closeLookahead -= RECOVERY_LOOKAHEAD_STEP;
         }
 
         return this.interpolate(this.t + MIN_LOOKAHEAD);
@@ -382,7 +471,16 @@ class CombatPathWalker {
         if (!player) return;
 
         const visible = this.points.filter((point) => Math.abs(point.x - player.getX()) < 64 && Math.abs(point.z - player.getZ()) < 64);
-        Render3D.drawSizedBoxes(visible.map((point) => new Vec3d(point.x, point.y + 0.5, point.z)), 0.35, 0.35, 0.35, new RenderColor(0, 150, 255, 150), true, 1, true);
+        Render3D.drawSizedBoxes(
+            visible.map((point) => new Vec3d(point.x, point.y + 0.5, point.z)),
+            0.35,
+            0.35,
+            0.35,
+            new RenderColor(0, 150, 255, 150),
+            true,
+            1,
+            true
+        );
 
         const lookPoint = this.computeLookPoint();
         if (lookPoint) {
@@ -391,7 +489,12 @@ class CombatPathWalker {
 
         const current = this.interpolate(this.t);
         if (lookPoint && current) {
-            Render3D.drawLines([new Vec3d(current.x, current.y + 0.5, current.z), new Vec3d(lookPoint.x, lookPoint.y + 0.5, lookPoint.z)], new RenderColor(255, 255, 0, 255), 3, false);
+            Render3D.drawLines(
+                [new Vec3d(current.x, current.y + 0.5, current.z), new Vec3d(lookPoint.x, lookPoint.y + 0.5, lookPoint.z)],
+                new RenderColor(255, 255, 0, 255),
+                3,
+                false
+            );
         }
     }
 }
