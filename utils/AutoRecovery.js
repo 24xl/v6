@@ -5,8 +5,8 @@ import { registerSkyblockEvent } from './SkyblockEvents';
 import { closeInventory } from './player/Inventory';
 
 const RECONNECT_HOST = 'mc.hypixel.net';
-const RECONNECT_AFTER_MS = 4000;
-const RECONNECT_RETRY_MS = 12000;
+const RECONNECT_DELAYS_MS = [3000, 10000, 30000, 60000];
+const UNLOADED_GRACE_MS = 8000;
 const COMMAND_RETRY_MS = 5000;
 
 const STATE = {
@@ -18,7 +18,9 @@ const STATE = {
 
 const sidebarTitle = () => {
     try {
-        return ChatLib.removeFormatting(String(Scoreboard.getTitle?.() ?? '')).trim().toLowerCase();
+        return ChatLib.removeFormatting(String(Scoreboard.getTitle?.() ?? ''))
+            .trim()
+            .toLowerCase();
     } catch (e) {
         return '';
     }
@@ -26,7 +28,11 @@ const sidebarTitle = () => {
 
 const sidebarLines = () => {
     try {
-        return (Scoreboard.getLines() || []).map((line) => ChatLib.removeFormatting(String(line?.getName?.() ?? line)).trim().toLowerCase());
+        return (Scoreboard.getLines() || []).map((line) =>
+            ChatLib.removeFormatting(String(line?.getName?.() ?? line))
+                .trim()
+                .toLowerCase()
+        );
     } catch (e) {
         return [];
     }
@@ -34,7 +40,9 @@ const sidebarLines = () => {
 
 const areaText = () => {
     try {
-        return String(getArea() || '').trim().toLowerCase();
+        return String(getArea() || '')
+            .trim()
+            .toLowerCase();
     } catch (e) {
         return '';
     }
@@ -49,6 +57,9 @@ class AutoRecovery {
         this.notSkyBlock = false;
         this.lastCommandAt = 0;
         this.notLoadedSince = 0;
+        this.kickedAt = 0;
+        this.reconnectAttempts = 0;
+        this.nextReconnectAt = 0;
 
         register('tick', () => this.tick());
 
@@ -64,13 +75,29 @@ class AutoRecovery {
             if (this.active) this.notSkyBlock = true;
         });
 
-        register('packetReceived', () => {
-            if (this.active && !this.notLoadedSince) this.notLoadedSince = Date.now();
-        }).setFilteredClasses([ClientboundDisconnectPacket, ClientboundLoginDisconnectPacket]);
+        register('serverDisconnect', () => this.markDisconnected(false));
+
+        register('packetReceived', () => this.markDisconnected(true)).setFilteredClasses([ClientboundDisconnectPacket, ClientboundLoginDisconnectPacket]);
 
         register('worldUnload', () => {
             if (this.active && !this.notLoadedSince) this.notLoadedSince = Date.now();
         });
+    }
+
+    markDisconnected(kicked) {
+        if (!this.active) return;
+        const now = Date.now();
+        if (!this.notLoadedSince) this.notLoadedSince = now;
+        if (kicked && !this.kickedAt) this.kickedAt = now;
+    }
+
+    isDisconnectedScreen() {
+        try {
+            const screen = Client.getCurrentScreen?.();
+            return String(screen?.getClass?.()?.getName?.() ?? '').includes('DisconnectedScreen');
+        } catch (e) {
+            return false;
+        }
     }
 
     setActive(value, owner = 'default') {
@@ -83,6 +110,10 @@ class AutoRecovery {
         this.state = STATE.READY;
         this.notSkyBlock = false;
         this.notLoadedSince = 0;
+        this.kickedAt = 0;
+        this.lastCommandAt = 0;
+        this.reconnectAttempts = 0;
+        this.nextReconnectAt = 0;
         console.log(`[Recovery] active=${this.active} owners=${this.owners.size} ready=${this.ready}`);
     }
 
@@ -129,6 +160,21 @@ class AutoRecovery {
         }
     }
 
+    reconnectDelay(attempt) {
+        return RECONNECT_DELAYS_MS[Math.min(attempt, RECONNECT_DELAYS_MS.length - 1)];
+    }
+
+    startReconnect(now) {
+        this.reconnectAttempts++;
+        this.nextReconnectAt = now + this.reconnectDelay(this.reconnectAttempts);
+        console.log(`[x-recovery] reconnect attempt ${this.reconnectAttempts} to ${RECONNECT_HOST}`);
+        try {
+            Client.connect(RECONNECT_HOST);
+        } catch (e) {
+            console.error('[Recovery] connect failed: ' + e);
+        }
+    }
+
     tick() {
         if (!this.active) {
             this.ready = true;
@@ -141,21 +187,24 @@ class AutoRecovery {
 
         if (!connected) {
             if (!this.notLoadedSince) this.notLoadedSince = now;
+            if (!this.kickedAt && this.isDisconnectedScreen()) this.kickedAt = now;
             this.ready = false;
             this.setState(STATE.RECONNECTING);
-            if (now - this.notLoadedSince >= RECONNECT_AFTER_MS && now - this.lastCommandAt >= RECONNECT_RETRY_MS) {
-                this.lastCommandAt = now;
-                console.log('[x-recovery] reconnecting to ' + RECONNECT_HOST);
-                try {
-                    Client.connect(RECONNECT_HOST);
-                } catch (e) {
-                    console.error('[Recovery] connect failed: ' + e);
-                }
+
+            if (!this.nextReconnectAt) {
+                const since = this.kickedAt || this.notLoadedSince;
+                const grace = this.kickedAt ? RECONNECT_DELAYS_MS[0] : UNLOADED_GRACE_MS;
+                if (now - since >= grace) this.startReconnect(now);
+                return;
             }
+
+            if (now >= this.nextReconnectAt) this.startReconnect(now);
             return;
         }
 
         this.notLoadedSince = 0;
+        this.kickedAt = 0;
+        this.nextReconnectAt = 0;
 
         if (!this.inSkyBlock() || this.notSkyBlock) {
             this.ready = false;
@@ -172,6 +221,7 @@ class AutoRecovery {
         }
 
         if (!this.ready) console.log('[x-recovery] READY on ' + (areaText() || 'island'));
+        this.reconnectAttempts = 0;
         this.ready = true;
         this.setState(STATE.READY);
     }
