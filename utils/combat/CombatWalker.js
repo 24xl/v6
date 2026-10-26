@@ -24,7 +24,7 @@ const MIN_HORIZONTAL_LOOK = 1.2;
 // Positive pitch looks DOWN. Cap downward gaze so the walker never stares at the ground
 // while following path nodes on descents; upward stays generous for climbs.
 const MAX_DOWN_PITCH = 25;
-const MAX_UP_PITCH = 45;
+const MAX_UP_PITCH = 30;
 // Only blend the tracked entity into the aim when it stays inside this cone relative to
 // the move direction. Beyond it the walker aims along the path (turn to face, walk
 // forward) instead of strafing backwards/sideways toward a mob off to the side.
@@ -228,7 +228,7 @@ class CombatPathWalker {
 
         return {
             x: pathPoint.x + (this.lastEntityAimPoint.x - pathPoint.x) * this.aimBlend,
-            y: pathPoint.y + (this.lastEntityAimPoint.y - pathPoint.y) * this.aimBlend,
+            y: pathPoint.y,
             z: pathPoint.z + (this.lastEntityAimPoint.z - pathPoint.z) * this.aimBlend,
         };
     }
@@ -271,6 +271,7 @@ class CombatPathWalker {
         const player = Player.getPlayer();
         const px = player.getX();
         const pz = player.getZ();
+        const py = player.getY();
         const base = Math.max(0, Math.min(lastSegment, Math.floor(this.t)));
 
         let result = this.project(px, pz, Math.max(0, base - 3), Math.min(lastSegment, base + 12));
@@ -279,7 +280,34 @@ class CombatPathWalker {
             if (global.distanceSq < result.distanceSq) result = global;
         }
 
+        const prevT = this.t;
         this.t = Math.max(0, Math.min(this.points.length - 1, result.t));
+
+        // Overshoot detection: if horizontal distance to the projected point increases
+        // significantly past the waypoint, advance t (FastPath reference).
+        if (this.t > prevT) {
+            const nextIdx = Math.min(Math.floor(this.t) + 1, lastSegment);
+            const nextPoint = this.points[nextIdx];
+            const curPoint = this.points[Math.floor(this.t)];
+            if (nextPoint && curPoint) {
+                const curDist = Math.hypot(px - curPoint.x, pz - curPoint.z);
+                const nextDist = Math.hypot(px - nextPoint.x, pz - nextPoint.z);
+                if (nextDist < curDist - 0.3) {
+                    // Already past this waypoint horizontally.
+                    this.t = Math.min(this.t + 0.5, this.points.length - 1);
+                }
+            }
+        }
+
+        // Y tolerance: don't advance t if vertical mismatch > 0.2 (FastPath Y_TOLERANCE).
+        const currentPoint = this.points[Math.floor(this.t)];
+        if (currentPoint) {
+            const yDiff = Math.abs(py - currentPoint.y);
+            if (yDiff > 0.2 && this.t > base) {
+                // Clamp progress until vertically aligned.
+                this.t = Math.max(this.t - 0.1, base);
+            }
+        }
     }
 
     project(px, pz, start, end) {
@@ -368,6 +396,17 @@ class CombatPathWalker {
 
         while (lookahead >= MIN_LOOKAHEAD) {
             const point = this.interpolate(this.t + lookahead);
+            const eyes = Player.getPlayer()?.getEyePosition();
+            if (eyes) {
+                const dy = point.y + LOOK_POINT_HEIGHT - eyes.y();
+                const horzDist = Math.hypot(point.x - eyes.x(), point.z - eyes.z());
+                // Skip lookahead points on stairs/slabs that are too high above eyes
+                // (causes extreme upward pitch). FastPath reference: step-up skip.
+                if (dy > 1.0 && horzDist < 1.5) {
+                    lookahead -= LOOKAHEAD_STEP;
+                    continue;
+                }
+            }
             if (this.isPointVisible(point)) return point;
             lookahead -= LOOKAHEAD_STEP;
         }

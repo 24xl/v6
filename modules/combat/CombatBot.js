@@ -9,6 +9,7 @@ import { isLineClear, isLookingAtEntity } from '../../utils/Raytrace';
 const STATES = {
     IDLE: 'IDLE',
     PATHING: 'PATHING',
+    CLOSING: 'CLOSING',
     FIGHTING: 'FIGHTING',
 };
 
@@ -39,6 +40,7 @@ const PATH_FAILURE_BLACKLIST_MS = 12000;
 const PATH_FAILURE_BLACKLIST_ESCALATED_MS = 24000;
 const VISIBILITY_GRACE_MS = 750;
 const LOS_GRACE_MS = 600;
+const CLOSING_TIMER_MS = 3000;
 const ENGAGE_QUIET_MS = 10000;
 const TARGET_SCAN_GRACE_MS = 2000;
 const TARGET_SCAN_INTERVAL = 3;
@@ -142,6 +144,7 @@ class Combat extends ModuleBase {
         this.pathFailCount = new Map();
         this.lastEngageAt = 0;
         this.lostLosAt = 0;
+        this.closingTimer = 0;
 
         this.addSlider(
             'Scan Radius',
@@ -264,6 +267,23 @@ class Combat extends ModuleBase {
 
         const distance = this._getDistanceToPlayer(position);
 
+        // CLOSING state: path arrived but not in attack range/LOS. Pursue live position directly.
+        if (this.state === STATES.CLOSING) {
+            if (this.closingTimer > 0 && Date.now() > this.closingTimer) {
+                this.closingTimer = 0;
+                this.blacklistTarget(this.target, PATH_FAILURE_BLACKLIST_MS);
+                this.setTarget(null);
+                return;
+            }
+            // Keep chasing the live mob position.
+            if (distance.distance <= ATTACK_REACH && this.hasLineOfSight(position)) {
+                this.engage(position, distance);
+                return;
+            }
+            this.pursueDirectly(position);
+            return;
+        }
+
         // Once in FIGHTING the bot keeps swinging even if the mob steps behind a wall.
         // Give it a short grace to re-acquire, then blacklist and re-target instead of
         // standing still forever.
@@ -310,8 +330,10 @@ class Combat extends ModuleBase {
     }
 
     getEngageRange() {
-        const arrivalRadius = Number(CombatWalker.arrivalRadius);
-        return Math.max(ATTACK_REACH, Number.isFinite(arrivalRadius) ? arrivalRadius : 0);
+        // Use attack reach as the effective engage range regardless of arrival radius.
+        // Arrival radius is only a path handoff threshold; the bot must be within
+        // swing distance to actually hit the target.
+        return ATTACK_REACH;
     }
 
     setTarget(target) {
@@ -366,6 +388,12 @@ class Combat extends ModuleBase {
         this.nextAttackAt = now + (1000 / this.attackCPS) * jitter;
     }
 
+    // Direct pursuit without LOS check (used in CLOSING state).
+    pursueDirectly(position) {
+        this.trackTarget();
+        CombatWalker.moveToward(position);
+    }
+
     startPath(position, soft = false) {
         if (!this.isPositionSafe(position.x, position.y, position.z)) {
             this.setTarget(null);
@@ -401,20 +429,11 @@ class Combat extends ModuleBase {
         if (success && this.isTargetUsable(target)) {
             this.clearPathFailure(target);
             this.trackedTarget = null;
-            this.setState(STATES.FIGHTING);
+            // Transition to CLOSING first: the path endpoint (ring goal) may be ~2 blocks
+            // from the mob. In CLOSING we chase the live position for up to 3s.
+            this.setState(STATES.CLOSING);
+            this.closingTimer = Date.now() + CLOSING_TIMER_MS;
             this.trackTarget();
-            const position = this.getTargetPosition(this.target);
-            if (position) {
-                const distance = this._getDistanceToPlayer(position);
-                if (distance.distance <= this.getEngageRange() && this.hasLineOfSight(position)) {
-                    this.engage(position, distance);
-                    return;
-                }
-            }
-            // Path succeeded but the target is not attackable from here (wall, out of
-            // range). Treat it as a failure so the bot re-targets instead of standing.
-            this.recordPathFailure(target);
-            this.setTarget(null);
             return;
         }
 
@@ -772,10 +791,18 @@ class Combat extends ModuleBase {
         // wall is still found, so the old rule pinned the radius forever.
         const usable = found.filter((target) => this.isTargetUsable(target));
         if (usable.length) {
-            this.searchRadius = this.scanRadius;
+            // Only reset search radius when we have a usable target AND recently engaged
+            // (lastEngageAt < 5s ago). This prevents instant reset on a mob that's just
+            // standing in range but not yet fought.
+            const recentEngage = this.lastEngageAt && Date.now() - this.lastEngageAt < 5000;
+            if (recentEngage) this.searchRadius = this.scanRadius;
         } else if (this.searchRadius < MAX_SEARCH_RADIUS && this.expandTicker++ % SCAN_EXPAND_SCANS === 0) {
             const quiet = this.state !== STATES.FIGHTING && (!this.lastEngageAt || Date.now() - this.lastEngageAt > ENGAGE_QUIET_MS);
-            if (quiet) this.searchRadius = Math.min(this.searchRadius + SCAN_EXPAND_STEP, MAX_SEARCH_RADIUS);
+            if (quiet) {
+                // Cap expansion at 3x the user's scan radius (FastPath reference: bounded search).
+                const cap = Math.min(this.scanRadius * 3, MAX_SEARCH_RADIUS);
+                this.searchRadius = Math.min(this.searchRadius + SCAN_EXPAND_STEP, cap);
+            }
         }
 
         // Track per-UUID last-seen so a single hiccuped scan does not drop the current
@@ -899,6 +926,7 @@ class Combat extends ModuleBase {
         this.nextTarget = null;
         this.searchRadius = this.scanRadius;
         this.expandTicker = 0;
+        this.closingTimer = 0;
         if (!this.isParentManaged) {
             this.message(this.targetNames.length || this.enabledPresets.size ? '&aEnabled' : '&eEnabled, but no targets are configured.');
         }
@@ -919,6 +947,7 @@ class Combat extends ModuleBase {
         this.trackedTarget = null;
         this.state = STATES.IDLE;
         this.nextAttackAt = 0;
+        this.closingTimer = 0;
         this.blacklistedTargets.clear();
         this.visibleUntil.clear();
         this.activeBlackholes = [];
