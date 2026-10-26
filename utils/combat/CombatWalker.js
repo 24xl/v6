@@ -164,9 +164,20 @@ class CombatPathWalker {
 
         this.updateAimBlend();
 
+        // If we have a tracked entity within the divergence cone, delegate to
+        // CombatRotations.lookAtEntity() which handles smooth entity tracking
+        // natively (resolves position every frame, no micro-restarts).
+        // Otherwise use point-based aiming for pure path following.
+        const useEntity = this.aimEntity && this.shouldBlendEntity(eyes, point);
+
+        if (useEntity) {
+            CombatRotations.lookAtEntity(this.aimEntity);
+            return;
+        }
+
         // Pure aim point along the path, at eye height.
         const pathAim = { x: point.x, y: point.y + LOOK_POINT_HEIGHT, z: point.z };
-        let aim = this.resolveAim(pathAim, eyes);
+        let aim = pathAim;
 
         let dx = aim.x - eyes.x();
         let dy = aim.y - eyes.y();
@@ -177,7 +188,7 @@ class CombatPathWalker {
             const far = this.interpolate(this.t + MAX_LOOKAHEAD);
             if (!far) return;
 
-            aim = this.resolveAim({ x: far.x, y: far.y + LOOK_POINT_HEIGHT, z: far.z }, eyes);
+            aim = { x: far.x, y: far.y + LOOK_POINT_HEIGHT, z: far.z };
             dx = aim.x - eyes.x();
             dy = aim.y - eyes.y();
             dz = aim.z - eyes.z();
@@ -194,6 +205,23 @@ class CombatPathWalker {
         }
 
         CombatRotations.lookAtPoint(aim.x, aim.y, aim.z);
+    }
+
+    // Returns true if the tracked entity is within the move-direction cone and
+    // should be tracked via CombatRotations.lookAtEntity() instead of blended
+    // point aiming. Mirrors the old resolveAim logic but returns a boolean.
+    shouldBlendEntity(eyes, pathPoint) {
+        if (!this.aimEntity || !this.lastEntityAimPoint) return false;
+
+        const pathVec = { x: pathPoint.x - eyes.x(), z: pathPoint.z - eyes.z() };
+        const entVec = { x: this.lastEntityAimPoint.x - eyes.x(), z: this.lastEntityAimPoint.z - eyes.z() };
+        const pathH = Math.hypot(pathVec.x, pathVec.z);
+        const entH = Math.hypot(entVec.x, entVec.z);
+        if (pathH < 0.1 || entH < 0.1) return false;
+
+        const dot = (pathVec.x * entVec.x + pathVec.z * entVec.z) / (pathH * entH);
+        const divergence = Math.acos(Math.max(-1, Math.min(1, dot))) * (180 / Math.PI);
+        return divergence <= MAX_ENTITY_AIM_DIVERGENCE;
     }
 
     // Decide whether to blend the tracked entity into the aim. The blend only helps when
@@ -221,16 +249,6 @@ class CombatPathWalker {
 
         const target = entityPoint ? 1 : 0;
         this.aimBlend += (target - this.aimBlend) * ENTITY_BLEND_RATE;
-    }
-
-    blendAim(pathPoint) {
-        if (!this.lastEntityAimPoint || this.aimBlend < 0.001) return pathPoint;
-
-        return {
-            x: pathPoint.x + (this.lastEntityAimPoint.x - pathPoint.x) * this.aimBlend,
-            y: pathPoint.y,
-            z: pathPoint.z + (this.lastEntityAimPoint.z - pathPoint.z) * this.aimBlend,
-        };
     }
 
     getEntityAimPoint() {
