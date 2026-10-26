@@ -99,16 +99,27 @@ class CombatPathWalker {
         this.aimEntity = entity;
         this.aimBlend = 0;
         this.lastEntityAimPoint = null;
+        // Reset ladder state when target changes
+        this.ladderClimbing = false;
+        this.ladderTarget = null;
     }
 
     clearAimEntity() {
         this.aimEntity = null;
         this.aimBlend = 0;
         this.lastEntityAimPoint = null;
+        // Reset ladder state when aim entity is cleared
+        this.ladderClimbing = false;
+        this.ladderTarget = null;
     }
 
     tick() {
-        if (!this.points.length) return 'ARRIVED';
+        if (!this.points.length) {
+            // No path - reset ladder state to prevent "jumping in place" after path ends
+            this.ladderClimbing = false;
+            this.ladderTarget = null;
+            return 'ARRIVED';
+        }
 
         const player = Player.getPlayer();
         if (!player) return 'IDLE';
@@ -120,6 +131,8 @@ class CombatPathWalker {
         const endDistance = Math.hypot(player.getX() - last.x, player.getZ() - last.z);
         if (remaining <= 0.25 || (remaining <= 2 && endDistance <= this.arrivalRadius)) {
             this.stopKeys();
+            this.ladderClimbing = false;
+            this.ladderTarget = null;
             return 'ARRIVED';
         }
 
@@ -204,15 +217,32 @@ class CombatPathWalker {
 
         this.updateAimBlend();
 
-        // If we have a tracked entity within the divergence cone, delegate to
-        // CombatRotations.lookAtEntity() which handles smooth entity tracking
-        // natively (resolves position every frame, no micro-restarts).
-        // Otherwise use point-based aiming for pure path following.
+        // If we have a tracked entity within the divergence cone, track it with pitch clamping.
+        // Resolve entity position, clamp pitch to pathwalking limits, then use lookAtPoint.
+        // This prevents the "looking at roof" bug where entity tracking goes to -90 pitch.
         const useEntity = this.aimEntity && this.shouldBlendEntity(eyes, point);
 
         if (useEntity) {
-            CombatRotations.lookAtEntity(this.aimEntity);
-            return;
+            const entityPoint = this.getEntityAimPoint();
+            if (entityPoint) {
+                const dx = entityPoint.x - eyes.x();
+                const dy = entityPoint.y - eyes.y();
+                const dz = entityPoint.z - eyes.z();
+                const horizontal = Math.hypot(dx, dz);
+                const pitch = -Math.atan2(dy, horizontal) * (180 / Math.PI);
+
+                // Apply pathwalking pitch limits (-20 up / +25 down) to entity tracking too.
+                // This stops the "looking at roof" bug when mobs are above the player.
+                let clampedY = entityPoint.y;
+                if (pitch > MAX_DOWN_PITCH) {
+                    clampedY = eyes.y() + Math.tan((MAX_DOWN_PITCH * Math.PI) / 180) * horizontal;
+                } else if (pitch < -MAX_UP_PITCH) {
+                    clampedY = eyes.y() - Math.tan((-MAX_UP_PITCH * Math.PI) / 180) * horizontal;
+                }
+
+                CombatRotations.lookAtPoint(entityPoint.x, clampedY, entityPoint.z);
+                return;
+            }
         }
 
         // Pure aim point along the path, at eye height.
@@ -581,6 +611,22 @@ class CombatPathWalker {
         const dist = Math.hypot(player.getX() - x, player.getZ() - z);
         const heightDiff = y - player.getY();
 
+        // STRICT PRECONDITIONS: must be on ground and adjacent to ladder
+        // This prevents "jumping in place while standing still" bug
+        if (!player.onGround()) return false;
+        if (dist > 1.2) return false;
+
+        // Verify ladder block still exists at player's feet/head level
+        const world = World.getWorld();
+        if (!world) return false;
+        const hasLadderAtFeet = this.isLadderOrVine(world, blockX, blockY, blockZ);
+        const hasLadderAtHead = this.isLadderOrVine(world, blockX, blockY + 1, blockZ);
+        if (!hasLadderAtFeet && !hasLadderAtHead) {
+            this.ladderClimbing = false;
+            this.ladderTarget = null;
+            return false;
+        }
+
         // If we've reached the top of the ladder, stop climbing
         if (heightDiff < 0.5 && dist < 0.5) {
             return false;
@@ -609,16 +655,25 @@ class CombatPathWalker {
         if (now - this.lastLadderSearch > LADDER_COOLDOWN_MS) {
             this.lastLadderSearch = now;
             // Re-verify ladder still exists
-            const world = World.getWorld();
             if (world) {
                 const block = world.getBlockAt(this.ladderTarget.blockX, this.ladderTarget.blockY, this.ladderTarget.blockZ);
                 if (!block || block.type.getID() === 0) {
+                    this.ladderClimbing = false;
+                    this.ladderTarget = null;
                     return false; // Ladder gone
                 }
             }
         }
 
         return true;
+    }
+
+    // Check if block at position is a ladder or vine
+    isLadderOrVine(world, x, y, z) {
+        const block = world.getBlockAt(x, y, z);
+        if (!block || block.type.getID() === 0) return false;
+        const name = block.type.getRegistryName?.()?.toLowerCase?.() || '';
+        return name.includes('ladder') || name.includes('vine');
     }
 
     render() {

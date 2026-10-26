@@ -144,6 +144,10 @@ class CombatPathNavigator {
     resetPath() {
         this.searching = false;
         this.callback = null;
+        this.currentGoals = null;
+        this.lastGoals = null;
+        this.lastAvoidPoints = null;
+        this.lastAvoidRadius = 0;
         this.stopTick();
         CombatWalker.stop();
         Swift.clear();
@@ -152,6 +156,10 @@ class CombatPathNavigator {
     finish(success) {
         const callback = this.callback;
         this.callback = null;
+        this.currentGoals = null;
+        this.lastGoals = null;
+        this.lastAvoidPoints = null;
+        this.lastAvoidRadius = 0;
         this.searching = false;
         this.stopTick();
         CombatWalker.stop();

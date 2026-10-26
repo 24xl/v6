@@ -40,6 +40,7 @@ const PATH_FAILURE_BLACKLIST_MS = 12000;
 const PATH_FAILURE_BLACKLIST_ESCALATED_MS = 24000;
 const VISIBILITY_GRACE_MS = 750;
 const LOS_GRACE_MS = 600;
+const WALL_STARE_BLACKLIST_MS = 3000;
 const CLOSING_TIMER_MS = 3000;
 const ENGAGE_QUIET_MS = 10000;
 const TARGET_SCAN_GRACE_MS = 2000;
@@ -267,6 +268,20 @@ class Combat extends ModuleBase {
 
         const distance = this._getDistanceToPlayer(position);
 
+        // AGGRESSIVE WALL-STARE BLACKLIST: any target without LOS for WALL_STARE_BLACKLIST_MS
+        // gets blacklisted regardless of distance. This stops infinite staring at mobs behind walls.
+        const hasLOS = this.hasLineOfSight(position);
+        if (hasLOS) {
+            this.lostLosAt = 0;
+        } else if (!this.lostLosAt) {
+            this.lostLosAt = Date.now();
+        } else if (Date.now() - this.lostLosAt > WALL_STARE_BLACKLIST_MS) {
+            this.lostLosAt = 0;
+            this.blacklistTarget(this.target, PATH_FAILURE_BLACKLIST_MS);
+            this.setTarget(null);
+            return;
+        }
+
         // CLOSING state: path arrived but not in attack range/LOS. Pursue live position directly.
         if (this.state === STATES.CLOSING) {
             if (this.closingTimer > 0 && Date.now() > this.closingTimer) {
@@ -305,14 +320,8 @@ class Combat extends ModuleBase {
             return;
         }
 
-        // Target is within engage range but no LOS (behind wall). If we're not
-        // actively pathing (stuck at wall), blacklist and re-target instead of
-        // staring at it through the wall forever.
-        if (distance.distance <= this.getEngageRange() && !this.hasLineOfSight(position) && !CombatNavigator.isPathing()) {
-            this.blacklistTarget(this.target, PATH_FAILURE_BLACKLIST_MS);
-            this.setTarget(null);
-            return;
-        }
+        // REMOVED: the old distance-only wall check. The aggressive time-based LOS blacklist
+        // above handles ALL distances, not just within engage range.
 
         this.ensurePath(position);
         if (!CombatNavigator.isFollowing()) this.approachDirectly(position);
@@ -349,9 +358,14 @@ class Combat extends ModuleBase {
         if (this.sameTarget(this.target, target)) return;
 
         this.cancelPath();
+        // Force fresh replan: clear path target position so ensurePath does a full replan
+        this.pathTargetPosition = null;
         Client.stopMovement();
         CombatRotations.stop();
         CombatWalker.clearAimEntity();
+        // Also clear CombatWalker's ladder state to prevent "jumping in place" after target change
+        CombatWalker.ladderClimbing = false;
+        CombatWalker.ladderTarget = null;
         this.trackedTarget = null;
         this.target = target;
         this.nextAttackAt = 0;
@@ -440,6 +454,11 @@ class Combat extends ModuleBase {
             this.trackedTarget = null;
             // Transition to CLOSING first: the path endpoint (ring goal) may be ~2 blocks
             // from the mob. In CLOSING we chase the live position for up to 3s.
+            // But if target is dead/gone, don't go to CLOSING - just let next tick pick new target.
+            if (!this.isTargetUsable(target)) {
+                this.setTarget(null);
+                return;
+            }
             this.setState(STATES.CLOSING);
             this.closingTimer = Date.now() + CLOSING_TIMER_MS;
             this.trackTarget();
@@ -478,6 +497,9 @@ class Combat extends ModuleBase {
         Client.stopMovement();
         CombatRotations.stop();
         CombatWalker.clearAimEntity();
+        // Clear ladder state to prevent "jumping in place" when paused
+        CombatWalker.ladderClimbing = false;
+        CombatWalker.ladderTarget = null;
         this.trackedTarget = null;
         this.setState(STATES.IDLE);
     }
@@ -948,6 +970,9 @@ class Combat extends ModuleBase {
         Client.stopMovement();
         CombatRotations.stop();
         CombatWalker.clearAimEntity();
+        // Clear ladder state on disable
+        CombatWalker.ladderClimbing = false;
+        CombatWalker.ladderTarget = null;
         this.externalTargets = null;
         this.targets = [];
         this.targetUuids = new Set();
