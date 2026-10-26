@@ -16,6 +16,9 @@ const MAX_ADVANCE_PER_TICK = 1.6;
 const MOVE_LOOKAHEAD = 0.9;
 const PROGRESS_DISTANCE = 0.2;
 const STUCK_MS = 900;
+const STUCK_REPLAN_MS = 5000;
+const LADDER_SEARCH_RADIUS = 3;
+const LADDER_COOLDOWN_MS = 500;
 const LOOK_POINT_HEIGHT = 1.6;
 const IGNORE_BLOCK = -99999;
 const ENTITY_AIM_DISTANCE = 8;
@@ -55,6 +58,9 @@ class CombatPathWalker {
         this.aimEntity = null;
         this.aimBlend = 0;
         this.lastEntityAimPoint = null;
+        this.ladderClimbing = false;
+        this.ladderTarget = null;
+        this.lastLadderSearch = 0;
         this.renderRegister = register('postRenderWorld', () => this.render()).unregister();
     }
 
@@ -121,19 +127,53 @@ class CombatPathWalker {
         this.steer(lookPoint);
 
         const moved = Math.hypot(player.getX() - this.lastX, player.getZ() - this.lastZ);
+        const now = Date.now();
+
         if (moved >= PROGRESS_DISTANCE) {
             this.stuckAttempts = 0;
+            this.ladderClimbing = false;
+            this.ladderTarget = null;
             this.markProgress();
-        } else if (Date.now() - this.progressAt > STUCK_MS) {
+        } else {
+            const stuckTime = now - this.progressAt;
+
+            // After initial stuck delay, try to find and climb ladders/vines
+            if (stuckTime > STUCK_MS && !this.ladderClimbing) {
+                const ladder = this.findNearbyLadder(player);
+                if (ladder) {
+                    this.ladderClimbing = true;
+                    this.ladderTarget = ladder;
+                    this.lastLadderSearch = now;
+                }
+            }
+
+            // If climbing a ladder, handle ladder movement
+            if (this.ladderClimbing) {
+                if (this.handleLadderClimb(player, now)) {
+                    this.stuckAttempts = 0;
+                    this.markProgress();
+                    return 'MOVING';
+                }
+                // Ladder climb failed or completed
+                this.ladderClimbing = false;
+                this.ladderTarget = null;
+            }
+
             this.stuckAttempts++;
             this.markProgress();
-            if (this.stuckAttempts >= 3) {
+
+            // After extended stuck time, signal replan instead of giving up
+            if (stuckTime > STUCK_REPLAN_MS) {
                 this.stopKeys();
-                return 'STUCK';
+                return 'STUCK_REPLAN';
             }
-            Client.setKey('space', true);
-            Client.setKey(this.stuckAttempts % 2 === 1 ? 'a' : 'd', true);
-            Client.setKey('w', true);
+
+            if (this.stuckAttempts >= 3) {
+                Client.setKey('space', true);
+                Client.setKey(this.stuckAttempts % 2 === 1 ? 'a' : 'd', true);
+                Client.setKey('w', true);
+            }
+
             return 'MOVING';
         }
 
@@ -492,9 +532,93 @@ class CombatPathWalker {
         this.flags = null;
         this.flagsAligned = false;
         this.t = 0;
+        this.ladderClimbing = false;
+        this.ladderTarget = null;
         this.clearAimEntity();
         Jump.reset();
         this.stopKeys();
+    }
+
+    // Find a ladder or vine block adjacent to the player that can be climbed.
+    // Returns { x, y, z, type } or null.
+    findNearbyLadder(player) {
+        const world = World.getWorld();
+        if (!world) return null;
+        const px = Math.floor(player.getX());
+        const py = Math.floor(player.getY());
+        const pz = Math.floor(player.getZ());
+
+        // Search in a small radius around the player for ladders/vines
+        for (let dx = -LADDER_SEARCH_RADIUS; dx <= LADDER_SEARCH_RADIUS; dx++) {
+            for (let dz = -LADDER_SEARCH_RADIUS; dz <= LADDER_SEARCH_RADIUS; dz++) {
+                for (let dy = -1; dy <= 2; dy++) {
+                    const x = px + dx;
+                    const y = py + dy;
+                    const z = pz + dz;
+                    const block = world.getBlockAt(x, y, z);
+                    if (!block || block.type.getID() === 0) continue;
+                    const name = block.type.getRegistryName?.()?.toLowerCase?.() || '';
+                    if (name.includes('ladder') || name.includes('vine')) {
+                        // Verify there's air next to it for the player to occupy
+                        const airX = x + (dx === 0 ? 0 : -Math.sign(dx));
+                        const airZ = z + (dz === 0 ? 0 : -Math.sign(dz));
+                        const airBlock = world.getBlockAt(airX, y, airZ);
+                        if (airBlock && airBlock.type.getID() === 0) {
+                            return { x: airX + 0.5, y: y, z: airZ + 0.5, blockX: x, blockY: y, blockZ: z, type: name };
+                        }
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    // Handle climbing a ladder/vine. Returns true if still climbing, false if done/failed.
+    handleLadderClimb(player, now) {
+        if (!this.ladderTarget) return false;
+
+        const { x, y, z, blockX, blockY, blockZ, type } = this.ladderTarget;
+        const dist = Math.hypot(player.getX() - x, player.getZ() - z);
+        const heightDiff = y - player.getY();
+
+        // If we've reached the top of the ladder, stop climbing
+        if (heightDiff < 0.5 && dist < 0.5) {
+            return false;
+        }
+
+        // If too far from ladder horizontally, something went wrong
+        if (dist > 2) {
+            return false;
+        }
+
+        // Aim at the ladder block and move forward + jump
+        const eyes = player.getEyePosition();
+        if (eyes) {
+            const dx = blockX + 0.5 - eyes.x();
+            const dy = blockY + 1 - eyes.y();
+            const dz = blockZ + 0.5 - eyes.z();
+            CombatRotations.lookAtPoint(eyes.x() + dx, eyes.y() + dy, eyes.z() + dz);
+        }
+
+        // Hold forward and jump to climb
+        Client.setKey('w', true);
+        Client.setKey('space', true);
+        Client.setKey('sprint', false);
+
+        // Cooldown to prevent re-searching too often
+        if (now - this.lastLadderSearch > LADDER_COOLDOWN_MS) {
+            this.lastLadderSearch = now;
+            // Re-verify ladder still exists
+            const world = World.getWorld();
+            if (world) {
+                const block = world.getBlockAt(this.ladderTarget.blockX, this.ladderTarget.blockY, this.ladderTarget.blockZ);
+                if (!block || block.type.getID() === 0) {
+                    return false; // Ladder gone
+                }
+            }
+        }
+
+        return true;
     }
 
     render() {

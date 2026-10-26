@@ -56,6 +56,12 @@ class CombatPathNavigator {
         const avoidRadius = Math.max(1, Math.floor(Number.isFinite(options.avoidRadius) ? options.avoidRadius : 2));
         this.addAvoidPoints(options.avoidPoints, avoidRadius);
 
+        // Store for replan on STUCK_REPLAN
+        this.currentGoals = end;
+        this.lastGoals = end;
+        this.lastAvoidPoints = options.avoidPoints;
+        this.lastAvoidRadius = avoidRadius;
+
         this.callback = typeof onComplete === 'function' ? onComplete : null;
         this.emptySince = 0;
         this.searchStartedAt = Date.now();
@@ -114,7 +120,13 @@ class CombatPathNavigator {
         if (CombatWalker.isActive()) {
             const status = CombatWalker.tick();
             if (status === 'ARRIVED') this.finish(true);
-            else if (status === 'STUCK' && !this.searching) this.finish(false);
+            else if (status === 'STUCK_REPLAN' && !this.searching) {
+                // Stuck but target still valid - replan with same goals
+                this.log('stuck, replanning...');
+                const goals = this.currentGoals || this.lastGoals;
+                if (goals) this.findPath(goals, this.callback, { keepWalking: true, avoidPoints: this.lastAvoidPoints, avoidRadius: this.lastAvoidRadius });
+                else this.finish(false);
+            } else if (status === 'STUCK' && !this.searching) this.finish(false);
             return;
         }
 
