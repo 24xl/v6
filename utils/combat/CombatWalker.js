@@ -1,6 +1,7 @@
 import { setKeysForStraightLineCoords } from '../player/Movement';
 import { isLineClear } from '../Raytrace';
 import { Vec3d } from '../Constants';
+import { Jump } from '../pathfinder/PathWalker/PathJumps';
 import { CombatRotations } from './CombatRotations';
 
 const MOVEMENT_KEYS = ['w', 'a', 's', 'd', 'space', 'sprint'];
@@ -15,17 +16,19 @@ const MAX_ADVANCE_PER_TICK = 1.6;
 const MOVE_LOOKAHEAD = 0.9;
 const PROGRESS_DISTANCE = 0.2;
 const STUCK_MS = 900;
-const STEP_UP_THRESHOLD = 0.5;
-const PREEMPTIVE_JUMP_DISTANCE = 1.65;
-const GAP_SCAN_NODES = 6;
-const GAP_MAX_HORIZONTAL = 20;
-const GAP_EDGE_DISTANCE = 1.35;
 const LOOK_POINT_HEIGHT = 1.6;
 const IGNORE_BLOCK = -99999;
 const ENTITY_AIM_DISTANCE = 8;
 const ENTITY_BLEND_RATE = 0.08;
 const MIN_HORIZONTAL_LOOK = 1.2;
-const MAX_WALK_PITCH = 60;
+// Positive pitch looks DOWN. Cap downward gaze so the walker never stares at the ground
+// while following path nodes on descents; upward stays generous for climbs.
+const MAX_DOWN_PITCH = 25;
+const MAX_UP_PITCH = 45;
+// Only blend the tracked entity into the aim when it stays inside this cone relative to
+// the move direction. Beyond it the walker aims along the path (turn to face, walk
+// forward) instead of strafing backwards/sideways toward a mob off to the side.
+const MAX_ENTITY_AIM_DIVERGENCE = 50;
 
 const DEFAULT_FLAG_BITS = [1, 2, 4, 8, 16, 32, 64, 128];
 
@@ -35,6 +38,9 @@ class CombatPathWalker {
         this.points = [];
         this.flags = null;
         this.flagBits = DEFAULT_FLAG_BITS;
+        // Swift path_flags are indexed by full path node. When a result only exposes
+        // keynodes there are no flags to align against, so guard hasFlag/getFlagBit calls.
+        this.flagsAligned = false;
         this.t = 0;
         this.arrivalRadius = 2;
         this.sprint = true;
@@ -70,6 +76,7 @@ class CombatPathWalker {
         this.points = this.nodes.map((node) => ({ x: node.x + 0.5, y: node.y, z: node.z + 0.5 }));
         this.flags = result?.path_flags || null;
         this.flagBits = Array.isArray(result?.path_flag_bits) && result.path_flag_bits.length >= 8 ? result.path_flag_bits : DEFAULT_FLAG_BITS;
+        this.flagsAligned = !!this.flags && !!this.nodes.length;
         this.t = 0;
         this.smoothedLookahead = MAX_LOOKAHEAD;
         this.stuckAttempts = 0;
@@ -132,7 +139,9 @@ class CombatPathWalker {
 
         const movePoint = this.interpolate(this.t + MOVE_LOOKAHEAD) || lookPoint;
         this.moveToward(movePoint);
-        this.handleJump();
+        // Jumping is owned by the shared pathfinder's Jump module, which only presses
+        // space for real climbs/gaps (flagged by Swift) and walks stairs and slabs.
+        Jump.detectJump(this.nodes, this.flagsAligned ? this.flags : null, this.flagBits);
 
         return 'MOVING';
     }
@@ -140,8 +149,11 @@ class CombatPathWalker {
     moveToward(point) {
         if (!point) return;
         if (Client.isInGui() && !Client.isInChat()) return;
-        setKeysForStraightLineCoords(point.x, point.y, point.z, this.autoJump, true);
-        Client.setKey('sprint', true);
+        // shouldJump=false: the key helper otherwise jumps whenever the player touches a
+        // stair face while climbing, which fired a jump on every step.
+        setKeysForStraightLineCoords(point.x, point.y, point.z, false, true);
+        if (this.sprint && this.isStraight()) Client.setKey('sprint', true);
+        else Client.setKey('sprint', false);
     }
 
     steer(point) {
@@ -152,7 +164,10 @@ class CombatPathWalker {
 
         this.updateAimBlend();
 
-        let aim = this.blendAim({ x: point.x, y: point.y + LOOK_POINT_HEIGHT, z: point.z });
+        // Pure aim point along the path, at eye height.
+        const pathAim = { x: point.x, y: point.y + LOOK_POINT_HEIGHT, z: point.z };
+        let aim = this.resolveAim(pathAim, eyes);
+
         let dx = aim.x - eyes.x();
         let dy = aim.y - eyes.y();
         let dz = aim.z - eyes.z();
@@ -162,7 +177,7 @@ class CombatPathWalker {
             const far = this.interpolate(this.t + MAX_LOOKAHEAD);
             if (!far) return;
 
-            aim = this.blendAim({ x: far.x, y: far.y + LOOK_POINT_HEIGHT, z: far.z });
+            aim = this.resolveAim({ x: far.x, y: far.y + LOOK_POINT_HEIGHT, z: far.z }, eyes);
             dx = aim.x - eyes.x();
             dy = aim.y - eyes.y();
             dz = aim.z - eyes.z();
@@ -171,12 +186,33 @@ class CombatPathWalker {
         }
 
         const pitch = -Math.atan2(dy, horizontal) * (180 / Math.PI);
-        if (Math.abs(pitch) > MAX_WALK_PITCH) {
-            const clamped = Math.sign(pitch) * MAX_WALK_PITCH;
-            aim.y = eyes.y() - Math.tan((clamped * Math.PI) / 180) * horizontal;
+        if (pitch > MAX_DOWN_PITCH) {
+            // Looking too far down at the ground on a descent.
+            aim.y = eyes.y() + Math.tan((MAX_DOWN_PITCH * Math.PI) / 180) * horizontal;
+        } else if (pitch < -MAX_UP_PITCH) {
+            aim.y = eyes.y() - Math.tan((-MAX_UP_PITCH * Math.PI) / 180) * horizontal;
         }
 
         CombatRotations.lookAtPoint(aim.x, aim.y, aim.z);
+    }
+
+    // Decide whether to blend the tracked entity into the aim. The blend only helps when
+    // the entity sits inside the move-direction cone; otherwise the walker turns to face
+    // the path and walks forward instead of strafing sideways/backwards toward a mob.
+    resolveAim(pathPoint, eyes) {
+        if (!this.lastEntityAimPoint || this.aimBlend < 0.001) return pathPoint;
+
+        const pathVec = { x: pathPoint.x - eyes.x(), z: pathPoint.z - eyes.z() };
+        const entVec = { x: this.lastEntityAimPoint.x - eyes.x(), z: this.lastEntityAimPoint.z - eyes.z() };
+        const pathH = Math.hypot(pathVec.x, pathVec.z);
+        const entH = Math.hypot(entVec.x, entVec.z);
+        if (pathH < 0.1 || entH < 0.1) return pathPoint;
+
+        const dot = (pathVec.x * entVec.x + pathVec.z * entVec.z) / (pathH * entH);
+        const divergence = Math.acos(Math.max(-1, Math.min(1, dot))) * (180 / Math.PI);
+        if (divergence > MAX_ENTITY_AIM_DIVERGENCE) return pathPoint;
+
+        return this.blendAim(pathPoint);
     }
 
     updateAimBlend() {
@@ -358,94 +394,6 @@ class CombatPathWalker {
         return (this.flags[index] & bit) !== 0;
     }
 
-    handleJump() {
-        const player = Player.getPlayer();
-        if (!player) return;
-
-        if (this.autoJump && this.hasLowHeadroom()) {
-            Client.setKey('space', false);
-            return;
-        }
-
-        if (this.isPlayerInFluid()) {
-            Client.setKey('space', true);
-            return;
-        }
-
-        if (this.checkStepUp()) {
-            Client.setKey('space', true);
-            return;
-        }
-
-        if (this.checkGapJump()) {
-            Client.setKey('space', true);
-            return;
-        }
-    }
-
-    hasLowHeadroom() {
-        const index = Math.floor(this.t) + 1;
-        return this.hasFlag(index, 2);
-    }
-
-    isPlayerInFluid() {
-        try {
-            const player = Player.asPlayerMP();
-            return !!player && (player.isInLava() || player.isInWater());
-        } catch (e) {
-            return false;
-        }
-    }
-
-    checkStepUp() {
-        const index = Math.floor(this.t);
-        if (index + 1 >= this.points.length) return false;
-        const current = this.points[index];
-        const next = this.points[index + 1];
-        if (next.y - current.y < STEP_UP_THRESHOLD) return false;
-
-        const player = Player.getPlayer();
-        const distance = Math.hypot(next.x - player.getX(), next.z - player.getZ());
-        return distance <= PREEMPTIVE_JUMP_DISTANCE;
-    }
-
-    checkGapJump() {
-        const index = Math.floor(this.t);
-        if (index < 0 || index + 3 >= this.points.length) return false;
-
-        const baseY = this.points[index].y;
-        let dropIndex = -1;
-        let recoveryIndex = -1;
-        const maxIndex = Math.min(this.points.length, index + GAP_SCAN_NODES);
-
-        for (let i = index + 1; i < maxIndex; i++) {
-            const y = this.points[i].y;
-            if (y < baseY - 0.5) {
-                if (dropIndex === -1) dropIndex = i;
-            } else if (dropIndex !== -1 && y >= baseY) {
-                recoveryIndex = i;
-                break;
-            } else if (y > baseY + 0.5 && dropIndex === -1) {
-                return false;
-            }
-        }
-
-        if (dropIndex === -1 || recoveryIndex === -1) return false;
-
-        const edge = this.points[dropIndex - 1];
-        const recovery = this.points[recoveryIndex];
-        const gapHorizSq = Math.pow(recovery.x - edge.x, 2) + Math.pow(recovery.z - edge.z, 2);
-        if (gapHorizSq <= 0 || gapHorizSq > GAP_MAX_HORIZONTAL) return false;
-
-        const player = Player.getPlayer();
-        const edgeDistanceSq = Math.pow(player.getX() - edge.x, 2) + Math.pow(player.getZ() - edge.z, 2);
-        return edgeDistanceSq <= GAP_EDGE_DISTANCE * GAP_EDGE_DISTANCE;
-    }
-
-    checkStepUpJump() {
-        return this.checkStepUp();
-    }
-
     markProgress() {
         this.progressAt = Date.now();
         this.lastX = Player.getX();
@@ -461,7 +409,10 @@ class CombatPathWalker {
         this.nodes = [];
         this.points = [];
         this.flags = null;
+        this.flagsAligned = false;
         this.t = 0;
+        this.clearAimEntity();
+        Jump.reset();
         this.stopKeys();
     }
 

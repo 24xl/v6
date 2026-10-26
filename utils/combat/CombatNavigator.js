@@ -39,10 +39,18 @@ class CombatPathNavigator {
     }
 
     findPath(goals, onComplete, options = {}) {
+        const keepWalking = !!options.keepWalking;
         const end = this.normalizeGoals(goals);
         if (!end.length) {
             if (typeof onComplete === 'function') onComplete(false);
             return;
+        }
+
+        // Supersede any in-flight search. Its callback is stale; the new one replaces it.
+        if (this.searching) {
+            this.searching = false;
+            this.stopTick();
+            Swift.clear();
         }
 
         const avoidRadius = Math.max(1, Math.floor(Number.isFinite(options.avoidRadius) ? options.avoidRadius : 2));
@@ -57,8 +65,19 @@ class CombatPathNavigator {
         if (!Swift.SwiftPath(this.buildStarts(), end, false, this.variantSeed, this.maxCompute)) {
             this.searching = false;
             this.log('search did not start');
-            if (!CombatWalker.isActive()) this.finish(false);
+            if (keepWalking) this.softFail();
+            else if (!CombatWalker.isActive()) this.finish(false);
         }
+    }
+
+    // Soft failure: the search could not be started or produced no path, but the walker
+    // is allowed to keep following its previous path instead of freezing the player.
+    // The callback is dropped — a soft failure is not a reason to re-target.
+    softFail() {
+        this.callback = null;
+        this.searching = false;
+        this.stopTick();
+        Swift.clear();
     }
 
     onTick() {
@@ -67,6 +86,8 @@ class CombatPathNavigator {
                 if (Date.now() - this.searchStartedAt > SEARCH_TIMEOUT_MS) {
                     this.searching = false;
                     this.log('search timed out');
+                    this.softFail();
+                    return;
                 }
             } else {
                 const result = Swift.getResult();
@@ -76,11 +97,16 @@ class CombatPathNavigator {
                     if (nodes?.length) {
                         CombatWalker.setPath(result);
                         this.log('following ' + nodes.length + ' nodes');
+                    } else {
+                        this.softFail();
+                        return;
                     }
                 } else if (!this.emptySince) {
                     this.emptySince = Date.now();
                 } else if (Date.now() - this.emptySince > SEARCH_EMPTY_GRACE_MS) {
                     this.searching = false;
+                    this.softFail();
+                    return;
                 }
             }
         }

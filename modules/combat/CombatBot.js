@@ -36,7 +36,11 @@ const PATH_HANDOFF_DISTANCE = 6;
 const REPATH_DISTANCE = 4;
 const REPATH_DELAY_MS = 1500;
 const PATH_FAILURE_BLACKLIST_MS = 12000;
+const PATH_FAILURE_BLACKLIST_ESCALATED_MS = 24000;
 const VISIBILITY_GRACE_MS = 750;
+const LOS_GRACE_MS = 600;
+const ENGAGE_QUIET_MS = 10000;
+const TARGET_SCAN_GRACE_MS = 2000;
 const TARGET_SCAN_INTERVAL = 3;
 const TARGET_SWITCH_MARGIN = 4;
 const TARGET_SWITCH_COOLDOWN_MS = 500;
@@ -131,6 +135,13 @@ class Combat extends ModuleBase {
         this.searchRadius = DEFAULT_SCAN_RADIUS;
         this.expandTicker = 0;
         this.lastSwitchAt = 0;
+
+        // Per-UUID tracking used to stop the highlight flashing and to escalate
+        // repeated pathfinding failures instead of ping-ponging the same target.
+        this.lastSeen = new Map();
+        this.pathFailCount = new Map();
+        this.lastEngageAt = 0;
+        this.lostLosAt = 0;
 
         this.addSlider(
             'Scan Radius',
@@ -253,6 +264,22 @@ class Combat extends ModuleBase {
 
         const distance = this._getDistanceToPlayer(position);
 
+        // Once in FIGHTING the bot keeps swinging even if the mob steps behind a wall.
+        // Give it a short grace to re-acquire, then blacklist and re-target instead of
+        // standing still forever.
+        if (this.state === STATES.FIGHTING) {
+            if (this.hasLineOfSight(position)) {
+                this.lostLosAt = 0;
+            } else if (!this.lostLosAt) {
+                this.lostLosAt = Date.now();
+            } else if (Date.now() - this.lostLosAt > LOS_GRACE_MS) {
+                this.lostLosAt = 0;
+                this.blacklistTarget(this.target, PATH_FAILURE_BLACKLIST_MS);
+                this.setTarget(null);
+                return;
+            }
+        }
+
         if (distance.distance <= this.getEngageRange() && this.hasLineOfSight(position)) {
             this.engage(position, distance);
             return;
@@ -272,7 +299,8 @@ class Combat extends ModuleBase {
         const moved = !this.pathTargetPosition || this.getDistanceBetween(position, this.pathTargetPosition).distanceFlat >= REPATH_DISTANCE;
         const stale = Date.now() - this.pathStartedAt >= REPATH_DELAY_MS;
         const navigating = this.state === STATES.PATHING && CombatNavigator.isPathing();
-        if (!navigating || moved || stale) this.startPath(position);
+        if (!navigating) this.startPath(position, false);
+        else if (moved || stale) this.startPath(position, true);
     }
 
     hasLineOfSight(position) {
@@ -314,6 +342,7 @@ class Combat extends ModuleBase {
             this.trackedTarget = null;
             this.setState(STATES.FIGHTING);
         }
+        this.lastEngageAt = Date.now();
         this.trackTarget();
 
         if (distance.distanceFlat > 2.8) {
@@ -337,13 +366,16 @@ class Combat extends ModuleBase {
         this.nextAttackAt = now + (1000 / this.attackCPS) * jitter;
     }
 
-    startPath(position) {
+    startPath(position, soft = false) {
         if (!this.isPositionSafe(position.x, position.y, position.z)) {
             this.setTarget(null);
             return;
         }
 
-        this.cancelPath();
+        // A repath while already following a path would otherwise freeze the player for
+        // the whole search window. In soft mode the walker keeps its old path until the
+        // new one lands (or the search fails, in which case the old path carries on).
+        if (!soft) this.cancelPath();
         this.trackedTarget = null;
         this.setState(STATES.PATHING);
         this.pathStartedAt = Date.now();
@@ -358,6 +390,7 @@ class Combat extends ModuleBase {
         CombatNavigator.findPath(goals, (success) => this.onPathComplete(token, target, success), {
             avoidPoints: this.activeBlackholes,
             avoidRadius: Math.ceil(BLACKHOLE_AVOID_RADIUS),
+            keepWalking: soft,
         });
     }
 
@@ -366,6 +399,7 @@ class Combat extends ModuleBase {
 
         this.pathTargetPosition = null;
         if (success && this.isTargetUsable(target)) {
+            this.clearPathFailure(target);
             this.trackedTarget = null;
             this.setState(STATES.FIGHTING);
             this.trackTarget();
@@ -374,13 +408,34 @@ class Combat extends ModuleBase {
                 const distance = this._getDistanceToPlayer(position);
                 if (distance.distance <= this.getEngageRange() && this.hasLineOfSight(position)) {
                     this.engage(position, distance);
+                    return;
                 }
             }
+            // Path succeeded but the target is not attackable from here (wall, out of
+            // range). Treat it as a failure so the bot re-targets instead of standing.
+            this.recordPathFailure(target);
+            this.setTarget(null);
             return;
         }
 
-        if (this.externalTargets === null) this.blacklistTarget(target, PATH_FAILURE_BLACKLIST_MS);
+        this.recordPathFailure(target);
         this.setTarget(null);
+    }
+
+    clearPathFailure(target) {
+        const uuid = this.getTargetUuid(target);
+        if (uuid) this.pathFailCount.delete(uuid);
+    }
+
+    recordPathFailure(target) {
+        if (this.externalTargets !== null) return;
+
+        const uuid = this.getTargetUuid(target);
+        if (!uuid) return;
+
+        const count = (this.pathFailCount.get(uuid) || 0) + 1;
+        this.pathFailCount.set(uuid, count);
+        this.blacklistTarget(target, count >= 2 ? PATH_FAILURE_BLACKLIST_ESCALATED_MS : PATH_FAILURE_BLACKLIST_MS);
     }
 
     cancelPath() {
@@ -407,11 +462,24 @@ class Combat extends ModuleBase {
         const x = Math.floor(position.x);
         const y = Math.floor(position.y);
         const z = Math.floor(position.z);
-        return [
+        const goals = [
             [x, y - 1, z],
             [x, y, z],
             [x, y + 1, z],
         ];
+        // Ring of goals around the target column so the pathfinder can route around walls
+        // to reach a mob hugging one, instead of failing on the target's own (possibly
+        // unwalkable) cell.
+        const ring = 2;
+        for (let dx = -ring; dx <= ring; dx += ring) {
+            for (let dz = -ring; dz <= ring; dz += ring) {
+                if (dx === 0 && dz === 0) continue;
+                goals.push([x + dx, y, z + dz]);
+                goals.push([x + dx, y - 1, z + dz]);
+                goals.push([x + dx, y + 1, z + dz]);
+            }
+        }
+        return goals;
     }
 
     scoreTarget(target) {
@@ -481,7 +549,11 @@ class Combat extends ModuleBase {
             const uuid = this.getTargetUuid(target);
             if (!uuid) return false;
             if (this.blacklistedTargets.has(uuid)) return false;
-            if (!this.targetUuids.has(uuid)) return false;
+            if (!this.targetUuids.has(uuid)) {
+                // Grace across a single hiccuped scan so the highlight does not flash.
+                const seen = this.lastSeen.get(uuid);
+                if (!seen || Date.now() - seen > TARGET_SCAN_GRACE_MS) return false;
+            }
 
             const position = this.getTargetPosition(target);
             if (!position || !this.isPositionSafe(position.x, position.y, position.z)) return false;
@@ -696,10 +768,22 @@ class Combat extends ModuleBase {
 
         const found = this.getTargets(this.searchRadius);
 
-        if (found.length) {
+        // Expand on "no usable target", not on "the found array is empty": a mob behind a
+        // wall is still found, so the old rule pinned the radius forever.
+        const usable = found.filter((target) => this.isTargetUsable(target));
+        if (usable.length) {
             this.searchRadius = this.scanRadius;
         } else if (this.searchRadius < MAX_SEARCH_RADIUS && this.expandTicker++ % SCAN_EXPAND_SCANS === 0) {
-            this.searchRadius = Math.min(this.searchRadius + SCAN_EXPAND_STEP, MAX_SEARCH_RADIUS);
+            const quiet = this.state !== STATES.FIGHTING && (!this.lastEngageAt || Date.now() - this.lastEngageAt > ENGAGE_QUIET_MS);
+            if (quiet) this.searchRadius = Math.min(this.searchRadius + SCAN_EXPAND_STEP, MAX_SEARCH_RADIUS);
+        }
+
+        // Track per-UUID last-seen so a single hiccuped scan does not drop the current
+        // target (which would flash the highlight on and off).
+        const now = Date.now();
+        for (const target of found) {
+            const uuid = this.getTargetUuid(target);
+            if (uuid) this.lastSeen.set(uuid, now);
         }
 
         this.targets = found;

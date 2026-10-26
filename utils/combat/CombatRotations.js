@@ -10,7 +10,10 @@ const CURVE_STRENGTH = 0.14;
 const TALL_ENTITY_SPLIT = 2.5;
 const TALL_ENTITY_MULTIPLIER = 0.5;
 const SHORT_ENTITY_MULTIPLIER = 0.85;
-const POINT_SHIFT_RESET_DEGREES = 5;
+// A path look-point drifts a few degrees per tick as the walker advances. Resetting
+// the easing curve on every tiny shift (5 deg) restarted the warmup each tick and made
+// aim stutter. Only re-baseline on a real direction change.
+const POINT_SHIFT_RESET_DEGREES = 25;
 
 class CombatRotationController {
     constructor() {
