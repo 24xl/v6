@@ -27,7 +27,7 @@ const MIN_HORIZONTAL_LOOK = 1.2;
 // Positive pitch looks DOWN. Cap downward gaze so the walker never stares at the ground
 // while following path nodes on descents; upward stays generous for climbs.
 const MAX_DOWN_PITCH = 25;
-const MAX_UP_PITCH = 30;
+const MAX_UP_PITCH = 20;
 // Only blend the tracked entity into the aim when it stays inside this cone relative to
 // the move direction. Beyond it the walker aims along the path (turn to face, walk
 // forward) instead of strafing backwards/sideways toward a mob off to the side.
