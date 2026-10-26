@@ -424,6 +424,12 @@ class CombatPathWalker {
                     lookahead -= LOOKAHEAD_STEP;
                     continue;
                 }
+                // Skip lookahead points far below eyes on cliffs/drops (causes extreme
+                // downward pitch). Mirror of the upward filter.
+                if (dy < -1.5 && horzDist < 2.0) {
+                    lookahead -= LOOKAHEAD_STEP;
+                    continue;
+                }
             }
             if (this.isPointVisible(point)) return point;
             lookahead -= LOOKAHEAD_STEP;
@@ -436,7 +442,25 @@ class CombatPathWalker {
             closeLookahead -= RECOVERY_LOOKAHEAD_STEP;
         }
 
-        return this.interpolate(this.t + MIN_LOOKAHEAD);
+        // Fallback: return point but ensure it doesn't cause extreme pitch.
+        const fallback = this.interpolate(this.t + MIN_LOOKAHEAD);
+        const eyes = Player.getPlayer()?.getEyePosition();
+        if (eyes && fallback) {
+            const dy = fallback.y + LOOK_POINT_HEIGHT - eyes.y();
+            const horzDist = Math.hypot(fallback.x - eyes.x(), fallback.z - eyes.z());
+            if (horzDist > 0.1) {
+                const pitch = -Math.atan2(dy, horzDist) * (180 / Math.PI);
+                if (pitch > MAX_DOWN_PITCH || pitch < -MAX_UP_PITCH) {
+                    // Clamp the fallback point's Y to keep pitch in bounds.
+                    const clampedDy = Math.max(
+                        -Math.tan((MAX_UP_PITCH * Math.PI) / 180) * horzDist,
+                        Math.min(Math.tan((MAX_DOWN_PITCH * Math.PI) / 180) * horzDist, dy)
+                    );
+                    fallback.y = eyes.y() + clampedDy - LOOK_POINT_HEIGHT;
+                }
+            }
+        }
+        return fallback;
     }
 
     getFlagBit(position) {

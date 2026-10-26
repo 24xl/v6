@@ -305,6 +305,15 @@ class Combat extends ModuleBase {
             return;
         }
 
+        // Target is within engage range but no LOS (behind wall). If we're not
+        // actively pathing (stuck at wall), blacklist and re-target instead of
+        // staring at it through the wall forever.
+        if (distance.distance <= this.getEngageRange() && !this.hasLineOfSight(position) && !CombatNavigator.isPathing()) {
+            this.blacklistTarget(this.target, PATH_FAILURE_BLACKLIST_MS);
+            this.setTarget(null);
+            return;
+        }
+
         this.ensurePath(position);
         if (!CombatNavigator.isFollowing()) this.approachDirectly(position);
     }
