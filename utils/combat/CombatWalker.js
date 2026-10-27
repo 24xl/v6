@@ -15,23 +15,14 @@ const PROXIMITY_THRESHOLD = 4.0;
 const MAX_ADVANCE_PER_TICK = 1.6;
 const MOVE_LOOKAHEAD = 0.9;
 const PROGRESS_DISTANCE = 0.2;
-const STUCK_MS = 900;
 const STUCK_REPLAN_MS = 5000;
-const LADDER_SEARCH_RADIUS = 3;
-const LADDER_COOLDOWN_MS = 500;
 const LOOK_POINT_HEIGHT = 1.6;
 const IGNORE_BLOCK = -99999;
-const ENTITY_AIM_DISTANCE = 8;
-const ENTITY_BLEND_RATE = 0.08;
 const MIN_HORIZONTAL_LOOK = 1.2;
 // Positive pitch looks DOWN. Cap downward gaze so the walker never stares at the ground
 // while following path nodes on descents; upward stays generous for climbs.
 const MAX_DOWN_PITCH = 25;
 const MAX_UP_PITCH = 20;
-// Only blend the tracked entity into the aim when it stays inside this cone relative to
-// the move direction. Beyond it the walker aims along the path (turn to face, walk
-// forward) instead of strafing backwards/sideways toward a mob off to the side.
-const MAX_ENTITY_AIM_DIVERGENCE = 50;
 
 const DEFAULT_FLAG_BITS = [1, 2, 4, 8, 16, 32, 64, 128];
 
@@ -58,9 +49,6 @@ class CombatPathWalker {
         this.aimEntity = null;
         this.aimBlend = 0;
         this.lastEntityAimPoint = null;
-        this.ladderClimbing = false;
-        this.ladderTarget = null;
-        this.lastLadderSearch = 0;
         this.renderRegister = register('postRenderWorld', () => this.render()).unregister();
     }
 
@@ -99,25 +87,16 @@ class CombatPathWalker {
         this.aimEntity = entity;
         this.aimBlend = 0;
         this.lastEntityAimPoint = null;
-        // Reset ladder state when target changes
-        this.ladderClimbing = false;
-        this.ladderTarget = null;
     }
 
     clearAimEntity() {
         this.aimEntity = null;
         this.aimBlend = 0;
         this.lastEntityAimPoint = null;
-        // Reset ladder state when aim entity is cleared
-        this.ladderClimbing = false;
-        this.ladderTarget = null;
     }
 
     tick() {
         if (!this.points.length) {
-            // No path - reset ladder state to prevent "jumping in place" after path ends
-            this.ladderClimbing = false;
-            this.ladderTarget = null;
             return 'ARRIVED';
         }
 
@@ -131,8 +110,6 @@ class CombatPathWalker {
         const endDistance = Math.hypot(player.getX() - last.x, player.getZ() - last.z);
         if (remaining <= 0.25 || (remaining <= 2 && endDistance <= this.arrivalRadius)) {
             this.stopKeys();
-            this.ladderClimbing = false;
-            this.ladderTarget = null;
             return 'ARRIVED';
         }
 
@@ -144,47 +121,18 @@ class CombatPathWalker {
 
         if (moved >= PROGRESS_DISTANCE) {
             this.stuckAttempts = 0;
-            this.ladderClimbing = false;
-            this.ladderTarget = null;
             this.markProgress();
         } else {
             const stuckTime = now - this.progressAt;
 
-            // After initial stuck delay, try to find and climb ladders/vines
-            if (stuckTime > STUCK_MS && !this.ladderClimbing) {
-                const ladder = this.findNearbyLadder(player);
-                if (ladder) {
-                    this.ladderClimbing = true;
-                    this.ladderTarget = ladder;
-                    this.lastLadderSearch = now;
-                }
-            }
-
-            // If climbing a ladder, handle ladder movement
-            if (this.ladderClimbing) {
-                if (this.handleLadderClimb(player, now)) {
-                    this.stuckAttempts = 0;
-                    this.markProgress();
-                    return 'MOVING';
-                }
-                // Ladder climb failed or completed
-                this.ladderClimbing = false;
-                this.ladderTarget = null;
-            }
-
             this.stuckAttempts++;
             this.markProgress();
 
-            // After extended stuck time, signal replan instead of giving up
+            // After extended stuck time, signal replan instead of giving up.
+            // No jumping, no strafing - just request a new path.
             if (stuckTime > STUCK_REPLAN_MS) {
                 this.stopKeys();
                 return 'STUCK_REPLAN';
-            }
-
-            if (this.stuckAttempts >= 3) {
-                Client.setKey('space', true);
-                Client.setKey(this.stuckAttempts % 2 === 1 ? 'a' : 'd', true);
-                Client.setKey('w', true);
             }
 
             return 'MOVING';
@@ -215,34 +163,11 @@ class CombatPathWalker {
         const eyes = Player.getPlayer()?.getEyePosition();
         if (!eyes) return;
 
-        this.updateAimBlend();
-
-        // If we have a tracked entity within the divergence cone, track it with pitch clamping.
-        // Resolve entity position, clamp pitch to pathwalking limits, then use lookAtPoint.
-        // This prevents the "looking at roof" bug where entity tracking goes to -90 pitch.
-        const useEntity = this.aimEntity && this.shouldBlendEntity(eyes, point);
-
-        if (useEntity) {
-            const entityPoint = this.getEntityAimPoint();
-            if (entityPoint) {
-                const dx = entityPoint.x - eyes.x();
-                const dy = entityPoint.y - eyes.y();
-                const dz = entityPoint.z - eyes.z();
-                const horizontal = Math.hypot(dx, dz);
-                const pitch = -Math.atan2(dy, horizontal) * (180 / Math.PI);
-
-                // Apply pathwalking pitch limits (-20 up / +25 down) to entity tracking too.
-                // This stops the "looking at roof" bug when mobs are above the player.
-                let clampedY = entityPoint.y;
-                if (pitch > MAX_DOWN_PITCH) {
-                    clampedY = eyes.y() + Math.tan((MAX_DOWN_PITCH * Math.PI) / 180) * horizontal;
-                } else if (pitch < -MAX_UP_PITCH) {
-                    clampedY = eyes.y() - Math.tan((-MAX_UP_PITCH * Math.PI) / 180) * horizontal;
-                }
-
-                CombatRotations.lookAtPoint(entityPoint.x, clampedY, entityPoint.z);
-                return;
-            }
+        // Use built-in entity tracking if we have a target (original V5 pattern).
+        // Simple, battle-tested, no custom logic.
+        if (this.aimEntity) {
+            CombatRotations.lookAtEntity(this.aimEntity);
+            return;
         }
 
         // Pure aim point along the path, at eye height.
@@ -275,74 +200,6 @@ class CombatPathWalker {
         }
 
         CombatRotations.lookAtPoint(aim.x, aim.y, aim.z);
-    }
-
-    // Returns true if the tracked entity is within the move-direction cone and
-    // should be tracked via CombatRotations.lookAtEntity() instead of blended
-    // point aiming. Mirrors the old resolveAim logic but returns a boolean.
-    shouldBlendEntity(eyes, pathPoint) {
-        if (!this.aimEntity || !this.lastEntityAimPoint) return false;
-
-        const pathVec = { x: pathPoint.x - eyes.x(), z: pathPoint.z - eyes.z() };
-        const entVec = { x: this.lastEntityAimPoint.x - eyes.x(), z: this.lastEntityAimPoint.z - eyes.z() };
-        const pathH = Math.hypot(pathVec.x, pathVec.z);
-        const entH = Math.hypot(entVec.x, entVec.z);
-        if (pathH < 0.1 || entH < 0.1) return false;
-
-        const dot = (pathVec.x * entVec.x + pathVec.z * entVec.z) / (pathH * entH);
-        const divergence = Math.acos(Math.max(-1, Math.min(1, dot))) * (180 / Math.PI);
-        return divergence <= MAX_ENTITY_AIM_DIVERGENCE;
-    }
-
-    // Decide whether to blend the tracked entity into the aim. The blend only helps when
-    // the entity sits inside the move-direction cone; otherwise the walker turns to face
-    // the path and walks forward instead of strafing sideways/backwards toward a mob.
-    resolveAim(pathPoint, eyes) {
-        if (!this.lastEntityAimPoint || this.aimBlend < 0.001) return pathPoint;
-
-        const pathVec = { x: pathPoint.x - eyes.x(), z: pathPoint.z - eyes.z() };
-        const entVec = { x: this.lastEntityAimPoint.x - eyes.x(), z: this.lastEntityAimPoint.z - eyes.z() };
-        const pathH = Math.hypot(pathVec.x, pathVec.z);
-        const entH = Math.hypot(entVec.x, entVec.z);
-        if (pathH < 0.1 || entH < 0.1) return pathPoint;
-
-        const dot = (pathVec.x * entVec.x + pathVec.z * entVec.z) / (pathH * entH);
-        const divergence = Math.acos(Math.max(-1, Math.min(1, dot))) * (180 / Math.PI);
-        if (divergence > MAX_ENTITY_AIM_DIVERGENCE) return pathPoint;
-
-        return this.blendAim(pathPoint);
-    }
-
-    updateAimBlend() {
-        const entityPoint = this.getEntityAimPoint();
-        if (entityPoint) this.lastEntityAimPoint = entityPoint;
-
-        const target = entityPoint ? 1 : 0;
-        this.aimBlend += (target - this.aimBlend) * ENTITY_BLEND_RATE;
-    }
-
-    getEntityAimPoint() {
-        if (!this.aimEntity) return null;
-
-        try {
-            const entity = this.aimEntity?.toMC ? this.aimEntity.toMC() : this.aimEntity;
-            if (!entity || entity.isRemoved?.() || entity.isDeadOrDying?.()) return null;
-
-            const box = entity.getBoundingBox?.();
-            if (!box) return null;
-
-            const x = (box.minX + box.maxX) / 2;
-            const y = box.minY + (box.maxY - box.minY) * 0.85;
-            const z = (box.minZ + box.maxZ) / 2;
-            const eyes = Player.getPlayer()?.getEyePosition();
-            if (!eyes) return null;
-            if (Math.hypot(eyes.x() - x, eyes.y() - y, eyes.z() - z) > ENTITY_AIM_DISTANCE) return null;
-            if (!isLineClear(eyes.x(), eyes.y(), eyes.z(), x, y, z, IGNORE_BLOCK, IGNORE_BLOCK, IGNORE_BLOCK)) return null;
-
-            return { x, y, z };
-        } catch (e) {
-            return null;
-        }
     }
 
     isStraight() {
@@ -562,118 +419,9 @@ class CombatPathWalker {
         this.flags = null;
         this.flagsAligned = false;
         this.t = 0;
-        this.ladderClimbing = false;
-        this.ladderTarget = null;
         this.clearAimEntity();
         Jump.reset();
         this.stopKeys();
-    }
-
-    // Find a ladder or vine block adjacent to the player that can be climbed.
-    // Returns { x, y, z, type } or null.
-    findNearbyLadder(player) {
-        const world = World.getWorld();
-        if (!world) return null;
-        const px = Math.floor(player.getX());
-        const py = Math.floor(player.getY());
-        const pz = Math.floor(player.getZ());
-
-        // Search in a small radius around the player for ladders/vines
-        for (let dx = -LADDER_SEARCH_RADIUS; dx <= LADDER_SEARCH_RADIUS; dx++) {
-            for (let dz = -LADDER_SEARCH_RADIUS; dz <= LADDER_SEARCH_RADIUS; dz++) {
-                for (let dy = -1; dy <= 2; dy++) {
-                    const x = px + dx;
-                    const y = py + dy;
-                    const z = pz + dz;
-                    const block = world.getBlockAt(x, y, z);
-                    if (!block || block.type.getID() === 0) continue;
-                    const name = block.type.getRegistryName?.()?.toLowerCase?.() || '';
-                    if (name.includes('ladder') || name.includes('vine')) {
-                        // Verify there's air next to it for the player to occupy
-                        const airX = x + (dx === 0 ? 0 : -Math.sign(dx));
-                        const airZ = z + (dz === 0 ? 0 : -Math.sign(dz));
-                        const airBlock = world.getBlockAt(airX, y, airZ);
-                        if (airBlock && airBlock.type.getID() === 0) {
-                            return { x: airX + 0.5, y: y, z: airZ + 0.5, blockX: x, blockY: y, blockZ: z, type: name };
-                        }
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    // Handle climbing a ladder/vine. Returns true if still climbing, false if done/failed.
-    handleLadderClimb(player, now) {
-        if (!this.ladderTarget) return false;
-
-        const { x, y, z, blockX, blockY, blockZ, type } = this.ladderTarget;
-        const dist = Math.hypot(player.getX() - x, player.getZ() - z);
-        const heightDiff = y - player.getY();
-
-        // STRICT PRECONDITIONS: must be on ground and adjacent to ladder
-        // This prevents "jumping in place while standing still" bug
-        if (!player.onGround()) return false;
-        if (dist > 1.2) return false;
-
-        // Verify ladder block still exists at player's feet/head level
-        const world = World.getWorld();
-        if (!world) return false;
-        const hasLadderAtFeet = this.isLadderOrVine(world, blockX, blockY, blockZ);
-        const hasLadderAtHead = this.isLadderOrVine(world, blockX, blockY + 1, blockZ);
-        if (!hasLadderAtFeet && !hasLadderAtHead) {
-            this.ladderClimbing = false;
-            this.ladderTarget = null;
-            return false;
-        }
-
-        // If we've reached the top of the ladder, stop climbing
-        if (heightDiff < 0.5 && dist < 0.5) {
-            return false;
-        }
-
-        // If too far from ladder horizontally, something went wrong
-        if (dist > 2) {
-            return false;
-        }
-
-        // Aim at the ladder block and move forward + jump
-        const eyes = player.getEyePosition();
-        if (eyes) {
-            const dx = blockX + 0.5 - eyes.x();
-            const dy = blockY + 1 - eyes.y();
-            const dz = blockZ + 0.5 - eyes.z();
-            CombatRotations.lookAtPoint(eyes.x() + dx, eyes.y() + dy, eyes.z() + dz);
-        }
-
-        // Hold forward and jump to climb
-        Client.setKey('w', true);
-        Client.setKey('space', true);
-        Client.setKey('sprint', false);
-
-        // Cooldown to prevent re-searching too often
-        if (now - this.lastLadderSearch > LADDER_COOLDOWN_MS) {
-            this.lastLadderSearch = now;
-            // Re-verify ladder still exists
-            if (world) {
-                const block = world.getBlockAt(this.ladderTarget.blockX, this.ladderTarget.blockY, this.ladderTarget.blockZ);
-                if (!block || block.type.getID() === 0) {
-                    this.ladderClimbing = false;
-                    this.ladderTarget = null;
-                    return false; // Ladder gone
-                }
-            }
-        }
-
-        return true;
-    }
-
-    // Check if block at position is a ladder or vine
-    isLadderOrVine(world, x, y, z) {
-        const block = world.getBlockAt(x, y, z);
-        if (!block || block.type.getID() === 0) return false;
-        const name = block.type.getRegistryName?.()?.toLowerCase?.() || '';
-        return name.includes('ladder') || name.includes('vine');
     }
 
     render() {

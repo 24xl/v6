@@ -363,9 +363,6 @@ class Combat extends ModuleBase {
         Client.stopMovement();
         CombatRotations.stop();
         CombatWalker.clearAimEntity();
-        // Also clear CombatWalker's ladder state to prevent "jumping in place" after target change
-        CombatWalker.ladderClimbing = false;
-        CombatWalker.ladderTarget = null;
         this.trackedTarget = null;
         this.target = target;
         this.nextAttackAt = 0;
@@ -497,9 +494,6 @@ class Combat extends ModuleBase {
         Client.stopMovement();
         CombatRotations.stop();
         CombatWalker.clearAimEntity();
-        // Clear ladder state to prevent "jumping in place" when paused
-        CombatWalker.ladderClimbing = false;
-        CombatWalker.ladderTarget = null;
         this.trackedTarget = null;
         this.setState(STATES.IDLE);
     }
@@ -970,9 +964,6 @@ class Combat extends ModuleBase {
         Client.stopMovement();
         CombatRotations.stop();
         CombatWalker.clearAimEntity();
-        // Clear ladder state on disable
-        CombatWalker.ladderClimbing = false;
-        CombatWalker.ladderTarget = null;
         this.externalTargets = null;
         this.targets = [];
         this.targetUuids = new Set();
