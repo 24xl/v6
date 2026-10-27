@@ -45,7 +45,6 @@ class CombatPathWalker {
         this.progressAt = 0;
         this.lastX = 0;
         this.lastZ = 0;
-        this.stuckAttempts = 0;
         this.aimEntity = null;
         this.aimBlend = 0;
         this.lastEntityAimPoint = null;
@@ -73,7 +72,6 @@ class CombatPathWalker {
         this.flagsAligned = !!this.flags && !!this.nodes.length;
         this.t = 0;
         this.smoothedLookahead = MAX_LOOKAHEAD;
-        this.stuckAttempts = 0;
         if (Number.isFinite(options.arrivalRadius)) this.arrivalRadius = options.arrivalRadius;
         this.markProgress();
     }
@@ -120,13 +118,9 @@ class CombatPathWalker {
         const now = Date.now();
 
         if (moved >= PROGRESS_DISTANCE) {
-            this.stuckAttempts = 0;
             this.markProgress();
         } else {
             const stuckTime = now - this.progressAt;
-
-            this.stuckAttempts++;
-            this.markProgress();
 
             // After extended stuck time, signal replan instead of giving up.
             // No jumping, no strafing - just request a new path.
@@ -241,16 +235,6 @@ class CombatPathWalker {
                     // Already past this waypoint horizontally.
                     this.t = Math.min(this.t + 0.5, this.points.length - 1);
                 }
-            }
-        }
-
-        // Y tolerance: don't advance t if vertical mismatch > 0.2 (FastPath Y_TOLERANCE).
-        const currentPoint = this.points[Math.floor(this.t)];
-        if (currentPoint) {
-            const yDiff = Math.abs(py - currentPoint.y);
-            if (yDiff > 0.2 && this.t > base) {
-                // Clamp progress until vertically aligned.
-                this.t = Math.max(this.t - 0.1, base);
             }
         }
     }
