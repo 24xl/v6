@@ -38,14 +38,19 @@ class FarmType extends ModuleBase {
         const saved = getConfigFile(SELECTED_PATH);
         this.selectedFarmType = FARM_TYPES.includes(saved) ? saved : FARM_TYPES[0];
 
+        const allSettings = getConfigFile('config.json') || {};
+        const farmTypeSettings = allSettings['Farm type'] || {};
+        const savedOptions = farmTypeSettings['Farm Type'] || [];
+
         this.bindToggleKey('Toggle Farm type');
         const options = FARM_TYPES.map((name) => {
+            const savedOpt = savedOptions.find((o) => o.name === name);
             const defaults = FARM_DEFAULTS[name] || { yaw: 0, pitch: 0 };
             return {
                 name,
                 enabled: name === this.selectedFarmType,
-                val1: String(defaults.yaw),
-                val2: String(defaults.pitch),
+                val1: savedOpt?.val1 ?? String(defaults.yaw),
+                val2: savedOpt?.val2 ?? String(defaults.pitch),
                 placeholder1: 'Yaw (-180 to 180)',
                 placeholder2: 'Pitch (-90 to 90)',
             };
