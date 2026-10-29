@@ -19,7 +19,7 @@ class ButtonGallery extends ModuleBase {
 
         const popup = this.addPopup('Component Preview', null, 'Live previews of all GUI components.');
 
-        popup.addComponent(new Button('Standard Button', 0, 0, undefined, () => ChatLib.chat('Button clicked!')), 'Standard button design.');
+        popup.addComponent(new Button('Standard Button', 0, 0, undefined, () => console.log('Button clicked')), 'Standard button design.');
         
         popup.addComponent(new ToggleButton('Toggle Switch', 0, 0, undefined, undefined, () => {}, false), 'Standard toggle switch.');
 
@@ -43,7 +43,7 @@ class ButtonGallery extends ModuleBase {
             placeholder2: 'Pitch',
         }];
         popup.addComponent(new MultiToggle('Dual-Input Toggle', 0, 0, dualInputOptions, false, (opts) => {
-            ChatLib.chat('Dual-input changed: ' + JSON.stringify(opts));
+            console.log('Dual-input changed:', JSON.stringify(opts));
         }, false), 'Two text boxes (Yaw/Pitch) next to the toggle switch.');
 
         // Dropdown with dual-input options
@@ -53,7 +53,7 @@ class ButtonGallery extends ModuleBase {
             { name: 'Option C', enabled: false, val1: '-5.5', val2: '+100', placeholder1: 'Yaw', placeholder2: 'Pitch' },
         ];
         popup.addComponent(new MultiToggle('Dropdown with Dual Inputs', 0, 0, dropdownOptions, true, (opts) => {
-            ChatLib.chat('Dropdown changed: ' + JSON.stringify(opts));
+            console.log('Dropdown changed:', JSON.stringify(opts));
         }, false), 'Dropdown where each option has two input boxes + toggle.');
     }
 }

@@ -52,8 +52,6 @@ const addCommands = (commands) => {
             addCommands(childCommands.filter(({ parts }) => parts.length));
         });
     });
-
-    argument('invalid', greedyString(), () => exec(() => chat('&cInvalid command.')));
 };
 
 export const registerV5Commands = () => {
