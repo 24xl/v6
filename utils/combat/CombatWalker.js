@@ -95,6 +95,15 @@ class CombatPathWalker {
         this.lastEntityAimPoint = null;
     }
 
+    moveToward(point) {
+        if (!point) return;
+        if (Client.isInGui() && !Client.isInChat()) return;
+        // shouldJump=true: allow jumping (stair jumping handled separately in Jump.detectJump)
+        setKeysForStraightLineCoords(point.x, point.y, point.z, true, true);
+        if (this.sprint && this.isStraight()) Client.setKey('sprint', true);
+        else Client.setKey('sprint', false);
+    }
+
     tick() {
         if (!this.points.length) {
             return 'ARRIVED';
