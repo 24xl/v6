@@ -8,12 +8,16 @@ const RECONNECT_HOST = 'mc.hypixel.net';
 const RECONNECT_DELAYS_MS = [3000, 10000, 30000, 60000];
 const UNLOADED_GRACE_MS = 8000;
 const COMMAND_RETRY_MS = 5000;
+const LOBBY_WAIT_TIMEOUT_MS = 15000;
+const ISLAND_TIMEOUT_MS = 20000;
 
 const STATE = {
     READY: 'READY',
-    RECONNECTING: 'RECONNECTING',
+    DISCONNECTED: 'DISCONNECTED',
+    CONNECTING: 'CONNECTING',
+    LOBBY_WAIT: 'LOBBY_WAIT',
     JOINING_SKYBLOCK: 'JOINING_SKYBLOCK',
-    GOING_ISLAND: 'GOING_ISLAND',
+    ON_ISLAND: 'ON_ISLAND',
 };
 
 const sidebarTitle = () => {
@@ -48,6 +52,11 @@ const areaText = () => {
     }
 };
 
+const isOnHypixelLobby = () => {
+    const title = sidebarTitle();
+    return title.includes('hypixel') || title.includes('lobby');
+};
+
 class AutoRecovery {
     constructor() {
         this.active = false;
@@ -60,6 +69,8 @@ class AutoRecovery {
         this.kickedAt = 0;
         this.reconnectAttempts = 0;
         this.nextReconnectAt = 0;
+        this.lobbyWaitStart = 0;
+        this.islandStart = 0;
 
         register('tick', () => this.tick());
 
@@ -114,6 +125,8 @@ class AutoRecovery {
         this.lastCommandAt = 0;
         this.reconnectAttempts = 0;
         this.nextReconnectAt = 0;
+        this.lobbyWaitStart = 0;
+        this.islandStart = 0;
         console.log(`[Recovery] active=${this.active} owners=${this.owners.size} ready=${this.ready}`);
     }
 
@@ -189,7 +202,7 @@ class AutoRecovery {
             if (!this.notLoadedSince) this.notLoadedSince = now;
             if (!this.kickedAt && this.isDisconnectedScreen()) this.kickedAt = now;
             this.ready = false;
-            this.setState(STATE.RECONNECTING);
+            this.setState(STATE.DISCONNECTED);
 
             if (!this.nextReconnectAt) {
                 const since = this.kickedAt || this.notLoadedSince;
@@ -206,24 +219,78 @@ class AutoRecovery {
         this.kickedAt = 0;
         this.nextReconnectAt = 0;
 
-        if (!this.inSkyBlock() || this.notSkyBlock) {
-            this.ready = false;
-            this.setState(STATE.JOINING_SKYBLOCK);
-            this.tryCommand('skyblock');
-            return;
-        }
+        switch (this.state) {
+            case STATE.CONNECTING: {
+                this.ready = false;
+                if (World.isLoaded() && !!Player.getPlayer()) {
+                    this.setState(STATE.LOBBY_WAIT);
+                    this.lobbyWaitStart = now;
+                    console.log('[x-recovery] Connected, waiting for lobby...');
+                }
+                break;
+            }
 
-        if (!this.onIsland()) {
-            this.ready = false;
-            this.setState(STATE.GOING_ISLAND);
-            this.tryCommand('island');
-            return;
-        }
+            case STATE.LOBBY_WAIT: {
+                this.ready = false;
+                if (isOnHypixelLobby()) {
+                    console.log('[x-recovery] On Hypixel lobby, joining Skyblock...');
+                    this.setState(STATE.JOINING_SKYBLOCK);
+                    this.tryCommand('play skyblock');
+                    this.lobbyWaitStart = 0;
+                } else if (now - this.lobbyWaitStart > LOBBY_WAIT_TIMEOUT_MS) {
+                    console.log('[x-recovery] Lobby wait timeout, reconnecting...');
+                    this.setState(STATE.DISCONNECTED);
+                    this.nextReconnectAt = 0;
+                }
+                break;
+            }
 
-        if (!this.ready) console.log('[x-recovery] READY on ' + (areaText() || 'island'));
-        this.reconnectAttempts = 0;
-        this.ready = true;
-        this.setState(STATE.READY);
+            case STATE.JOINING_SKYBLOCK: {
+                this.ready = false;
+                if (this.inSkyBlock()) {
+                    console.log('[x-recovery] Joined Skyblock, checking island...');
+                    this.setState(STATE.ON_ISLAND);
+                    this.islandStart = now;
+                }
+                break;
+            }
+
+            case STATE.ON_ISLAND: {
+                this.ready = false;
+                if (this.onIsland()) {
+                    console.log('[x-recovery] On island, READY');
+                    this.reconnectAttempts = 0;
+                    this.ready = true;
+                    this.setState(STATE.READY);
+                } else if (now - this.islandStart > ISLAND_TIMEOUT_MS) {
+                    console.log('[x-recovery] Island timeout, running /island...');
+                    this.tryCommand('island');
+                    this.islandStart = now;
+                }
+                break;
+            }
+
+            case STATE.READY: {
+                if (!this.inSkyBlock() || this.notSkyBlock) {
+                    this.ready = false;
+                    this.setState(STATE.JOINING_SKYBLOCK);
+                    this.tryCommand('play skyblock');
+                    return;
+                }
+
+                if (!this.onIsland()) {
+                    this.ready = false;
+                    this.setState(STATE.ON_ISLAND);
+                    this.islandStart = now;
+                    return;
+                }
+
+                if (!this.ready) console.log('[x-recovery] READY on ' + (areaText() || 'island'));
+                this.reconnectAttempts = 0;
+                this.ready = true;
+                break;
+            }
+        }
     }
 }
 

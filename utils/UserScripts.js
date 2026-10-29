@@ -50,7 +50,8 @@ for (const file of Array.from(USER_SCRIPTS_DIR.listFiles() || []).sort((a, b) =>
 
     ModuleBase.loadingUserScript = true;
     try {
-        require(`../../V5Config/UserScripts/${file.getName().slice(0, -3)}`);
+        const scriptName = file.getName().slice(0, -3).replace(/ /g, '%20');
+        require(`../../V5Config/UserScripts/${scriptName}`);
     } catch (e) {
         console.error(`Failed to load user script ${file.getName()}:`, e);
     } finally {
