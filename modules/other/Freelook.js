@@ -3,7 +3,6 @@ import { wrapTo180 } from '../../utils/Math';
 import { getModule } from '../../utils/MacroState';
 import { forceGrab, releaseForcedGrab } from '../../utils/Ungrab';
 import { mc } from '../../utils/Utils';
-import { Client, Perspective } from '../../core/GuiRenderer';
 
 class Freelook extends ModuleBase {
     constructor() {
@@ -32,10 +31,13 @@ class Freelook extends ModuleBase {
 
         this.savedPerspective = mc.options.getCameraType();
         forceGrab();
-        Client.setCameraRotation(wrapTo180(player.getYRot()), player.getXRot());
+        Client.setCameraRotation(wrapTo180(Player.getYRot()), Player.getXRot());
         Client.setFreelookDistance(4.0);
         Client.setFreelook(true);
-        mc.options.setCameraType(Perspective.THIRD_PERSON_BACK);
+        // THIRD_PERSON_BACK = 0 in Minecraft's CameraType enum
+        if (mc.options.getCameraType() !== 0) {
+            mc.options.setCameraType(0);
+        }
     }
 
     onDisable() {
@@ -44,7 +46,7 @@ class Freelook extends ModuleBase {
         Client.setFreelook(false);
         Client.clearCameraRotation();
 
-        if (this.savedPerspective) mc.options.setCameraType(this.savedPerspective);
+        if (this.savedPerspective !== 0) mc.options.setCameraType(this.savedPerspective);
         this.savedPerspective = null;
         releaseForcedGrab();
     }
@@ -53,11 +55,10 @@ class Freelook extends ModuleBase {
         const player = Player.getPlayer();
         if (!player) return;
 
-        // In toggle mode, keep camera type as third-person back
-        // In hold mode, we handle via key presses
+        // In toggle mode, keep camera type as third-person back (0)
         if (this.freelookMode === 'toggle') {
-            if (mc.options.getCameraType() !== Perspective.THIRD_PERSON_BACK) {
-                mc.options.setCameraType(Perspective.THIRD_PERSON_BACK);
+            if (mc.options.getCameraType() !== 0) {
+                mc.options.setCameraType(0);
             }
         }
     }
