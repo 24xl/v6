@@ -4,7 +4,7 @@ import { getModule } from '../../utils/MacroState';
 import { getConfigFile, writeConfigFile } from '../../utils/Utils';
 
 const FARM_TYPES = [
-    { name: 'W/S Crop Macro', yaw: -26.6, pitch: 0 },
+    'W/S Crop Macro',
     'W/S Flower Macro',
     'W/S Melon Macro',
     'W/S Mushroom Macro',
@@ -19,6 +19,11 @@ const FARM_TYPES = [
     'AD Rotating Melon Macro',
     'Vertical Crop Macro',
 ];
+
+const FARM_DEFAULTS = {
+    'W/S Crop Macro': { yaw: -26.6, pitch: 0 },
+};
+
 const SELECTED_PATH = 'FarmType/selected_farm_type.json';
 
 class FarmType extends ModuleBase {
@@ -34,15 +39,13 @@ class FarmType extends ModuleBase {
         this.selectedFarmType = FARM_TYPES.includes(saved) ? saved : FARM_TYPES[0];
 
         this.bindToggleKey('Toggle Farm type');
-        const options = FARM_TYPES.map((entry) => {
-            if (typeof entry === 'string') {
-                return { name: entry, enabled: entry === this.selectedFarmType };
-            }
+        const options = FARM_TYPES.map((name) => {
+            const defaults = FARM_DEFAULTS[name] || { yaw: 0, pitch: 0 };
             return {
-                name: entry.name,
-                enabled: entry.name === this.selectedFarmType,
-                val1: String(entry.yaw),
-                val2: String(entry.pitch),
+                name,
+                enabled: name === this.selectedFarmType,
+                val1: String(defaults.yaw),
+                val2: String(defaults.pitch),
                 placeholder1: 'Yaw (-180 to 180)',
                 placeholder2: 'Pitch (-90 to 90)',
             };
@@ -78,6 +81,7 @@ class FarmType extends ModuleBase {
 
     adoptFarmTypeSettings() {
         FARM_TYPES.forEach((name) => {
+            if (name === 'W/S Crop Macro') return;
             const item = Categories.findItem('Modules', name);
             if (!item) return;
             const popup = this.addPopup(`${name} Settings`, null, 'Settings for this farm type.');
