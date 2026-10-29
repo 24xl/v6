@@ -647,12 +647,12 @@ export class MultiToggle {
                 option.isTyping1 = false;
                 TypingState.isTyping = false;
                 stopTextInput(GuiState.myGui);
-                option.val1 = option.val1;
+                this.validateAndClamp(option, 1);
             } else if (this.focusedField === 2 && option.isTyping2) {
                 option.isTyping2 = false;
                 TypingState.isTyping = false;
                 stopTextInput(GuiState.myGui);
-                option.val2 = option.val2;
+                this.validateAndClamp(option, 2);
             }
             if (this.callback) this.callback(this.options);
             this.focusedOptionIndex = -1;
@@ -683,6 +683,7 @@ export class MultiToggle {
             option[isTypingKey] = false;
             TypingState.isTyping = false;
             stopTextInput(GuiState.myGui);
+            this.validateAndClamp(option, field);
             this.focusedOptionIndex = -1;
             this.focusedField = null;
             if (this.callback) this.callback(this.options);
@@ -737,5 +738,24 @@ export class MultiToggle {
         }
 
         return false;
+    }
+
+    validateAndClamp(option, field) {
+        const valKey = field === 1 ? 'val1' : 'val2';
+        const placeholderKey = field === 1 ? 'placeholder1' : 'placeholder2';
+        const placeholder = option[placeholderKey] || '';
+        const raw = option[valKey];
+        const num = Number.parseFloat(raw);
+        if (!Number.isFinite(num)) {
+            option[valKey] = '';
+            return;
+        }
+        const isYaw = /yaw/i.test(placeholder);
+        const isPitch = /pitch/i.test(placeholder);
+        if (isYaw) {
+            option[valKey] = String(Math.max(-180, Math.min(180, num)));
+        } else if (isPitch) {
+            option[valKey] = String(Math.max(-90, Math.min(90, num)));
+        }
     }
 }

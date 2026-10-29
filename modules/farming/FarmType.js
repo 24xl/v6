@@ -4,7 +4,7 @@ import { getModule } from '../../utils/MacroState';
 import { getConfigFile, writeConfigFile } from '../../utils/Utils';
 
 const FARM_TYPES = [
-    'W/S Crop Macro',
+    { name: 'W/S Crop Macro', yaw: -26.6, pitch: 0 },
     'W/S Flower Macro',
     'W/S Melon Macro',
     'W/S Mushroom Macro',
@@ -34,12 +34,25 @@ class FarmType extends ModuleBase {
         this.selectedFarmType = FARM_TYPES.includes(saved) ? saved : FARM_TYPES[0];
 
         this.bindToggleKey('Toggle Farm type');
+        const options = FARM_TYPES.map((entry) => {
+            if (typeof entry === 'string') {
+                return { name: entry, enabled: entry === this.selectedFarmType };
+            }
+            return {
+                name: entry.name,
+                enabled: entry.name === this.selectedFarmType,
+                val1: String(entry.yaw),
+                val2: String(entry.pitch),
+                placeholder1: 'Yaw (-180 to 180)',
+                placeholder2: 'Pitch (-90 to 90)',
+            };
+        });
         this.addMultiToggle(
             'Farm Type',
-            FARM_TYPES,
+            options,
             true,
             (options) => this.setSelectedFarmType(options.find((option) => option.enabled)?.name),
-            'The farming macro the keybind above will toggle.',
+            'The farming macro the keybind above will toggle. W/S Crop Macro has Yaw/Pitch inputs.',
             this.selectedFarmType
         );
 

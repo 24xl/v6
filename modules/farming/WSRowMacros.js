@@ -24,7 +24,8 @@ class CycleMacro extends FarmingMacro {
         this.switchDelay = config.switchDelay ?? 2;
         this.laneChangeKey = config.laneChangeKey;
 
-        if (![0, 45].includes(config.yaw)) {
+        const isWSCrop = options.name === 'W/S Crop Macro';
+        if (!isWSCrop && ![0, 45].includes(config.yaw)) {
             const yawOffset = this.addRangeSlider(
                 'Yaw Offset',
                 -45,
@@ -39,7 +40,7 @@ class CycleMacro extends FarmingMacro {
             yawOffset.step = 0.01;
             yawOffset.precision = 2;
         }
-        if (config.adjustablePitch) {
+        if (!isWSCrop && config.adjustablePitch) {
             const pitch = this.addRangeSlider(
                 'Pitch',
                 -90,
