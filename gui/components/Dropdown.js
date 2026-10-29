@@ -22,7 +22,6 @@ import {
 import { setTooltip } from '../core/GuiTooltip';
 import { GuiState } from '../core/GuiState';
 import { DataFlavor, ScriptKey, Toolkit } from '../../utils/Constants';
-import { Keyboard } from '../../utils/Keyboard';
 
 export class MultiToggle {
     constructor(title, x, y, options = [], singleSelect = false, callback = null, defaultValue = false, allowNone = false) {
