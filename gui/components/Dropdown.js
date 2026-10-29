@@ -578,17 +578,37 @@ export class MultiToggle {
                             return true;
                         }
 
-                        if (this.singleSelect) {
-                            const isEnabled = option.enabled;
-                            if (isEnabled) {
-                                if (this.allowNone) {
-                                    option.enabled = false;
-                                    option.animationStart = Date.now();
+                        // Click on label/empty space: for options with inputs, do NOT toggle
+                        // Only allow label-click toggle for traditional options WITHOUT inputs
+                        const hasInputs = option.placeholder1 || option.placeholder2 || option.val1 || option.val2;
+                        if (!hasInputs) {
+                            if (this.singleSelect) {
+                                const isEnabled = option.enabled;
+                                if (isEnabled) {
+                                    if (this.allowNone) {
+                                        option.enabled = false;
+                                        option.animationStart = Date.now();
+                                    }
+                                    playClickSound();
+                                    if (this.callback) this.callback(this.options);
+                                    return true;
                                 }
-                                playClickSound();
-                                if (this.callback) this.callback(this.options);
-                                return true;
+                                this.options.forEach((opt, index) => {
+                                    const newState = index === i;
+                                    if (opt.enabled !== newState) {
+                                        opt.enabled = newState;
+                                        opt.animationStart = Date.now();
+                                    }
+                                });
+                            } else {
+                                option.enabled = !option.enabled;
+                                option.animationStart = Date.now();
                             }
+                            playClickSound();
+                            if (this.callback) this.callback(this.options);
+                        } else if (this.singleSelect) {
+                            // For dual-input options in singleSelect, clicking label selects the option
+                            // (radio behavior) but does NOT toggle the enabled state
                             this.options.forEach((opt, index) => {
                                 const newState = index === i;
                                 if (opt.enabled !== newState) {
@@ -596,12 +616,11 @@ export class MultiToggle {
                                     opt.animationStart = Date.now();
                                 }
                             });
-                        } else {
-                            option.enabled = !option.enabled;
-                            option.animationStart = Date.now();
+                            playClickSound();
+                            if (this.callback) this.callback(this.options);
                         }
-                        playClickSound();
-                        if (this.callback) this.callback(this.options);
+                        // Unfocus any active text input when clicking on another option/switch/label
+                        this.unfocusTextInput();
                         return true;
                     }
                     currentY += this.optionHeight;
@@ -612,6 +631,16 @@ export class MultiToggle {
             }
         }
 
+        // Click on dropdown header (toggle expand/collapse) or outside options -> unfocus
+        if (this.focusedOptionIndex !== -1) {
+            this.unfocusTextInput();
+            return true;
+        }
+
+        return false;
+    }
+
+    unfocusTextInput() {
         if (this.focusedOptionIndex !== -1) {
             const option = this.options[this.focusedOptionIndex];
             if (this.focusedField === 1 && option.isTyping1) {
@@ -619,20 +648,16 @@ export class MultiToggle {
                 TypingState.isTyping = false;
                 stopTextInput(GuiState.myGui);
                 option.val1 = option.val1;
-                if (this.callback) this.callback(this.options);
             } else if (this.focusedField === 2 && option.isTyping2) {
                 option.isTyping2 = false;
                 TypingState.isTyping = false;
                 stopTextInput(GuiState.myGui);
                 option.val2 = option.val2;
-                if (this.callback) this.callback(this.options);
             }
+            if (this.callback) this.callback(this.options);
             this.focusedOptionIndex = -1;
             this.focusedField = null;
-            return true;
         }
-
-        return false;
     }
 
     handleKeyType(char, keyCode) {
