@@ -12,19 +12,17 @@ import {
     interpolateColor,
     isInside,
     playClickSound,
-} from '../Utils';
-import { setTooltip } from '../core/GuiTooltip';
-import { GuiState } from '../core/GuiState';
-import {
-    ScriptKey,
     TypingState,
     drawRect,
     getTypedCharacter,
-    isInside,
     setTextInputArea,
     startTextInput,
     stopTextInput,
 } from '../Utils';
+import { setTooltip } from '../core/GuiTooltip';
+import { GuiState } from '../core/GuiState';
+import { DataFlavor, ScriptKey, Toolkit } from '../../utils/Constants';
+import { Keyboard } from '../../utils/Keyboard';
 
 export class MultiToggle {
     constructor(title, x, y, options = [], singleSelect = false, callback = null, defaultValue = false, allowNone = false) {
@@ -151,6 +149,13 @@ export class MultiToggle {
         this.inputBoxGap = 4;
         this.focusedOptionIndex = -1;
         this.focusedField = null;
+
+        register('guiKey', (char, keyCode, gui, event) => {
+            if (!GuiState.myGui.isOpen()) return;
+            if (this.focusedOptionIndex !== -1 && this.focusedField !== null && this.handleKeyType(char, keyCode)) {
+                cancel(event);
+            }
+        });
     }
 
     startAnimation(expanding) {
