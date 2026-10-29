@@ -21,6 +21,7 @@ class FarmingDelays extends ModuleBase {
             bazaarAction: { name: 'Bazaar Action Delay', low: 250, high: 750 },
             rewarp: { name: 'Rewarp Delay', low: 500, high: 750 },
             postSwap: { name: 'Post Swap Delay', low: 150, high: 300 },
+            laneSwitch: { name: 'Lane Switch Delay', low: 200, high: 200 },
         };
 
         Object.keys(this.ranges).forEach((key) => this.addDelayRange(key));

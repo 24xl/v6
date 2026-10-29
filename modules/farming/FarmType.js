@@ -101,20 +101,6 @@ class FarmType extends ModuleBase {
             this.selectedFarmType
         );
 
-        if (!getConfigFile('FarmType/lane_switch_delay.json')) {
-            writeConfigFile('FarmType/lane_switch_delay.json', { delay: 200 });
-        }
-
-        this.addDirectRangeSlider(
-            'Lane Switch Delay',
-            0,
-            600,
-            200,
-            (value) => writeConfigFile('FarmType/lane_switch_delay.json', { delay: value }),
-            'Global lane switch delay for all farming macros (in ms).',
-            'Farm type'
-        );
-
         this.adoptRewarpStyle();
         this.adoptFarmTypeSettings();
     }

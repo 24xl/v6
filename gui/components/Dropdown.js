@@ -148,6 +148,7 @@ export class MultiToggle {
         this.inputBoxGap = 4;
         this.focusedOptionIndex = -1;
         this.focusedField = null;
+        this._initialized = false;
 
         register('guiKey', (char, keyCode, gui, event) => {
             if (!GuiState.myGui.isOpen()) return;
@@ -155,6 +156,10 @@ export class MultiToggle {
                 cancel(event);
             }
         });
+    }
+
+    _initComplete() {
+        this._initialized = true;
     }
 
     startAnimation(expanding) {
@@ -561,7 +566,7 @@ export class MultiToggle {
                                         option.animationStart = Date.now();
                                     }
                                     playClickSound();
-                                    if (this.callback) this.callback(this.options);
+                                    if (this.callback && this._initialized) this.callback(this.options);
                                     return true;
                                 }
                                 this.options.forEach((opt, index) => {
@@ -576,7 +581,7 @@ export class MultiToggle {
                                 option.animationStart = Date.now();
                             }
                             playClickSound();
-                            if (this.callback) this.callback(this.options);
+                            if (this.callback && this._initialized) this.callback(this.options);
                             return true;
                         }
 
@@ -591,23 +596,23 @@ export class MultiToggle {
                                         option.enabled = false;
                                         option.animationStart = Date.now();
                                     }
-                                    playClickSound();
-                                    if (this.callback) this.callback(this.options);
-                                    return true;
-                                }
-                                this.options.forEach((opt, index) => {
-                                    const newState = index === i;
-                                    if (opt.enabled !== newState) {
-                                        opt.enabled = newState;
-                                        opt.animationStart = Date.now();
-                                    }
-                                });
-                            } else {
-                                option.enabled = !option.enabled;
-                                option.animationStart = Date.now();
+playClickSound();
+                            if (this.callback && this._initialized) this.callback(this.options);
+                            return true;
+                        }
+                        this.options.forEach((opt, index) => {
+                            const newState = index === i;
+                            if (opt.enabled !== newState) {
+                                opt.enabled = newState;
+                                opt.animationStart = Date.now();
                             }
-                            playClickSound();
-                            if (this.callback) this.callback(this.options);
+                        });
+                    } else {
+                        option.enabled = !option.enabled;
+                        option.animationStart = Date.now();
+                    }
+                    playClickSound();
+                    if (this.callback && this._initialized) this.callback(this.options);
                         } else if (this.singleSelect) {
                             // For dual-input options in singleSelect, clicking label selects the option
                             // (radio behavior) but does NOT toggle the enabled state

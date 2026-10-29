@@ -467,8 +467,7 @@ export class FarmingMacro extends ModuleBase {
     }
 
     getLaneSwitchDelayTicks() {
-        const globalDelay = getConfigFile('FarmType/lane_switch_delay.json');
-        const delay = globalDelay?.delay ?? 200;
+        const delay = farmingDelays.ranges.laneSwitch.low;
         return Math.round(delay / 50);
     }
 
