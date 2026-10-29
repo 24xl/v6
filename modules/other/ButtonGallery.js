@@ -33,15 +33,28 @@ class ButtonGallery extends ModuleBase {
         
         popup.addComponent(new Popup('Popup Component', 0, 0, undefined, undefined, () => {}), 'Popup settings wrapper.');
 
+        // Standalone dual-input toggle (not inside a dropdown)
         const dualInputOptions = [{
             name: 'Dual-Input Toggle (Yaw/Pitch)',
-            enabled: false,
+            enabled: true,
             val1: '',
             val2: '',
             placeholder1: 'Yaw',
             placeholder2: 'Pitch',
         }];
-        popup.addComponent(new MultiToggle('Dual-Input Toggle', 0, 0, dualInputOptions, false, () => {}, false), 'New: two text boxes next to toggle switch.');
+        popup.addComponent(new MultiToggle('Dual-Input Toggle', 0, 0, dualInputOptions, false, (opts) => {
+            ChatLib.chat('Dual-input changed: ' + JSON.stringify(opts));
+        }, false), 'Two text boxes (Yaw/Pitch) next to the toggle switch.');
+
+        // Dropdown with dual-input options
+        const dropdownOptions = [
+            { name: 'Option A', enabled: false, val1: '', val2: '', placeholder1: 'Min', placeholder2: 'Max' },
+            { name: 'Option B', enabled: true, val1: '10', val2: '20', placeholder1: 'Min', placeholder2: 'Max' },
+            { name: 'Option C', enabled: false, val1: '-5.5', val2: '+100', placeholder1: 'Yaw', placeholder2: 'Pitch' },
+        ];
+        popup.addComponent(new MultiToggle('Dropdown with Dual Inputs', 0, 0, dropdownOptions, true, (opts) => {
+            ChatLib.chat('Dropdown changed: ' + JSON.stringify(opts));
+        }, false), 'Dropdown where each option has two input boxes + toggle.');
     }
 }
 
