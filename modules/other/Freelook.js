@@ -3,8 +3,7 @@ import { wrapTo180 } from '../../utils/Math';
 import { getModule } from '../../utils/MacroState';
 import { forceGrab, releaseForcedGrab } from '../../utils/Ungrab';
 import { mc } from '../../utils/Utils';
-
-const Perspective = net.minecraft.client.CameraType;
+import { Client, Perspective } from '../../core/GuiRenderer';
 
 class Freelook extends ModuleBase {
     constructor() {
@@ -12,13 +11,13 @@ class Freelook extends ModuleBase {
             name: 'Freelook',
             subcategory: 'Visuals',
             description: 'Look around independently while the camera stays with your player.',
-            tooltip: 'Client-side third-person freelook.',
             theme: '#5fb0ff',
-            autoDisableOnWorldUnload: true,
             showEnabledToggle: false,
         });
 
-        this.bindToggleKey();
+        // Button mode: 'toggle' (default) or 'hold'
+        this.freelookMode = 'toggle';
+
         this.savedPerspective = null;
         this.on('renderWorld', () => this.updateCamera());
     }
@@ -29,7 +28,8 @@ class Freelook extends ModuleBase {
 
         getModule('Freecam')?.toggle(false);
 
-        this.message('&aEnabled');
+        // No chat message on enable
+
         this.savedPerspective = mc.options.getCameraType();
         forceGrab();
         Client.setCameraRotation(wrapTo180(player.getYRot()), player.getXRot());
@@ -39,7 +39,8 @@ class Freelook extends ModuleBase {
     }
 
     onDisable() {
-        this.message('&cDisabled');
+        // No chat message on disable
+
         Client.setFreelook(false);
         Client.clearCameraRotation();
 
@@ -52,9 +53,18 @@ class Freelook extends ModuleBase {
         const player = Player.getPlayer();
         if (!player) return;
 
-        if (mc.options.getCameraType() !== Perspective.THIRD_PERSON_BACK) {
-            mc.options.setCameraType(Perspective.THIRD_PERSON_BACK);
+        // In toggle mode, keep camera type as third-person back
+        // In hold mode, we handle via key presses
+        if (this.freelookMode === 'toggle') {
+            if (mc.options.getCameraType() !== Perspective.THIRD_PERSON_BACK) {
+                mc.options.setCameraType(Perspective.THIRD_PERSON_BACK);
+            }
         }
+    }
+
+    toggleMode() {
+        // Switch between toggle and hold modes
+        this.freelookMode = this.freelookMode === 'toggle' ? 'hold' : 'toggle';
     }
 }
 
