@@ -1,6 +1,7 @@
 import { FarmingMacro } from './FarmingMacro';
 import { farmingSettings } from './FarmingSettings';
 import { randomFloat } from '../../utils/Utils';
+import { getConfigFile } from '../../utils/Utils';
 
 const LANE_DELAY = 'lane';
 const WS_MOVEMENTS = [
@@ -12,9 +13,42 @@ const AD_MOVEMENTS = [
     ['Backward', 'd'],
 ];
 
+const FARM_DEFAULTS = {
+    'W/S Crop Macro': { yaw: -26.6, pitch: 0 },
+    'W/S Flower Macro': { yaw: -106.88, pitch: 0 },
+    'W/S Melon Macro': { yaw: -119.99, pitch: 25 },
+    'W/S Mushroom Macro': { yaw: -116.57, pitch: 0 },
+    'W/S Sugar Cane Macro': { yaw: -123.61, pitch: 0 },
+    'S-Shape Macro': { yaw: 0, pitch: 0 },
+    'Forward S-Shape Cocoa Macro': { yaw: 0, pitch: 0 },
+    'S-Shape Sugar Cane Macro': { yaw: 45, pitch: 0 },
+    'SDS Staircase Mushroom Macro': { yaw: -16, pitch: 6.7 },
+    'A/D Cactus Macro': { yaw: -68.19, pitch: -17.4 },
+    'A/D Cocoa Macro': { yaw: -166.4, pitch: -79 },
+    'A/D Crop Macro': { yaw: 33.96, pitch: 0 },
+    'AD Rotating Melon Macro': { yaw: 0, pitch: 0 },
+    'Vertical Crop Macro': { yaw: 0, pitch: 0 },
+};
+
+function getFarmTypeYawPitch(macroName) {
+    const allSettings = getConfigFile('config.json') || {};
+    const farmTypeSettings = allSettings['Farm type'] || {};
+    const savedOptions = farmTypeSettings['Farm Type'] || [];
+    const savedOpt = savedOptions.find((o) => o.name === macroName);
+    if (savedOpt) {
+        return {
+            yaw: Number.parseFloat(savedOpt.val1) || 0,
+            pitch: Number.parseFloat(savedOpt.val2) || 0,
+        };
+    }
+    const defaults = FARM_DEFAULTS[macroName] || { yaw: 0, pitch: 0 };
+    return { yaw: defaults.yaw, pitch: defaults.pitch };
+}
+
 class CycleMacro extends FarmingMacro {
     constructor(options, commandPrefix, config) {
         super(options, commandPrefix);
+        const defaults = FARM_DEFAULTS[options.name] || { yaw: 0, pitch: 0 };
         this.yawMin = this.yawMax = ((((config.yaw + 45) % 90) + 90) % 90) - 45;
         this.pitchMin = this.pitchMax = config.pitch || 0;
         this.movements = config.movements;
@@ -23,12 +57,17 @@ class CycleMacro extends FarmingMacro {
         this.stationaryDelay = config.stationaryDelay ?? 2;
         this.switchDelay = config.switchDelay ?? 2;
         this.laneChangeKey = config.laneChangeKey;
+        this.macroName = options.name;
 
         if ([this.stationaryDelay, this.switchDelay].includes(LANE_DELAY)) {
             // Lane switch delay is now global (configured in FarmType)
         }
 
     onFarmStart(player) {
+        const live = getFarmTypeYawPitch(this.macroName);
+        this.yawMin = this.yawMax = live.yaw;
+        this.pitchMin = this.pitchMax = live.pitch;
+
         this.laneChanging = false;
         this.ignoreTicks = this.initialDelay;
         this.yaw = farmingSettings.useMousemat ? (this.yawMin + this.yawMax) / 2 : randomFloat(this.yawMin, this.yawMax);
