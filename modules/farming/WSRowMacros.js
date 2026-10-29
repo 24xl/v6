@@ -62,6 +62,7 @@ class CycleMacro extends FarmingMacro {
         if ([this.stationaryDelay, this.switchDelay].includes(LANE_DELAY)) {
             // Lane switch delay is now global (configured in FarmType)
         }
+    }
 
     onFarmStart(player) {
         const live = getFarmTypeYawPitch(this.macroName);
