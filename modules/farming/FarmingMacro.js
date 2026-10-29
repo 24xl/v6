@@ -467,16 +467,9 @@ export class FarmingMacro extends ModuleBase {
     }
 
     getLaneSwitchDelayTicks() {
-        return Math.round(randomInt(this.laneSwitchDelayMin, this.laneSwitchDelayMax) / 50);
-    }
-
-    addLaneSwitchDelaySettings() {
-        this.laneSwitchDelayMin = 100;
-        this.laneSwitchDelayMax = 300;
-        this.addRangeSlider('Lane Switch Delay', 0, 600, { low: this.laneSwitchDelayMin, high: this.laneSwitchDelayMax }, (value) => {
-            this.laneSwitchDelayMin = Math.round(value.low);
-            this.laneSwitchDelayMax = Math.round(value.high);
-        });
+        const globalDelay = getConfigFile('FarmType/lane_switch_delay.json');
+        const delay = globalDelay?.delay ?? 200;
+        return Math.round(delay / 50);
     }
 
     snapYaw(startingYaw, macroYaw) {

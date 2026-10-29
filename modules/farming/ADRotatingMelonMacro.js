@@ -29,7 +29,7 @@ class ADRotatingMelonMacro extends FarmingMacro {
             'Starting key. The macro swaps to the other key at every lane change.',
             'A'
         );
-        this.addLaneSwitchDelaySettings();
+        // Lane switch delay is now global (configured in FarmType)
     }
 
     onFarmStart(player) {

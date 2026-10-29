@@ -101,6 +101,20 @@ class FarmType extends ModuleBase {
             this.selectedFarmType
         );
 
+        if (!getConfigFile('FarmType/lane_switch_delay.json')) {
+            writeConfigFile('FarmType/lane_switch_delay.json', { delay: 200 });
+        }
+
+        this.addDirectRangeSlider(
+            'Lane Switch Delay',
+            0,
+            600,
+            200,
+            (value) => writeConfigFile('FarmType/lane_switch_delay.json', { delay: value }),
+            'Global lane switch delay for all farming macros (in ms).',
+            'Farm type'
+        );
+
         this.adoptRewarpStyle();
         this.adoptFarmTypeSettings();
     }
@@ -129,7 +143,7 @@ class FarmType extends ModuleBase {
             const prefix = name.replace(/\s+Macro$/, '');
             const components = item.components.splice(0, item.components.length);
             components.forEach((component) => {
-                if (component.title.includes('Yaw') || component.title.includes('Pitch')) return;
+                if (component.title.includes('Yaw') || component.title.includes('Pitch') || component.title.includes('Lane Switch Delay')) return;
                 component.title = `${prefix} · ${component.title}`;
                 popup.addComponent(component, component.description);
             });

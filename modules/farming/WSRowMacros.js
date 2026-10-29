@@ -24,8 +24,9 @@ class CycleMacro extends FarmingMacro {
         this.switchDelay = config.switchDelay ?? 2;
         this.laneChangeKey = config.laneChangeKey;
 
-        if ([this.stationaryDelay, this.switchDelay].includes(LANE_DELAY)) this.addLaneSwitchDelaySettings();
-    }
+        if ([this.stationaryDelay, this.switchDelay].includes(LANE_DELAY)) {
+            // Lane switch delay is now global (configured in FarmType)
+        }
 
     onFarmStart(player) {
         this.laneChanging = false;

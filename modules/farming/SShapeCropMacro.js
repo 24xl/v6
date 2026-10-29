@@ -22,7 +22,7 @@ class SShapeCropMacro extends FarmingMacro {
         this.alwaysHoldLaneChangeKey = false;
         this.state = STATES.LEFT;
         this.lastDirection = STATES.LEFT;
-        this.addLaneSwitchDelaySettings();
+        // Lane switch delay is now global (configured in FarmType)
         this.addMultiToggle(
             'Lane Change Direction',
             ['Forward', 'Backward'],
