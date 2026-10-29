@@ -22,9 +22,33 @@ const FARM_TYPES = [
 
 const FARM_DEFAULTS = {
     'W/S Crop Macro': { yaw: -26.6, pitch: 0 },
+    'W/S Flower Macro': { yaw: -106.88, pitch: 0 },
+    'W/S Melon Macro': { yaw: -119.99, pitch: 25 },
+    'W/S Mushroom Macro': { yaw: -116.57, pitch: 0 },
+    'W/S Sugar Cane Macro': { yaw: -123.61, pitch: 0 },
+    'S-Shape Macro': { yaw: 0, pitch: 0 },
+    'Forward S-Shape Cocoa Macro': { yaw: 0, pitch: 0 },
+    'S-Shape Sugar Cane Macro': { yaw: 45, pitch: 0 },
+    'SDS Staircase Mushroom Macro': { yaw: -16, pitch: 6.7 },
+    'A/D Cactus Macro': { yaw: -68.19, pitch: -17.4 },
+    'A/D Cocoa Macro': { yaw: -166.4, pitch: -79 },
+    'A/D Crop Macro': { yaw: 33.96, pitch: 0 },
+    'AD Rotating Melon Macro': { yaw: 0, pitch: 0 },
+    'Vertical Crop Macro': { yaw: 0, pitch: 0 },
 };
 
 const SELECTED_PATH = 'FarmType/selected_farm_type.json';
+
+function readOldSliderValue(allSettings, macroName, componentTitle) {
+    const macroSettings = allSettings[macroName];
+    if (!macroSettings) return null;
+    const value = macroSettings[componentTitle];
+    if (value === undefined) return null;
+    if (typeof value === 'object' && value.low !== undefined && value.high !== undefined) {
+        return (value.low + value.high) / 2;
+    }
+    return value;
+}
 
 class FarmType extends ModuleBase {
     constructor() {
@@ -46,11 +70,24 @@ class FarmType extends ModuleBase {
         const options = FARM_TYPES.map((name) => {
             const savedOpt = savedOptions.find((o) => o.name === name);
             const defaults = FARM_DEFAULTS[name] || { yaw: 0, pitch: 0 };
+
+            let yawVal = savedOpt?.val1;
+            let pitchVal = savedOpt?.val2;
+
+            if (yawVal === undefined) {
+                const oldYaw = readOldSliderValue(allSettings, name, 'Yaw Offset');
+                if (oldYaw !== null) yawVal = String(oldYaw);
+            }
+            if (pitchVal === undefined) {
+                const oldPitch = readOldSliderValue(allSettings, name, 'Pitch');
+                if (oldPitch !== null) pitchVal = String(oldPitch);
+            }
+
             return {
                 name,
                 enabled: name === this.selectedFarmType,
-                val1: savedOpt?.val1 ?? String(defaults.yaw),
-                val2: savedOpt?.val2 ?? String(defaults.pitch),
+                val1: yawVal ?? String(defaults.yaw),
+                val2: pitchVal ?? String(defaults.pitch),
                 placeholder1: 'Yaw (-180 to 180)',
                 placeholder2: 'Pitch (-90 to 90)',
             };
@@ -60,7 +97,7 @@ class FarmType extends ModuleBase {
             options,
             true,
             (options) => this.setSelectedFarmType(options.find((option) => option.enabled)?.name),
-            'The farming macro the keybind above will toggle. W/S Crop Macro has Yaw/Pitch inputs.',
+            'The farming macro the keybind above will toggle. Each has Yaw/Pitch inputs.',
             this.selectedFarmType
         );
 
@@ -86,13 +123,13 @@ class FarmType extends ModuleBase {
 
     adoptFarmTypeSettings() {
         FARM_TYPES.forEach((name) => {
-            if (name === 'W/S Crop Macro') return;
             const item = Categories.findItem('Modules', name);
             if (!item) return;
             const popup = this.addPopup(`${name} Settings`, null, 'Settings for this farm type.');
             const prefix = name.replace(/\s+Macro$/, '');
             const components = item.components.splice(0, item.components.length);
             components.forEach((component) => {
+                if (component.title.includes('Yaw') || component.title.includes('Pitch')) return;
                 component.title = `${prefix} · ${component.title}`;
                 popup.addComponent(component, component.description);
             });
