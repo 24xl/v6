@@ -204,6 +204,10 @@ function loadComponentValue(component, savedValue) {
                     option.enabled = savedOption.enabled;
                     option.animationProgress = savedOption.enabled ? 1 : 0;
                     option.animationStart = 0;
+                    option.val1 = savedOption.val1 || '';
+                    option.val2 = savedOption.val2 || '';
+                    option.placeholder1 = savedOption.placeholder1 || option.placeholder1 || '';
+                    option.placeholder2 = savedOption.placeholder2 || option.placeholder2 || '';
                 }
             });
         }

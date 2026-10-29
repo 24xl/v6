@@ -111,6 +111,7 @@ import './other/RatMacro';
 import './other/PeltMacro';
 import './other/PeltQOL';
 import './other/DojoMacro';
+import './other/ButtonGallery';
 
 /* COMBAT */
 import './combat/CombatBot';
