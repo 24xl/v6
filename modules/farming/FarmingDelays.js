@@ -11,17 +11,17 @@ class FarmingDelays extends ModuleBase {
         });
 
         this.ranges = {
-            visitorDoubleClick: { name: 'Visitor Double Click Delay', low: 150, high: 350 },
-            visitorAutoSell: { name: 'Visitor Autosell Click Delay', low: 150, high: 300 },
-            visitorNext: { name: 'Next Visitor Delay', low: 250, high: 750 },
-            visitorRetry: { name: 'Visitor Retry Delay', low: 250, high: 750 },
-            pestRestore: { name: 'Pest Restore Delay', low: 150, high: 250 },
-            sprayonatorAction: { name: 'Sprayonator Action Delay', low: 100, high: 200 },
-            mousematAction: { name: 'Mousemat Action Delay', low: 100, high: 200 },
-            bazaarAction: { name: 'Bazaar Action Delay', low: 250, high: 750 },
-            rewarp: { name: 'Rewarp Delay', low: 500, high: 750 },
-            postSwap: { name: 'Post Swap Delay', low: 150, high: 300 },
-            laneSwitch: { name: 'Lane Switch Delay', low: 200, high: 200 },
+            visitorDoubleClick: { name: 'Visitor Double Click (ms)', low: 150, high: 350 },
+            visitorAutoSell: { name: 'Visitor Autosell Click (ms)', low: 150, high: 300 },
+            visitorNext: { name: 'Next Visitor (ms)', low: 250, high: 750 },
+            visitorRetry: { name: 'Visitor Retry (ms)', low: 250, high: 750 },
+            pestRestore: { name: 'Pest Restore (ms)', low: 150, high: 250 },
+            sprayonatorAction: { name: 'Sprayonator Action (ms)', low: 100, high: 200 },
+            mousematAction: { name: 'Mousemat Action (ms)', low: 100, high: 200 },
+            bazaarAction: { name: 'Bazaar Action (ms)', low: 250, high: 750 },
+            rewarp: { name: 'Rewarp (ms)', low: 500, high: 750 },
+            postSwap: { name: 'Post Swap (ms)', low: 150, high: 300 },
+            laneSwitch: { name: 'Lane Switch (ms)', low: 200, high: 200 },
         };
 
         Object.keys(this.ranges).forEach((key) => this.addDelayRange(key));
@@ -29,7 +29,7 @@ class FarmingDelays extends ModuleBase {
 
     addDelayRange(key) {
         const range = this.ranges[key];
-        this.addRangeSlider(`${range.name} (ms)`, 50, 1000, range, (value) => {
+        this.addRangeSlider(range.name, 50, 1000, range, (value) => {
             range.low = Math.round(value.low);
             range.high = Math.round(value.high);
         });
