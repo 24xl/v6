@@ -23,6 +23,8 @@ const MIN_HORIZONTAL_LOOK = 1.2;
 // while following path nodes on descents; upward stays generous for climbs.
 const MAX_DOWN_PITCH = 25;
 const MAX_UP_PITCH = 20;
+const ARRIVAL_RADIUS = 2;
+const JUMP_GAP_THRESHOLD = 0.6;
 
 const DEFAULT_FLAG_BITS = [1, 2, 4, 8, 16, 32, 64, 128];
 
@@ -106,7 +108,7 @@ class CombatPathWalker {
         const remaining = this.points.length - 1 - this.t;
         const last = this.points[this.points.length - 1];
         const endDistance = Math.hypot(player.getX() - last.x, player.getZ() - last.z);
-        if (remaining <= 0.25 || (remaining <= 2 && endDistance <= this.arrivalRadius)) {
+        if (remaining <= 0.25 || (remaining <= 2 && endDistance <= ARRIVAL_RADIUS)) {
             this.stopKeys();
             return 'ARRIVED';
         }
@@ -144,9 +146,8 @@ class CombatPathWalker {
     moveToward(point) {
         if (!point) return;
         if (Client.isInGui() && !Client.isInChat()) return;
-        // shouldJump=false: the key helper otherwise jumps whenever the player touches a
-        // stair face while climbing, which fired a jump on every step.
-        setKeysForStraightLineCoords(point.x, point.y, point.z, false, true);
+        // shouldJump=true: allow jumping (stair jumping handled separately in Jump.detectJump)
+        setKeysForStraightLineCoords(point.x, point.y, point.z, true, true);
         if (this.sprint && this.isStraight()) Client.setKey('sprint', true);
         else Client.setKey('sprint', false);
     }
