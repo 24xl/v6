@@ -17,7 +17,7 @@ class Freelook extends ModuleBase {
         // Button mode: 'toggle' (default) or 'hold'
         this.freelookMode = 'toggle';
 
-        this.savedPerspective = null;
+        this.savedPerspective = 0;
         this.on('renderWorld', () => this.updateCamera());
     }
 
@@ -31,9 +31,9 @@ class Freelook extends ModuleBase {
 
         this.savedPerspective = mc.options.getCameraType();
         forceGrab();
-        Client.setCameraRotation(wrapTo180(Player.getYRot()), Player.getXRot());
-        Client.setFreelookDistance(4.0);
-        Client.setFreelook(true);
+        mc.setCameraRotation(wrapTo180(Player.getYRot()), Player.getXRot());
+        mc.setFreelookDistance(4.0);
+        mc.setFreelook(true);
         // THIRD_PERSON_BACK = 0 in Minecraft's CameraType enum
         if (mc.options.getCameraType() !== 0) {
             mc.options.setCameraType(0);
@@ -43,11 +43,12 @@ class Freelook extends ModuleBase {
     onDisable() {
         // No chat message on disable
 
-        Client.setFreelook(false);
-        Client.clearCameraRotation();
+        mc.setFreelook(false);
+        mc.clearCameraRotation();
 
+        // THIRD_PERSON_BACK = 0
         if (this.savedPerspective !== 0) mc.options.setCameraType(this.savedPerspective);
-        this.savedPerspective = null;
+        this.savedPerspective = 0;
         releaseForcedGrab();
     }
 
