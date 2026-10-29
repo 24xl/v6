@@ -139,8 +139,6 @@ class CombatPathWalker {
                 this.stopKeys();
                 return 'STUCK_REPLAN';
             }
-
-            return 'MOVING';
         }
 
         const movePoint = this.interpolate(this.t + MOVE_LOOKAHEAD) || lookPoint;
@@ -171,7 +169,6 @@ class CombatPathWalker {
         // Simple, battle-tested, no custom logic.
         if (this.aimEntity) {
             CombatRotations.lookAtEntity(this.aimEntity);
-            return;
         }
 
         // Pure aim point along the path, at eye height.
