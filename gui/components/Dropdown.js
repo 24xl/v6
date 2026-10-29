@@ -516,6 +516,7 @@ export class MultiToggle {
                         const option = this.options[i];
 
                         if (option.inputRect1 && isInside(mouseX, mouseY, option.inputRect1)) {
+                            this.unfocusTextInput();
                             this.focusedOptionIndex = i;
                             this.focusedField = 1;
                             option.isTyping1 = true;
@@ -529,6 +530,7 @@ export class MultiToggle {
                         }
 
                         if (option.inputRect2 && isInside(mouseX, mouseY, option.inputRect2)) {
+                            this.unfocusTextInput();
                             this.focusedOptionIndex = i;
                             this.focusedField = 2;
                             option.isTyping2 = true;
