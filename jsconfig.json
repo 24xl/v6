@@ -1,0 +1,11 @@
+{
+    "compilerOptions": {
+        "allowJs": true,
+        "checkJs": false,
+        "module": "ESNext",
+        "moduleResolution": "Node",
+        "noEmit": true,
+        "target": "ES2015"
+    },
+    "include": ["**/*.js", "typings.d.ts"]
+}

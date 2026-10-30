@@ -1,0 +1,50 @@
+import { finiteNumber } from './Math';
+
+let currentTick = 0;
+let queuedTasks = [];
+let taskTick;
+
+const syncTaskTick = () => {
+    if (queuedTasks.length && !taskTick.isRegistered()) taskTick.register();
+    else if (!queuedTasks.length && taskTick.isRegistered()) taskTick.unregister();
+};
+
+taskTick = register('tick', () => {
+    currentTick++;
+    if (!queuedTasks.length) return;
+
+    const remaining = [];
+    const due = [];
+
+    for (const entry of queuedTasks) {
+        if (!entry || typeof entry.task !== 'function') continue;
+        if (entry.runAtTick <= currentTick) due.push(entry.task);
+        else remaining.push(entry);
+    }
+
+    queuedTasks = remaining;
+
+    for (const callback of due) {
+        try {
+            callback();
+        } catch (e) {
+            console.error(e);
+        }
+    }
+    syncTaskTick();
+}).unregister();
+
+export function ScheduleTask(delayOrTask, maybeTask) {
+    const hasExplicitDelay = typeof delayOrTask !== 'function';
+    const delayRaw = hasExplicitDelay ? finiteNumber(delayOrTask) : 0;
+    const task = hasExplicitDelay ? maybeTask : delayOrTask;
+
+    if (typeof task !== 'function') return;
+
+    const delayTicks = Math.max(1, Math.floor(delayRaw));
+    queuedTasks.push({
+        runAtTick: currentTick + delayTicks,
+        task,
+    });
+    syncTaskTick();
+}

@@ -1,0 +1,66 @@
+import { ShulkerEntity, Vec3d } from '../../utils/Constants';
+import { ModuleBase } from '../../utils/ModuleBase';
+import { area } from '../../utils/Utils';
+
+const DyeColor = net.minecraft.world.item.DyeColor;
+const isInGalatea = () => ['Galatea', 'Moonglade Marsh'].includes(area());
+
+class HideonLeafESP extends ModuleBase {
+    constructor() {
+        super({
+            name: 'HideonLeaf ESP',
+            subcategory: 'Foraging',
+            description: 'Highlights HideonLeaf entities and draws tracers to them.',
+            tooltip: 'Highlights HideonLeaf entities and draws tracers to them.',
+        });
+
+        this.targets = [];
+        this.fillColor = new RenderColor(0, 255, 0, 70);
+        this.tracerColor = new RenderColor(0, 255, 0, 255);
+
+        this.on('step', () => this.scanTargets()).setFps(5);
+
+        this.when(
+            () => this.enabled && World.isLoaded() && isInGalatea() && this.targets.length > 0,
+            'postRenderWorld',
+            () => this.renderTargets(),
+            true
+        );
+
+        this.on('worldUnload', () => {
+            this.targets = [];
+        });
+    }
+
+    scanTargets() {
+        if (!this.enabled || !World.isLoaded() || !isInGalatea()) {
+            this.targets = [];
+            return;
+        }
+
+        this.targets = World.getAllEntitiesOfType(ShulkerEntity).filter((entity) => entity && !entity.isDead() && entity.toMC().getColor() === DyeColor.GREEN);
+    }
+
+    renderTargets() {
+        this.targets = this.targets.filter((entity) => entity && !entity.isDead());
+
+        Render3D.drawHitboxes(
+            this.targets.map((entity) => entity.toMC()),
+            this.fillColor,
+            2,
+            false
+        );
+        Render3D.drawTracers(
+            this.targets.map((entity) => new Vec3d(entity.getX(), entity.getY() + 1, entity.getZ())),
+            this.tracerColor,
+            2,
+            false
+        );
+    }
+
+    onDisable() {
+        this.targets = [];
+    }
+}
+
+new HideonLeafESP();

@@ -1,0 +1,50 @@
+import { ModuleBase } from '../../utils/ModuleBase';
+import { clickItem, getGuiName } from '../../utils/player/Inventory';
+
+class AuctionHelper extends ModuleBase {
+    constructor() {
+        super({
+            name: 'Auction Helper',
+            subcategory: 'Other',
+            description: 'Automatically sets BIN auctions to two days and confirms them.',
+            showEnabledToggle: false,
+        });
+
+        this.auto2Day = false;
+        this.quickCreate = false;
+        this.selectingDuration = false;
+        this.lastBinConfirmAt = 0;
+
+        this.addToggle('Auto 2 Day', (value) => {
+            this.auto2Day = !!value;
+            if (!this.auto2Day) this.selectingDuration = false;
+        });
+        this.addToggle('Quick Create', (value) => (this.quickCreate = !!value));
+        this.when(
+            () => this.auto2Day || this.quickCreate,
+            'tick',
+            () => this.onTick()
+        );
+    }
+
+    onTick() {
+        const guiName = getGuiName();
+
+        if (this.auto2Day) {
+            if (guiName === 'Create BIN Auction' && clickItem('Duration: 6 Hours', false, 'LEFT', true, true)) {
+                this.selectingDuration = true;
+            } else if (this.selectingDuration && clickItem('2 Days', false, 'LEFT', true, true)) {
+                this.selectingDuration = false;
+            }
+        }
+
+        if (!this.quickCreate) return;
+        if (guiName === 'Confirm BIN Auction') {
+            if (clickItem('Confirm BIN Auction', false, 'LEFT', true, true)) this.lastBinConfirmAt = Date.now();
+        } else if (guiName === 'BIN Auction View' && Date.now() - this.lastBinConfirmAt < 1000) {
+            clickItem('Go Back', false, 'LEFT', true, true);
+        }
+    }
+}
+
+new AuctionHelper();
