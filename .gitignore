@@ -1,6 +1,2 @@
-node_modules
-desktop.ini
-.DS_Store
-# private local notes - never tracked/pushed
-history.md
-future_plans.md
+*.md
+*.MD
