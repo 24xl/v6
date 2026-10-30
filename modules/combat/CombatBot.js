@@ -319,8 +319,15 @@ class Combat extends ModuleBase {
             return;
         }
 
+        // Always move towards target while pathfinding, even during initial pathfinding
+        // This prevents the "highlighting without moving" behavior
         this.ensurePath(position);
-        if (!CombatNavigator.isFollowing()) this.approachDirectly(position);
+        if (!CombatNavigator.isFollowing()) {
+            this.approachDirectly(position);
+        } else {
+            // Move towards target even while pathfinding to prevent freezing
+            this.approachDirectly(position);
+        }
     }
 
     approachDirectly(position) {
@@ -637,10 +644,50 @@ class Combat extends ModuleBase {
                 }
             }
 
+            // Additional reachability check: if target is in a hole/void area, blacklist it
+            if (!this.isTargetReachable(position)) {
+                this.blacklistTarget(target, PATH_FAILURE_BLACKLIST_MS);
+                return false;
+            }
+
             return true;
         } catch (e) {
             return false;
         }
+    }
+
+    isTargetReachable(position) {
+        // Check if target is in a hole/void or unreachable area
+        // A position is considered unreachable if there's no solid ground within MAX_FALL_DISTANCE
+        // or if it's completely surrounded by air (void)
+        const x = Math.floor(position.x);
+        const y = Math.floor(position.y);
+        const z = Math.floor(position.z);
+
+        // Check if there's solid ground below within MAX_FALL_DISTANCE
+        let hasGround = false;
+        for (let dy = 1; dy <= 4; dy++) {
+            const block = World.getBlockAt(x, y - dy, z);
+            if (block && block.type.getID() !== 0) {
+                hasGround = true;
+                break;
+            }
+        }
+        if (!hasGround) return false;
+
+        // Check if position is in a hole (surrounded by blocks on all sides at same Y level)
+        const directions = [[1,0], [-1,0], [0,1], [0,-1]];
+        let openSides = 0;
+        for (const [dx, dz] of directions) {
+            const block = World.getBlockAt(x + dx, y, z + dz);
+            if (!block || block.type.getID() === 0) {
+                openSides++;
+            }
+        }
+        // If completely enclosed on all 4 sides at same Y, it's a hole
+        if (openSides === 0) return false;
+
+        return true;
     }
 
     // Quick path check to see if we can reach a specific height

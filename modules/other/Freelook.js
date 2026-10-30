@@ -3,6 +3,7 @@ import { wrapTo180 } from '../../utils/Math';
 import { getModule } from '../../utils/MacroState';
 import { forceGrab, releaseForcedGrab } from '../../utils/Ungrab';
 import { mc } from '../../utils/Utils';
+import { Settings } from '../../gui/categories/CategorySystem';
 
 const Perspective = net.minecraft.client.CameraType;
 
@@ -18,10 +19,21 @@ class Freelook extends ModuleBase {
             showEnabledToggle: false,
         });
 
-        this.bindToggleKey();
+        this.bindToggleKey('Freelook');
 
         // Mode setting: 'toggle' (default) or 'hold'
-        this.freelookMode = 'toggle';
+        this.freelookMode = Settings.addSettingsMultiToggle(
+            'Freelook Mode',
+            ['Toggle', 'Hold'],
+            true,
+            (selected) => {
+                const mode = selected.find((item) => item.enabled)?.name?.toLowerCase();
+                if (mode) this.freelookMode = mode;
+            },
+            'Toggle: press to enable/disable. Hold: freelook only while key is held.',
+            'Toggle',
+            'Freelook'
+        );
 
         this.savedPerspective = null;
         this.on('renderWorld', () => this.updateCamera());
@@ -61,22 +73,6 @@ class Freelook extends ModuleBase {
         if (mc.options.getCameraType() !== Perspective.THIRD_PERSON_BACK) {
             mc.options.setCameraType(Perspective.THIRD_PERSON_BACK);
         }
-    }
-
-    onKeyPress(key) {
-        // Handle key press for freelook toggle
-        if (key === this.freelookKey) {
-            if (this.freelookMode === 'toggle') {
-                this.toggle(false);
-            }
-            // In hold mode, key press enables freelook, release disables it
-            // (handled by the keybind system)
-        }
-    }
-
-    toggleMode() {
-        // Switch between toggle and hold modes
-        this.freelookMode = this.freelookMode === 'toggle' ? 'hold' : 'toggle';
     }
 }
 

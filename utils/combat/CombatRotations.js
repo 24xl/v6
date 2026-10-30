@@ -1,9 +1,9 @@
 import { calculateAbsoluteAngles, getAngleDifference, wrapTo180 } from '../Math';
 import { applyToPlayer, clampPitch, getCurrentRotation } from '../player/RotationGCD';
 
-const DEFAULT_SPEED = 500;
+const DEFAULT_SPEED = 1200;
 const DAMPING_DIST = 45;
-const MIN_STEP = 10;
+const MIN_STEP = 25;
 const POINT_PRECISION = 0.1;
 const ENTITY_PRECISION = 0.5;
 const CURVE_STRENGTH = 0.14;
@@ -188,7 +188,7 @@ class CombatRotationController {
 
     getStepRatio(distance, deltaTime) {
         const timeAlive = this.startTime > 0 ? (Date.now() - this.startTime) / 1000 : 0;
-        const warmup = Math.min(timeAlive * 4, 1);
+        const warmup = Math.min(timeAlive * 8, 1);
         const damping = Math.min(distance / DAMPING_DIST, 1);
         const speed = this.speed * Math.sqrt(damping);
         const step = (speed * warmup + MIN_STEP) * deltaTime;

@@ -52,6 +52,7 @@ class Freecam extends ModuleBase {
             return;
         }
         getModule('Freelook')?.toggle(false);
+
         this.cameraPos = this.getInitialCameraPos(player, wrapTo180(player.getYRot()), player.getXRot());
         this.velocity = new Vec3d(0, 0, 0);
         this.savedPerspective = mc.options.getCameraType();
@@ -188,7 +189,6 @@ class Freecam extends ModuleBase {
         Client.setUngrabbed(true);
         Client.setSpectatedEntity(target.toMC());
         this.syncPossessedCamera();
-        
     }
 
     releasePossession(silent = false) {
@@ -207,7 +207,6 @@ class Freecam extends ModuleBase {
         mc.setCameraEntity(Player.getPlayer());
         mc.options.setCameraType(Perspective.THIRD_PERSON_BACK);
         if (this.cameraPos) setCameraPosition(this.cameraPos);
-        // no chat message
     }
 
     syncPossessedCamera() {

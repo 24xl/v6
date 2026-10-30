@@ -24,6 +24,8 @@ const MAX_DOWN_PITCH = 25;
 const MAX_UP_PITCH = 20;
 const ARRIVAL_RADIUS = 2;
 const JUMP_GAP_THRESHOLD = 0.6;
+const VOID_CHECK_RADIUS = 2;
+const MAX_FALL_DISTANCE = 4;
 
 const DEFAULT_FLAG_BITS = [1, 2, 4, 8, 16, 32, 64, 128];
 
@@ -46,6 +48,7 @@ class CombatPathWalker {
         this.progressAt = 0;
         this.lastX = 0;
         this.lastZ = 0;
+        this.stuckAttempts = 0;
         this.aimEntity = null;
         this.aimBlend = 0;
         this.lastEntityAimPoint = null;
@@ -127,10 +130,19 @@ class CombatPathWalker {
         const moved = Math.hypot(player.getX() - this.lastX, player.getZ() - this.lastZ);
         const now = Date.now();
 
-        if (moved >= PROGRESS_DISTANCE) {
+if (moved >= PROGRESS_DISTANCE) {
             this.markProgress();
+            this.stuckAttempts = 0;
         } else {
             const stuckTime = now - this.progressAt;
+
+            // After extended stuck time, try to free ourselves using WASD
+            if (stuckTime > STUCK_REPLAN_MS / 3 && this.stuckAttempts < 3) {
+                this.attemptUnstuck();
+                this.stuckAttempts++;
+                this.markProgress(); // Reset progress timer after unstuck attempt
+                return 'MOVING';
+            }
 
             // After extended stuck time, signal replan instead of giving up.
             // No jumping, no strafing - just request a new path.
@@ -138,6 +150,9 @@ class CombatPathWalker {
                 this.stopKeys();
                 return 'STUCK_REPLAN';
             }
+
+            return 'MOVING';
+        }
         }
 
         const movePoint = this.interpolate(this.t + MOVE_LOOKAHEAD) || lookPoint;
@@ -348,6 +363,11 @@ class CombatPathWalker {
                     continue;
                 }
             }
+            // Skip points over void/holes
+            if (!this.isPathPointSafe(point.x, point.y, point.z)) {
+                lookahead -= LOOKAHEAD_STEP;
+                continue;
+            }
             if (this.isPointVisible(point)) return point;
             lookahead -= LOOKAHEAD_STEP;
         }
@@ -392,10 +412,56 @@ class CombatPathWalker {
         return (this.flags[index] & bit) !== 0;
     }
 
+    isPositionSafeFromVoid(x, y, z) {
+        // Check if the position is over void/air by checking blocks below
+        for (let dy = 1; dy <= MAX_FALL_DISTANCE; dy++) {
+            const block = World.getBlockAt(Math.floor(x), Math.floor(y - dy), Math.floor(z));
+            if (block && block.type.getID() !== 0) {
+                return true; // Found solid block within fall distance
+            }
+        }
+        return false; // No solid block found within max fall distance
+    }
+
+    isPathPointSafe(x, y, z) {
+        // Check a radius around the point for void
+        for (let dx = -VOID_CHECK_RADIUS; dx <= VOID_CHECK_RADIUS; dx++) {
+            for (let dz = -VOID_CHECK_RADIUS; dz <= VOID_CHECK_RADIUS; dz++) {
+                if (!this.isPositionSafeFromVoid(x + dx, y, z + dz)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     markProgress() {
         this.progressAt = Date.now();
         this.lastX = Player.getX();
         this.lastZ = Player.getZ();
+    }
+
+    attemptUnstuck() {
+        const player = Player.getPlayer();
+        if (!player) return;
+
+        // Try different movement patterns to get unstuck
+        const patterns = [
+            () => { Client.setKey('w', true); Client.setKey('space', true); }, // Jump forward
+            () => { Client.setKey('a', true); Client.setKey('space', true); }, // Jump left
+            () => { Client.setKey('d', true); Client.setKey('space', true); }, // Jump right
+            () => { Client.setKey('s', true); Client.setKey('space', true); }, // Jump back
+            () => { Client.setKey('a', true); Client.setKey('w', true); }, // Strafe left-forward
+            () => { Client.setKey('d', true); Client.setKey('w', true); }, // Strafe right-forward
+        ];
+
+        const pattern = patterns[this.stuckAttempts % patterns.length];
+        pattern();
+
+        // Reset keys after short delay
+        setTimeout(() => {
+            this.stopKeys();
+        }, 500);
     }
 
     stopKeys() {
