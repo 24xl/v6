@@ -45,21 +45,21 @@ class Freecam extends ModuleBase {
         });
     }
 
-onEnable() {
+    onEnable() {
         const player = Player.getPlayer();
         if (!World.isLoaded() || !player) {
             this.resetCameraState();
             return;
         }
-        getModule('Freecam')?.toggle(false);
+        getModule('Freelook')?.toggle(false);
         this.cameraPos = this.getInitialCameraPos(player, wrapTo180(player.getYRot()), player.getXRot());
         this.velocity = new Vec3d(0, 0, 0);
         this.savedPerspective = mc.options.getCameraType();
         this.lastRenderAt = Date.now();
         this.possessedUUID = null;
         forceGrab();
-        Client.setCameraRotation(wrapTo180(player.getYRot()), player.getXRot());
-        Client.setFreecam(true);
+        Client.setCameraRotation(wrapTo180(Player.getYRot()), Player.getXRot());
+        Client.setFreelook(true);
         mc.setCameraEntity(player);
         mc.options.setCameraType(Perspective.THIRD_PERSON_BACK);
         setCameraPosition(this.cameraPos);
@@ -93,7 +93,7 @@ onEnable() {
         this.velocity = new Vec3d(0, 0, 0);
         this.possessedUUID = null;
         Client.setUngrabbed(false);
-        Client.setFreecam(false);
+        Client.setFreelook(false);
         Client.setSpectatedEntity(null);
         Client.clearCameraRotation();
         clearCameraPosition();
@@ -138,7 +138,7 @@ onEnable() {
             moveX += sinYaw;
             moveZ -= cosYaw;
         }
-        if (this.isKeyDown(this.physicalKeybinds[2])) {
+        if (this.isKeyDown(this.physicalKeybinds[2]) {
             moveX += cosYaw;
             moveZ += sinYaw;
         }
@@ -188,7 +188,7 @@ onEnable() {
         Client.setUngrabbed(true);
         Client.setSpectatedEntity(target.toMC());
         this.syncPossessedCamera();
-        
+        this.message(`&aSpectating &f${target.getName()} &7(Right-click to release)`);
     }
 
     releasePossession(silent = false) {
@@ -207,7 +207,7 @@ onEnable() {
         mc.setCameraEntity(Player.getPlayer());
         mc.options.setCameraType(Perspective.THIRD_PERSON_BACK);
         if (this.cameraPos) setCameraPosition(this.cameraPos);
-        
+        if (!silent) this.message('&7Released spectating');
     }
 
     syncPossessedCamera() {
