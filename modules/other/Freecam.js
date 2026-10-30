@@ -52,14 +52,15 @@ class Freecam extends ModuleBase {
             return;
         }
         getModule('Freelook')?.toggle(false);
+        this.message('&aEnabled &7(Right-click an entity to spectate)');
         this.cameraPos = this.getInitialCameraPos(player, wrapTo180(player.getYRot()), player.getXRot());
         this.velocity = new Vec3d(0, 0, 0);
         this.savedPerspective = mc.options.getCameraType();
         this.lastRenderAt = Date.now();
         this.possessedUUID = null;
         forceGrab();
-        Client.setCameraRotation(wrapTo180(Player.getYRot()), Player.getXRot());
-        Client.setFreelook(true);
+        Client.setCameraRotation(wrapTo180(player.getYRot()), player.getXRot());
+        Client.setFreecam(true);
         mc.setCameraEntity(player);
         mc.options.setCameraType(Perspective.THIRD_PERSON_BACK);
         setCameraPosition(this.cameraPos);
@@ -68,6 +69,7 @@ class Freecam extends ModuleBase {
     }
 
     onDisable() {
+        this.message('&cDisabled');
         this.resetCameraState();
         if (World.isLoaded()) {
             Client.reloadWorldRenderer();
@@ -93,7 +95,7 @@ class Freecam extends ModuleBase {
         this.velocity = new Vec3d(0, 0, 0);
         this.possessedUUID = null;
         Client.setUngrabbed(false);
-        Client.setFreelook(false);
+        Client.setFreecam(false);
         Client.setSpectatedEntity(null);
         Client.clearCameraRotation();
         clearCameraPosition();
@@ -214,6 +216,7 @@ class Freecam extends ModuleBase {
         const entity = this.getPossessedPlayer();
         if (!entity) {
             this.releasePossession(true);
+            this.message('&cThat entity is no longer loaded');
             return;
         }
 

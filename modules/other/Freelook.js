@@ -4,23 +4,22 @@ import { getModule } from '../../utils/MacroState';
 import { forceGrab, releaseForcedGrab } from '../../utils/Ungrab';
 import { mc } from '../../utils/Utils';
 
+const Perspective = net.minecraft.client.CameraType;
+
 class Freelook extends ModuleBase {
     constructor() {
         super({
             name: 'Freelook',
             subcategory: 'Visuals',
             description: 'Look around independently while the camera stays with your player.',
+            tooltip: 'Client-side third-person freelook.',
             theme: '#5fb0ff',
+            autoDisableOnWorldUnload: true,
             showEnabledToggle: false,
         });
 
-        // Keybind: F by default (configurable in-game via V5 keybinds)
-        this.freelookKey = 'KEY_F';
-
-        // Mode: 'toggle' (default) or 'hold'
-        this.freelookMode = 'toggle';
-
-        this.savedPerspective = 0;
+        this.bindToggleKey();
+        this.savedPerspective = null;
         this.on('renderWorld', () => this.updateCamera());
     }
 
@@ -30,28 +29,22 @@ class Freelook extends ModuleBase {
 
         getModule('Freecam')?.toggle(false);
 
-        // No chat message on enable
-
+        this.message('&aEnabled');
         this.savedPerspective = mc.options.getCameraType();
         forceGrab();
-        mc.setCameraRotation(wrapTo180(Player.getYRot()), Player.getXRot());
-        mc.setFreelookDistance(4.0);
-        mc.setFreelook(true);
-        // THIRD_PERSON_BACK = 0 in Minecraft's CameraType enum
-        if (mc.options.getCameraType() !== 0) {
-            mc.options.setCameraType(0);
-        }
+        Client.setCameraRotation(wrapTo180(player.getYRot()), player.getXRot());
+        Client.setFreelookDistance(4.0);
+        Client.setFreelook(true);
+        mc.options.setCameraType(Perspective.THIRD_PERSON_BACK);
     }
 
     onDisable() {
-        // No chat message on disable
+        this.message('&cDisabled');
+        Client.setFreelook(false);
+        Client.clearCameraRotation();
 
-        mc.setFreelook(false);
-        mc.clearCameraRotation();
-
-        // THIRD_PERSON_BACK = 0
-        if (this.savedPerspective !== 0) mc.options.setCameraType(this.savedPerspective);
-        this.savedPerspective = 0;
+        if (this.savedPerspective) mc.options.setCameraType(this.savedPerspective);
+        this.savedPerspective = null;
         releaseForcedGrab();
     }
 
@@ -59,30 +52,9 @@ class Freelook extends ModuleBase {
         const player = Player.getPlayer();
         if (!player) return;
 
-        // In toggle mode, keep camera type as third-person back (0)
-        if (this.freelookMode === 'toggle') {
-            if (mc.options.getCameraType() !== 0) {
-                mc.options.setCameraType(0);
-            }
+        if (mc.options.getCameraType() !== Perspective.THIRD_PERSON_BACK) {
+            mc.options.setCameraType(Perspective.THIRD_PERSON_BACK);
         }
-        // In hold mode, freelook only active when key is pressed
-        // (the keybind system handles this automatically)
-    }
-
-    onKeyPress(key) {
-        // Handle key press for freelook toggle
-        if (key === this.freelookKey) {
-            if (this.freelookMode === 'toggle') {
-                this.toggle(false);
-            }
-            // In hold mode, key press enables freelook, release disables it
-            // (handled by the keybind system)
-        }
-    }
-
-    toggleMode() {
-        // Switch between toggle and hold modes
-        this.freelookMode = this.freelookMode === 'toggle' ? 'hold' : 'toggle';
     }
 }
 
