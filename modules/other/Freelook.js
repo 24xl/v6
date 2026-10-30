@@ -3,7 +3,7 @@ import { wrapTo180 } from '../../utils/Math';
 import { getModule } from '../../utils/MacroState';
 import { forceGrab, releaseForcedGrab } from '../../utils/Ungrab';
 import { mc } from '../../utils/Utils';
-import { Settings } from '../../gui/categories/CategorySystem';
+import { Categories } from '../../gui/categories/CategorySystem';
 
 const Perspective = net.minecraft.client.CameraType;
 
@@ -22,18 +22,11 @@ class Freelook extends ModuleBase {
         this.bindToggleKey('Freelook');
 
         // Mode setting: 'toggle' (default) or 'hold'
-        this.freelookMode = Settings.addSettingsMultiToggle(
-            'Freelook Mode',
-            ['Toggle', 'Hold'],
-            true,
-            (selected) => {
-                const mode = selected.find((item) => item.enabled)?.name?.toLowerCase();
-                if (mode) this.freelookMode = mode;
-            },
-            'Toggle: press to enable/disable. Hold: freelook only while key is held.',
-            'Toggle',
-            'Freelook'
-        );
+        this.freelookMode = 'toggle';
+        this.addSettingsMultiToggle('Freelook', 'Freelook Mode', 'Freelook Mode', ['Toggle', 'Hold'], true, (selected) => {
+            const mode = selected.find((item) => item.enabled)?.name?.toLowerCase();
+            if (mode) this.freelookMode = mode;
+        }, 'Toggle: press to enable/disable. Hold: freelook only while key is held.', 'Toggle');
 
         this.savedPerspective = null;
         this.on('renderWorld', () => this.updateCamera());
