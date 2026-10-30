@@ -99,7 +99,7 @@ class CombatPathWalker {
         if (!point) return;
         if (Client.isInGui() && !Client.isInChat()) return;
         // shouldJump=true: allow jumping (stair jumping handled separately in Jump.detectJump)
-        setKeysForStraightLineCoords(point.x, point.y, point.z, true, true);
+        setKeysForStraightLineCoords(point.x, point.y, point.z, true, false);
         if (this.sprint && this.isStraight()) Client.setKey('sprint', true);
         else Client.setKey('sprint', false);
     }
@@ -154,7 +154,7 @@ class CombatPathWalker {
         if (!point) return;
         if (Client.isInGui() && !Client.isInChat()) return;
         // shouldJump=true: allow jumping (stair jumping handled separately in Jump.detectJump)
-        setKeysForStraightLineCoords(point.x, point.y, point.z, true, true);
+        setKeysForStraightLineCoords(point.x, point.y, point.z, true, false);
         if (this.sprint && this.isStraight()) Client.setKey('sprint', true);
         else Client.setKey('sprint', false);
     }
