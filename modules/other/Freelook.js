@@ -3,7 +3,6 @@ import { wrapTo180 } from '../../utils/Math';
 import { getModule } from '../../utils/MacroState';
 import { forceGrab, releaseForcedGrab } from '../../utils/Ungrab';
 import { mc } from '../../utils/Utils';
-import { Settings } from '../../gui/categories/CategorySystem';
 
 class Freelook extends ModuleBase {
     constructor() {
@@ -15,11 +14,11 @@ class Freelook extends ModuleBase {
             showEnabledToggle: false,
         });
 
-        // Keybind: F by default
-        this.freelookKey = this.addKeybind('Freelook', 'KEY_F', 'Key to toggle/hold freelook');
+        // Keybind: F by default (configured in-game keybinds)
+        this.freelookKey = 'KEY_F';
 
         // Mode: 'toggle' (default) or 'hold'
-        this.freelookMode = Settings.register(Settings.BOOLEAN, 'freelookMode', false, 'Toggle mode (default) or hold to freelook');
+        this.freelookMode = 'toggle';
 
         this.savedPerspective = 0;
         this.on('renderWorld', () => this.updateCamera());
@@ -66,7 +65,8 @@ class Freelook extends ModuleBase {
                 mc.options.setCameraType(0);
             }
         }
-        // In hold mode, freelook only active when key is pressed (handled by keybind system)
+        // In hold mode, freelook only active when key is pressed
+        // (the keybind system handles this automatically)
     }
 
     toggleMode() {
