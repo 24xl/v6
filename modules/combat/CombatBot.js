@@ -4,6 +4,7 @@ import { ModuleBase } from '../../utils/ModuleBase';
 import { CombatNavigator } from '../../utils/combat/CombatNavigator';
 import { CombatRotations } from '../../utils/combat/CombatRotations';
 import { CombatWalker } from '../../utils/combat/CombatWalker';
+import { ExperimentalPathfinderInstance } from '../../utils/combat/ExperimentalPathfinder';
 import { isLineClear, isLookingAtEntity } from '../../utils/Raytrace';
 
 const STATES = {
@@ -133,6 +134,10 @@ class Combat extends ModuleBase {
         this.pathfindingThreshold = 15;
         this.attackCPS = 10;
         this.attackButton = 'Left Click';
+        this.rotationSpeed = 1200;
+        this.rotationMode = 'Non-linear';
+        this.aimSmoothing = 0.85;
+        this.experimentalPathfind = false;
         this.scanRadius = DEFAULT_SCAN_RADIUS;
         this.searchRadius = DEFAULT_SCAN_RADIUS;
         this.expandTicker = 0;
@@ -180,6 +185,47 @@ class Combat extends ModuleBase {
                 this.attackCPS = value;
             },
             'Average attacks per second'
+        );
+
+        this.addSlider(
+            'Rotation Speed',
+            400,
+            3000,
+            1200,
+            (value) => {
+                this.rotationSpeed = value;
+            },
+            'Aim rotation speed.'
+        );
+
+        this.addMultiToggle(
+            'Rotation Mode',
+            ['Linear', 'Non-linear', 'Instant'],
+            true,
+            (selected) => {
+                this.rotationMode = selected.find(i => i.enabled)?.name || 'Non-linear';
+            },
+            'Aim rotation curve.',
+            'Non-linear'
+        );
+
+        this.addSlider(
+            'Aim Smoothing',
+            0,
+            1,
+            0.85,
+            (value) => {
+                this.aimSmoothing = value;
+            },
+            'Aim smoothing blend factor.'
+        );
+
+        this.addToggle(
+            'Experimental Pathfind',
+            (value) => {
+                this.experimentalPathfind = !!value;
+            },
+            'Use hybrid Theta*/A* pathfinder instead of Swift.'
         );
 
         this.addMultiToggle(
@@ -235,6 +281,11 @@ class Combat extends ModuleBase {
 
         this.on('postRenderWorld', () => this.renderTargets());
         this.on('tick', () => this.onTick());
+    }
+
+    updateRotationSettings() {
+        CombatRotations.setSpeed(this.rotationSpeed);
+        CombatRotations.setMode(this.rotationMode);
     }
 
     onTick() {

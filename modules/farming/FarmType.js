@@ -74,11 +74,14 @@ class FarmType extends ModuleBase {
             let yawVal = savedOpt?.val1;
             let pitchVal = savedOpt?.val2;
 
-            if (yawVal === undefined) {
+            // Use multi-toggle val1/val2 (from textbox inputs) preferentially;
+            // only fall back to old slider config values if the multi-toggle has
+            // not been configured yet (val1/val2 are literally undefined, not just empty).
+            if (yawVal === undefined || yawVal === null) {
                 const oldYaw = readOldSliderValue(allSettings, name, 'Yaw Offset');
                 if (oldYaw !== null) yawVal = String(oldYaw);
             }
-            if (pitchVal === undefined) {
+            if (pitchVal === undefined || pitchVal === null) {
                 const oldPitch = readOldSliderValue(allSettings, name, 'Pitch');
                 if (oldPitch !== null) pitchVal = String(oldPitch);
             }
