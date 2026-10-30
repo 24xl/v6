@@ -141,9 +141,7 @@ if (moved >= PROGRESS_DISTANCE) {
                 this.attemptUnstuck();
                 this.stuckAttempts++;
                 this.markProgress(); // Reset progress timer after unstuck attempt
-                return 'MOVING';
             }
-
             // After extended stuck time, signal replan instead of giving up.
             // No jumping, no strafing - just request a new path.
             if (stuckTime > STUCK_REPLAN_MS) {
@@ -153,8 +151,6 @@ if (moved >= PROGRESS_DISTANCE) {
 
             return 'MOVING';
         }
-        }
-
         const movePoint = this.interpolate(this.t + MOVE_LOOKAHEAD) || lookPoint;
         this.moveToward(movePoint);
         // Jumping is owned by the shared pathfinder's Jump module, which only presses
