@@ -1,4 +1,3 @@
-import { setKeysForStraightLineCoords } from '../player/Movement';
 import { isLineClear } from '../Raytrace';
 import { Vec3d } from '../Constants';
 import { Jump } from '../pathfinder/PathWalker/PathJumps';
@@ -99,7 +98,7 @@ class CombatPathWalker {
         if (!point) return;
         if (Client.isInGui() && !Client.isInChat()) return;
         // shouldJump=true: allow jumping (stair jumping handled separately in Jump.detectJump)
-        setKeysForStraightLineCoords(point.x, point.y, point.z, true, false);
+        Client.setKey("w", true); Client.setKey("a", false); Client.setKey("s", false); Client.setKey("d", false);;
         if (this.sprint && this.isStraight()) Client.setKey('sprint', true);
         else Client.setKey('sprint', false);
     }
@@ -154,7 +153,7 @@ class CombatPathWalker {
         if (!point) return;
         if (Client.isInGui() && !Client.isInChat()) return;
         // shouldJump=true: allow jumping (stair jumping handled separately in Jump.detectJump)
-        setKeysForStraightLineCoords(point.x, point.y, point.z, true, false);
+        Client.setKey("w", true); Client.setKey("a", false); Client.setKey("s", false); Client.setKey("d", false);;
         if (this.sprint && this.isStraight()) Client.setKey('sprint', true);
         else Client.setKey('sprint', false);
     }
