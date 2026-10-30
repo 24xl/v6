@@ -45,14 +45,13 @@ class Freecam extends ModuleBase {
         });
     }
 
-    onEnable() {
+onEnable() {
         const player = Player.getPlayer();
         if (!World.isLoaded() || !player) {
             this.resetCameraState();
             return;
         }
-        getModule('Freelook')?.toggle(false);
-        this.message('&aEnabled &7(Right-click an entity to spectate)');
+        getModule('Freecam')?.toggle(false);
         this.cameraPos = this.getInitialCameraPos(player, wrapTo180(player.getYRot()), player.getXRot());
         this.velocity = new Vec3d(0, 0, 0);
         this.savedPerspective = mc.options.getCameraType();
@@ -69,7 +68,6 @@ class Freecam extends ModuleBase {
     }
 
     onDisable() {
-        this.message('&cDisabled');
         this.resetCameraState();
         if (World.isLoaded()) {
             Client.reloadWorldRenderer();
@@ -190,7 +188,7 @@ class Freecam extends ModuleBase {
         Client.setUngrabbed(true);
         Client.setSpectatedEntity(target.toMC());
         this.syncPossessedCamera();
-        this.message(`&aSpectating &f${target.getName()} &7(Right-click to release)`);
+        
     }
 
     releasePossession(silent = false) {
@@ -209,14 +207,13 @@ class Freecam extends ModuleBase {
         mc.setCameraEntity(Player.getPlayer());
         mc.options.setCameraType(Perspective.THIRD_PERSON_BACK);
         if (this.cameraPos) setCameraPosition(this.cameraPos);
-        if (!silent) this.message('&7Released spectating');
+        
     }
 
     syncPossessedCamera() {
         const entity = this.getPossessedPlayer();
         if (!entity) {
             this.releasePossession(true);
-            this.message('&cThat entity is no longer loaded');
             return;
         }
 

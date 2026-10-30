@@ -14,7 +14,7 @@ class Freelook extends ModuleBase {
             showEnabledToggle: false,
         });
 
-        // Keybind: F by default (configured in-game keybinds)
+        // Keybind: F by default (configurable in-game via V5 keybinds)
         this.freelookKey = 'KEY_F';
 
         // Mode: 'toggle' (default) or 'hold'
@@ -67,6 +67,17 @@ class Freelook extends ModuleBase {
         }
         // In hold mode, freelook only active when key is pressed
         // (the keybind system handles this automatically)
+    }
+
+    onKeyPress(key) {
+        // Handle key press for freelook toggle
+        if (key === this.freelookKey) {
+            if (this.freelookMode === 'toggle') {
+                this.toggle(false);
+            }
+            // In hold mode, key press enables freelook, release disables it
+            // (handled by the keybind system)
+        }
     }
 
     toggleMode() {
