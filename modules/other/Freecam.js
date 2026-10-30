@@ -138,7 +138,7 @@ class Freecam extends ModuleBase {
             moveX += sinYaw;
             moveZ -= cosYaw;
         }
-        if (this.isKeyDown(this.physicalKeybinds[2]) {
+        if (this.isKeyDown(this.physicalKeybinds[2])) {
             moveX += cosYaw;
             moveZ += sinYaw;
         }
@@ -188,7 +188,7 @@ class Freecam extends ModuleBase {
         Client.setUngrabbed(true);
         Client.setSpectatedEntity(target.toMC());
         this.syncPossessedCamera();
-        this.message(`&aSpectating &f${target.getName()} &7(Right-click to release)`);
+        
     }
 
     releasePossession(silent = false) {
@@ -207,7 +207,7 @@ class Freecam extends ModuleBase {
         mc.setCameraEntity(Player.getPlayer());
         mc.options.setCameraType(Perspective.THIRD_PERSON_BACK);
         if (this.cameraPos) setCameraPosition(this.cameraPos);
-        if (!silent) this.message('&7Released spectating');
+        // no chat message
     }
 
     syncPossessedCamera() {
