@@ -1,0 +1,39 @@
+import { chatFailsafe } from '../../utils/Chat';
+import { ClientboundSetHeldSlotPacket } from '../../utils/Packets';
+import { Failsafe } from '../Failsafe';
+import FailsafeUtils from '../FailsafeUtils';
+
+class SlotChangeFailsafe extends Failsafe {
+    constructor() {
+        super();
+        this.settings = FailsafeUtils.getFailsafeSettings('Slot Change');
+        this.registerSlotChangeListeners();
+    }
+
+    registerSlotChangeListeners() {
+        register('packetReceived', (packet) => {
+            if (!this.isActive() || this.disabled) return;
+
+            this.settings = FailsafeUtils.getFailsafeSettings('Slot Change');
+            if (!this.settings.isEnabled) return;
+
+            const currentSlot = Player.getHeldItemIndex() + 1;
+            const newSlot = packet.slot() + 1;
+
+            if (currentSlot === newSlot) return;
+            const scheduledAt = Date.now();
+            setTimeout(() => {
+                if (this.disabled || !this.isActive() || scheduledAt < this._disabledUntil) return;
+                this.onTrigger(currentSlot, newSlot);
+            }, this._getReactionDelay(this.settings));
+        }).setFilteredClass(ClientboundSetHeldSlotPacket);
+    }
+
+    onTrigger(fromSlot, toSlot) {
+        chatFailsafe(`&c&lHeld slot has changed from ${fromSlot} to slot ${toSlot}!`);
+        FailsafeUtils.incrementFailsafeIntensity(50);
+        FailsafeUtils.sendFailsafeEmbed('Slot Change', 'high', `Slot changed from ${fromSlot} to ${toSlot}!`, 16744448);
+    }
+}
+
+new SlotChangeFailsafe();

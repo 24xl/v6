@@ -1,0 +1,550 @@
+// Vibecoded slop
+// who cares
+// 10m/h on nuker mode
+// great
+// love it
+import { isDeveloperModeEnabled } from '../../utils/DeveloperModeState';
+import { ModuleBase } from '../../utils/ModuleBase';
+import { registerSkyblockEvent } from '../../utils/SkyblockEvents';
+import { getModule } from '../../utils/MacroState';
+import Pathfinder from '../../utils/pathfinder/PathFinder';
+import { Rotations } from '../../utils/player/Rotations';
+import { getVisiblePoint, isLineClear } from '../../utils/Raytrace';
+import { queueNuke } from '../../utils/NukerUtils';
+import { area } from '../../utils/Utils';
+import { getTrackedGlowingMushrooms, isGlowingMushroomBlock } from '../visuals/GlowingMushroomESP';
+import { ScheduleTask } from '../../utils/ScheduleTask';
+
+const MAX_REACH = 4.5;
+const NUKER_PATH_LOOKAHEAD = 12;
+const AIM_FAIL_BLACKLIST_MS = 3000;
+const PATH_FAIL_BLACKLIST_MS = 10000;
+const MAX_TARGET_CLICK_RETRIES = 2;
+const HARVEST_MODES = ['Click', 'Nuker'];
+const WAITING_PATH_GOAL = [214, 41, -505];
+const MUSHROOM_AIM_OFFSETS = [
+    [0.5, 0.2, 0.5],
+    [0.45, 0.2, 0.5],
+    [0.55, 0.2, 0.5],
+    [0.5, 0.2, 0.45],
+    [0.5, 0.2, 0.55],
+    [0.5, 0.3, 0.5],
+];
+
+class GlowingMushroomMacro extends ModuleBase {
+    constructor() {
+        super({
+            name: 'Glowing Mushroom Macro',
+            subcategory: 'Mining',
+            developerMode: true,
+            description: 'Pathfinds to tracked glowing mushrooms and harvests nearby mushrooms.',
+            tooltip: 'Uses Glowing Mushroom ESP targets, pathfinds to them, then harvests nearby mushrooms in a loop.',
+            theme: '#89d85e',
+            isMacro: true,
+        });
+
+        this.bindToggleKey();
+
+        this.status = 'Idle';
+        this.loopToken = 0;
+        this.autoEnabledEsp = false;
+        this.pathRequestActive = false;
+        this.waitingPathActive = false;
+        this.pathRequestId = 0;
+        this.nukerPathTarget = null;
+        this.harvestRequestActive = false;
+        this.warpStartedAt = 0;
+        this.harvestMode = HARVEST_MODES[0];
+        this.pathsCompleted = 0;
+        this.lastClickCount = 0;
+        this.trackedCount = 0;
+        this.reachableCount = 0;
+        this.blacklistedMushrooms = new Map();
+        this.on('tick', () => this.runLoop(this.loopToken));
+        registerSkyblockEvent('fasttravellocked', () => {
+            if (!this.enabled || !this.warpStartedAt) return;
+
+            this.message("&cYou haven't unlocked the Glowing Mushroom Cave warp.");
+            this.toggle(false);
+        });
+
+        this.addMultiToggle(
+            'Harvest Mode',
+            HARVEST_MODES,
+            true,
+            (selected) => {
+                const enabled = Array.isArray(selected) ? selected.find((item) => item.enabled) : null;
+                this.harvestMode = enabled?.name || HARVEST_MODES[0];
+            },
+            'Click rotates + left-clicks. Nuker packet-breaks nearby mushrooms.',
+            HARVEST_MODES[0]
+        );
+
+        this.createOverlay([
+            {
+                title: 'Status',
+                data: {
+                    State: () => this.status,
+                    Mode: () => this.harvestMode,
+                    Tracked: () => this.trackedCount,
+                    Reachable: () => this.reachableCount,
+                    Paths: () => this.pathsCompleted,
+                    Clicked: () => this.lastClickCount,
+                },
+            },
+        ]);
+    }
+
+    onEnable() {
+        this.loopToken++;
+        this.status = 'Starting';
+        this.pathRequestActive = false;
+        this.waitingPathActive = false;
+        this.pathRequestId = 0;
+        this.nukerPathTarget = null;
+        this.harvestRequestActive = false;
+        this.warpStartedAt = 0;
+        this.pathsCompleted = 0;
+        this.lastClickCount = 0;
+        this.trackedCount = 0;
+        this.reachableCount = 0;
+        this.blacklistedMushrooms.clear();
+        this.message('&aEnabled');
+        this.ensureEspEnabled();
+    }
+
+    onDisable() {
+        this.loopToken++;
+        this.status = 'Disabled';
+        this.cancelCurrentPathing();
+        this.harvestRequestActive = false;
+        Rotations.stop();
+        Client.stopMovement();
+        this.restoreEspState();
+        this.message('&cDisabled');
+    }
+
+    ensureEspEnabled() {
+        const espModule = getModule('Glowing Mushroom ESP');
+        if (!espModule || espModule.enabled) return;
+
+        this.autoEnabledEsp = true;
+        espModule.toggle(true);
+    }
+
+    restoreEspState() {
+        if (!this.autoEnabledEsp) return;
+
+        const espModule = getModule('Glowing Mushroom ESP');
+        if (espModule?.enabled) espModule.toggle(false);
+        this.autoEnabledEsp = false;
+    }
+
+    runLoop(token) {
+        if (!this.enabled || token !== this.loopToken) return;
+        if (!this.ensureFarmingIslands()) return;
+        const mushrooms = this.getFreshMushrooms();
+        this.trackedCount = mushrooms.length;
+        let nearbyNukerTargets = null;
+
+        // In Nuker mode, always try to break nearby mushrooms, even while pathing.
+        if (this.harvestMode === 'Nuker') {
+            nearbyNukerTargets = this.getReachableNukerMushrooms(mushrooms);
+            this.reachableCount = nearbyNukerTargets.length;
+            if (nearbyNukerTargets.length) {
+                this.nukeMushroomBatch(nearbyNukerTargets, token, (clicks) => {
+                    this.lastClickCount += clicks;
+                });
+            }
+        }
+
+        if (this.nukerPathTarget && !isGlowingMushroomBlock(this.nukerPathTarget.x, this.nukerPathTarget.y, this.nukerPathTarget.z)) {
+            this.cancelCurrentPathing();
+        }
+
+        if (this.pathRequestActive || Pathfinder.isPathing()) {
+            if (this.waitingPathActive && mushrooms.length) {
+                this.cancelCurrentPathing();
+            } else {
+                this.status = this.waitingPathActive ? 'Waiting for Mushrooms' : 'Pathing';
+                return;
+            }
+        }
+
+        if (this.harvestRequestActive || Rotations.active) {
+            this.status = 'Harvesting';
+            return;
+        }
+
+        if (!mushrooms.length) {
+            if (this.harvestMode !== 'Nuker') this.reachableCount = 0;
+            this.startWaitingPath(token);
+            return;
+        }
+
+        const nearby = this.harvestMode === 'Nuker' && nearbyNukerTargets ? nearbyNukerTargets : this.getHarvestTargets(mushrooms);
+        this.reachableCount = nearby.length;
+
+        if (nearby.length && this.harvestMode !== 'Nuker') {
+            this.status = 'Harvesting';
+            this.harvestRequestActive = true;
+            this.harvestMushrooms(nearby, token, (clicks) => {
+                this.harvestRequestActive = false;
+                this.lastClickCount += clicks;
+            });
+            return;
+        }
+
+        const pathTargets = mushrooms.filter((mushroom) => !this.isPathGoalAlreadyReached(mushroom));
+        if (!pathTargets.length) {
+            this.status = 'No Path Needed';
+            return;
+        }
+
+        const goals =
+            this.harvestMode === 'Nuker' ? [this.getNukerDriveByGoal(pathTargets)] : pathTargets.map((mushroom) => [mushroom.x, mushroom.y - 1, mushroom.z]);
+        this.startPathRequest(goals, token, {
+            waitingPath: false,
+            failStatus: 'Path Failed',
+            completeStatus: 'Path Complete',
+            failedTargets: this.harvestMode === 'Nuker' ? [this.nukerPathTarget] : pathTargets,
+        });
+    }
+
+    ensureFarmingIslands() {
+        if (area() === 'The Farming Islands') {
+            this.warpStartedAt = 0;
+            return true;
+        }
+
+        if (!this.warpStartedAt) {
+            this.cancelCurrentPathing();
+            Rotations.stop();
+            Client.stopMovement();
+            this.status = 'Warping to Glowing Cave';
+            this.message('&eNot in The Farming Islands, warping...');
+        }
+
+        if (!this.warpStartedAt || Date.now() - this.warpStartedAt >= 10000) {
+            ChatLib.command('warp glowing');
+            this.warpStartedAt = Date.now();
+        }
+
+        return false;
+    }
+
+    cancelCurrentPathing() {
+        this.pathRequestId++;
+        this.pathRequestActive = false;
+        this.waitingPathActive = false;
+        this.nukerPathTarget = null;
+        Pathfinder.resetPath();
+    }
+
+    startWaitingPath(token) {
+        const [goalX, goalY, goalZ] = WAITING_PATH_GOAL;
+        this.status = 'Waiting for Mushrooms';
+        if (this.isGoalReached(goalX, goalY, goalZ)) return;
+
+        this.startPathRequest([[goalX, goalY, goalZ]], token, {
+            waitingPath: true,
+            failStatus: 'Waiting for Mushrooms',
+            completeStatus: 'Waiting for Mushrooms',
+        });
+    }
+
+    startPathRequest(goals, token, { waitingPath = false, failStatus = 'Path Failed', completeStatus = 'Path Complete', failedTargets = [] } = {}) {
+        if (!Array.isArray(goals) || !goals.length) return;
+
+        const requestId = ++this.pathRequestId;
+        this.pathRequestActive = true;
+        this.waitingPathActive = waitingPath;
+        this.status = waitingPath ? 'Waiting for Mushrooms' : 'Pathing';
+
+        Rotations.stop();
+        Pathfinder.resetPath();
+        Pathfinder.findPath(goals, (success) => {
+            if (!this.enabled || token !== this.loopToken) return;
+            if (requestId !== this.pathRequestId) return;
+
+            this.pathRequestActive = false;
+            this.waitingPathActive = false;
+            this.nukerPathTarget = null;
+            this.pathsCompleted++;
+
+            if (!success) {
+                failedTargets.forEach((target) => this.blacklistMushroom(target.x, target.y, target.z, PATH_FAIL_BLACKLIST_MS));
+                this.status = failStatus;
+                return;
+            }
+
+            if (this.harvestMode === 'Nuker') {
+                this.status = completeStatus;
+                return;
+            }
+
+            const postPath = this.getHarvestTargets(this.getFreshMushrooms());
+            this.reachableCount = postPath.length;
+
+            if (!postPath.length) {
+                this.status = completeStatus;
+                return;
+            }
+
+            this.status = 'Harvesting';
+            this.harvestRequestActive = true;
+            this.harvestMushrooms(postPath, token, (clicks) => {
+                this.harvestRequestActive = false;
+                this.lastClickCount += clicks;
+            });
+        });
+    }
+
+    getNukerDriveByGoal(mushrooms) {
+        const playerX = Player.getX();
+        const playerZ = Player.getZ();
+        const targets = mushrooms
+            .map((mushroom) => ({
+                mushroom,
+                distance: Math.hypot(mushroom.x + 0.5 - playerX, mushroom.z + 0.5 - playerZ),
+            }))
+            .sort((a, b) => a.distance - b.distance);
+        const target = targets.filter(({ distance }) => distance <= NUKER_PATH_LOOKAHEAD).pop() || targets[0];
+        this.nukerPathTarget = target.mushroom;
+
+        return [target.mushroom.x, target.mushroom.y - 1, target.mushroom.z];
+    }
+
+    getFreshMushrooms() {
+        const tracked = getTrackedGlowingMushrooms();
+        if (!tracked?.length) return [];
+        this.cleanupBlacklist();
+        return tracked.filter((entry) => {
+            if (!isGlowingMushroomBlock(entry.x, entry.y, entry.z)) return false;
+            return !this.isMushroomBlacklisted(entry.x, entry.y, entry.z);
+        });
+    }
+
+    getReachableVisibleMushrooms(mushrooms = this.getFreshMushrooms()) {
+        const eye = this.getPlayerEye();
+        if (!eye) return [];
+
+        const targets = [];
+
+        for (const mushroom of mushrooms) {
+            const point = this.getMushroomAimPoint(mushroom, eye);
+            if (!point) continue;
+
+            const dx = point.x - eye.x();
+            const dy = point.y - eye.y();
+            const dz = point.z - eye.z();
+            const distance = Math.hypot(dx, dy, dz);
+            if (distance > MAX_REACH) continue;
+
+            targets.push({
+                x: mushroom.x,
+                y: mushroom.y,
+                z: mushroom.z,
+                point,
+                distance,
+            });
+        }
+
+        targets.sort((a, b) => a.distance - b.distance);
+        return targets;
+    }
+
+    getReachableNukerMushrooms(mushrooms = this.getFreshMushrooms()) {
+        const eye = this.getPlayerEye();
+        if (!eye) return [];
+
+        const targets = [];
+
+        for (const mushroom of mushrooms) {
+            if (!isGlowingMushroomBlock(mushroom.x, mushroom.y, mushroom.z)) continue;
+
+            const nearestX = Math.max(mushroom.x, Math.min(eye.x(), mushroom.x + 1));
+            const nearestY = Math.max(mushroom.y, Math.min(eye.y(), mushroom.y + 1));
+            const nearestZ = Math.max(mushroom.z, Math.min(eye.z(), mushroom.z + 1));
+
+            const dx = nearestX - eye.x();
+            const dy = nearestY - eye.y();
+            const dz = nearestZ - eye.z();
+            const distance = Math.hypot(dx, dy, dz);
+            if (distance > MAX_REACH) continue;
+
+            targets.push({
+                x: mushroom.x,
+                y: mushroom.y,
+                z: mushroom.z,
+                distance,
+            });
+        }
+
+        targets.sort((a, b) => a.distance - b.distance);
+        return targets;
+    }
+
+    getHarvestTargets(mushrooms = this.getFreshMushrooms()) {
+        return this.getReachableVisibleMushrooms(mushrooms);
+    }
+
+    harvestMushrooms(targets, token, onDone) {
+        this.clickMushroomChain(targets, 0, token, 0, onDone);
+    }
+
+    nukeMushroomBatch(targets, token, onDone) {
+        if (!this.enabled || token !== this.loopToken) return;
+
+        for (const target of targets) {
+            if (!isGlowingMushroomBlock(target.x, target.y, target.z)) continue;
+            queueNuke([target.x, target.y, target.z], 1);
+            onDone(1);
+            return;
+        }
+
+        onDone(0);
+    }
+
+    clickMushroomChain(targets, index, token, clicks, onDone, retryCount = 0) {
+        if (!this.enabled || token !== this.loopToken) return;
+        let currentIndex = index;
+        let target = null;
+        let point = null;
+        let eye = this.getPlayerEye();
+
+        while (currentIndex < targets.length) {
+            target = targets[currentIndex];
+            point = this.getMushroomAimPoint(target, eye);
+            if (point && this.isPointWithinReach(point, eye)) break;
+            if (target) this.blacklistMushroom(target.x, target.y, target.z);
+            currentIndex++;
+        }
+
+        if (currentIndex >= targets.length || !target || !point) {
+            onDone(clicks);
+            return;
+        }
+
+        Rotations.lookAtVector(point);
+        Rotations.onComplete(() => {
+            if (!this.enabled || token !== this.loopToken) return;
+
+            const refreshedEye = this.getPlayerEye();
+            const refreshedPoint = this.getMushroomAimPoint(target, refreshedEye);
+            let totalClicks = clicks;
+
+            if (refreshedPoint && this.isPointWithinReach(refreshedPoint, refreshedEye)) {
+                Client.leftClick();
+                totalClicks++;
+
+                ScheduleTask(() => {
+                    if (!this.enabled || token !== this.loopToken) return;
+                    if (isGlowingMushroomBlock(target.x, target.y, target.z) && retryCount < MAX_TARGET_CLICK_RETRIES) {
+                        this.clickMushroomChain(targets, currentIndex, token, totalClicks, onDone, retryCount + 1);
+                        return;
+                    }
+
+                    if (isGlowingMushroomBlock(target.x, target.y, target.z) && retryCount >= MAX_TARGET_CLICK_RETRIES) {
+                        this.blacklistMushroom(target.x, target.y, target.z);
+                    }
+                    this.clickMushroomChain(targets, currentIndex + 1, token, totalClicks, onDone, 0);
+                });
+                return;
+            }
+
+            this.blacklistMushroom(target.x, target.y, target.z);
+            this.clickMushroomChain(targets, currentIndex + 1, token, totalClicks, onDone, 0);
+        });
+    }
+
+    getPlayerEye() {
+        return Player.getPlayer()?.getEyePosition?.() || null;
+    }
+
+    getMushroomAimPoint(mushroom, eye = this.getPlayerEye()) {
+        if (!eye) return null;
+        if (!isGlowingMushroomBlock(mushroom.x, mushroom.y, mushroom.z)) return null;
+
+        for (const offset of MUSHROOM_AIM_OFFSETS) {
+            const point = {
+                x: mushroom.x + offset[0],
+                y: mushroom.y + offset[1],
+                z: mushroom.z + offset[2],
+            };
+
+            if (!this.isPointWithinReach(point, eye)) continue;
+            if (!isLineClear(eye.x(), eye.y(), eye.z(), point.x, point.y, point.z, mushroom.x, mushroom.y, mushroom.z)) continue;
+
+            return point;
+        }
+
+        const fallback = getVisiblePoint(mushroom.x, mushroom.y, mushroom.z, true);
+        if (!fallback) return null;
+
+        const point = { x: fallback[0], y: fallback[1], z: fallback[2] };
+        return this.isPointWithinReach(point, eye) ? point : null;
+    }
+
+    isPointWithinReach(point, eye = this.getPlayerEye()) {
+        if (!eye || !point) return false;
+
+        const x = Array.isArray(point) ? point[0] : point.x;
+        const y = Array.isArray(point) ? point[1] : point.y;
+        const z = Array.isArray(point) ? point[2] : point.z;
+        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return false;
+
+        const dx = x - eye.x();
+        const dy = y - eye.y();
+        const dz = z - eye.z();
+        return Math.hypot(dx, dy, dz) <= MAX_REACH;
+    }
+
+    isPathGoalAlreadyReached(mushroom) {
+        if (!mushroom) return false;
+        return this.isGoalReached(mushroom.x, mushroom.y - 1, mushroom.z);
+    }
+
+    isGoalReached(goalX, goalY, goalZ) {
+        const player = Player.getPlayer();
+        if (!player) return false;
+
+        const dx = Player.getX() - goalX;
+        const dy = Player.getY() - goalY;
+        const dz = Player.getZ() - goalZ;
+
+        const horizontalDistSq = dx * dx + dz * dz;
+        if (horizontalDistSq > 2.5 * 2.5) return false;
+        if (dy < -0.1 || dy > 5.5) return false;
+
+        return player.onGround();
+    }
+
+    getMushroomKey(x, y, z) {
+        return `${Math.floor(x)}:${Math.floor(y)}:${Math.floor(z)}`;
+    }
+
+    cleanupBlacklist(now = Date.now()) {
+        for (const [key, expiresAt] of this.blacklistedMushrooms.entries()) {
+            if (expiresAt <= now) this.blacklistedMushrooms.delete(key);
+        }
+    }
+
+    isMushroomBlacklisted(x, y, z, now = Date.now()) {
+        const key = this.getMushroomKey(x, y, z);
+        const expiresAt = this.blacklistedMushrooms.get(key);
+        if (!expiresAt) return false;
+        if (expiresAt <= now) {
+            this.blacklistedMushrooms.delete(key);
+            return false;
+        }
+        return true;
+    }
+
+    blacklistMushroom(x, y, z, duration = AIM_FAIL_BLACKLIST_MS) {
+        const key = this.getMushroomKey(x, y, z);
+        this.blacklistedMushrooms.set(key, Date.now() + duration);
+    }
+}
+
+if (isDeveloperModeEnabled()) new GlowingMushroomMacro();
