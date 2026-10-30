@@ -1,0 +1,81 @@
+name: Build V5-Mojmap Release
+
+on:
+  push:
+    tags:
+      - '5.2.2-r*'
+  workflow_dispatch:
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Build release zip
+        env:
+          V5_DIR: /home/plex/Desktop/v6\ fullproject/V5
+        run: |
+          python3 << 'PYEOF'
+import os, zipfile, shutil
+
+src = os.environ['V5_DIR']
+dst_zip = '/tmp/V5-Mojmap.zip'
+
+# Copy source directory
+shutil.copytree(src, '/tmp/v5build')
+
+# Remove .git directory
+git_dir = '/tmp/v5build/.git'
+if os.path.exists(git_dir):
+    shutil.rmtree(git_dir)
+
+# Remove .github directory
+gh_dir = '/tmp/v5build/.github'
+if os.path.exists(gh_dir):
+    shutil.rmtree(gh_dir)
+
+# Remove build directory
+build_dir = '/tmp/v5build/build'
+if os.path.exists(build_dir):
+    shutil.rmtree(build_dir)
+
+# Remove .md files
+for root, dirs, files in os.walk('/tmp/v5build'):
+    for f in files:
+        if f.endswith('.md') or f.endswith('.MD'):
+            os.remove(os.path.join(root, f))
+
+# Remove dotfiles
+for root, dirs, files in os.walk('/tmp/v5build'):
+    for f in files:
+        if f.startswith('.'):
+            os.remove(os.path.join(root, f))
+
+# Build zip
+with zipfile.ZipFile(dst_zip, 'w', zipfile.ZIP_DEFLATED) as z:
+    for root, dirs, files in os.walk('/tmp/v5build'):
+        for f in files:
+            fp = os.path.join(root, f)
+            z.write(fp, os.path.relpath(fp, '/tmp/v5build'))
+
+print('Zip built successfully at', dst_zip)
+PYEOF
+          
+      - name: Upload release asset
+        uses: actions/upload-release-asset@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          upload-url: ${{ job.step_outputs.upload_url || '' }}
+          asset-path: /tmp/V5-Mojmap.zip
+          asset-name: V5-Mojmap.zip
+          asset-content-type: application/zip
