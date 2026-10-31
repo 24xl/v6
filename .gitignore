@@ -4,3 +4,6 @@ desktop.ini
 # private local notes - never tracked/pushed
 history.md
 future_plans.md
+# Development markdown files - never shipped in releases
+*.md
+*.MD
