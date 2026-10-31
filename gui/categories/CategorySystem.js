@@ -16,6 +16,11 @@ export const Categories = {
         },
         {
             name: 'Modules',
+        {
+            name: 'Catacombs',
+            items: [],
+            subcategories: [],
+        },
             items: [],
             subcategories: [],
         },
@@ -39,7 +44,6 @@ export const Categories = {
             hiddenInSidebar: true,
         },
         {
-            name: 'Catacombs',
             items: [],
             subcategories: [],
         },
