@@ -33,15 +33,6 @@ export const Categories = {
             subcategories: [],
             hiddenInSidebar: true,
         },
-
-export const getVisibleDirectComponents = (categoryName) => {
-    const category = Categories.categories.find((item) => item.name === categoryName);
-    if (!category?.directComponents) return [];
-    return Categories.selectedSubcategory === null
-        ? category.directComponents
-        : category.directComponents.filter((component) => component.sectionName === Categories.selectedSubcategory);
-};
-
     ],
     selected: 'Dashboard',
     selectedItem: null,
@@ -58,3 +49,10 @@ export const getVisibleDirectComponents = (categoryName) => {
     subcatTransitionStart: 0,
     subcatAnimationDuration: 200,
 }
+export const getVisibleDirectComponents = (categoryName) => {
+    const category = Categories.categories.find((item) => item.name === categoryName);
+    if (!category?.directComponents) return [];
+    return Categories.selectedSubcategory === null
+        ? category.directComponents
+        : category.directComponents.filter((component) => component.sectionName === Categories.selectedSubcategory);
+};
