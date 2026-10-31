@@ -113,6 +113,8 @@ import './other/PeltQOL';
 import './other/DojoMacro';
 import './other/ButtonGallery';
 
+/* CATACOMBS */
+import './Catacombs/DungeonMap';
 /* COMBAT */
 import './combat/CombatBot';
 import './combat/CombatNavigation';
