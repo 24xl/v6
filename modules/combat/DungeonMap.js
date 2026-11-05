@@ -1,7 +1,7 @@
 import { ModuleBase } from "../../utils/ModuleBase";
 import { chat } from "../../utils/Chat";
 import { OverlayManager } from "../../gui/OverlayUtils";
-import { DungeonState } from "../../utils/dungeon/DungeonState";
+import DungeonState from "../../utils/dungeon/DungeonState";
 import {
   DungeonDetector,
   isInDungeon,
