@@ -1,0 +1,480 @@
+import {
+    clamp,
+    colorWithAlpha,
+    drawRoundedRectangle,
+    drawRoundedRectangleWithBorder,
+    drawShadow,
+    drawText,
+    easeInBack,
+    easeOutBack,
+    FontSizes,
+    getTextWidth,
+    isInside,
+    PADDING,
+    playClickSound,
+    THEME,
+} from '../Utils';
+import { Button } from './Button';
+import { getComponentLayoutHeight, isComponentVisible } from './layout';
+import { GuiState } from '../core/GuiState';
+import { setTooltip } from '../core/GuiTooltip';
+
+const CLOSE_TEXT = '×';
+const ANIMATION_DURATION = 350;
+const CONTENT_INDENT = 4;
+
+export class Popup {
+    constructor(title, x, y, openText = 'Open', closeText = 'Close', callback = null) {
+        this.title = title;
+        this.x = x;
+        this.y = y;
+        this.openText = openText;
+        this.closeText = closeText;
+        this.callback = callback;
+
+        this.optionPanelWidth = 0;
+        this.optionPanelHeight = 0;
+        this.containerHeight = 24;
+        this.description = null;
+        this.statusText = null;
+
+        this.animationState = 'closed';
+        this.animationStart = 0;
+        this.dimScreen = true;
+
+        this.components = [];
+        this.contentScrollY = 0;
+
+        this.windowPadding = 12;
+        this.headerHeight = 36;
+        this.closeSize = 20;
+        this.windowRect = {};
+        this.closeRect = {};
+
+        this.button = new Button(title, x, y, openText, () => this.toggleOpen(undefined, false), { showContainer: false });
+    }
+
+    addComponent(component, description) {
+        if (description !== undefined) component.description = description;
+        this.components.push(component);
+        return component;
+    }
+
+    setButtonText(openText, closeText) {
+        if (openText) this.openText = openText;
+        if (closeText) this.closeText = closeText;
+        const isOpen = this.animationState === 'open' || this.animationState === 'opening';
+        this.button.setButtonText(isOpen ? this.closeText : this.openText);
+    }
+
+    startHighlight() {
+        if (typeof this.button.startHighlight === 'function') {
+            this.button.startHighlight();
+        }
+    }
+
+    get isOpen() {
+        return this.animationState !== 'closed';
+    }
+
+    getWindowHeight() {
+        const contentHeight = this.getContentHeight();
+        const maxHeight = Math.max(150, GuiState.getGuiHeight() * 0.8);
+        return Math.min(maxHeight, this.headerHeight + this.windowPadding * 2 + contentHeight);
+    }
+
+    getContentHeight() {
+        let height = 0;
+        if (this.statusText) height += 20; // Significantly reduced from 40 to 20
+        this.components.forEach((component) => {
+            height += getComponentLayoutHeight(component);
+        });
+        height += 4;
+        return height;
+    }
+
+    getWindowRect() {
+        const screenW = GuiState.getGuiWidth();
+        const screenH = GuiState.getGuiHeight();
+        const baseWidth = Math.min(540, screenW * 0.7);
+        const height = this.getWindowHeight();
+        return {
+            x: Math.round((screenW - baseWidth) / 2),
+            y: Math.round((screenH - height) / 2),
+            width: Math.round(baseWidth),
+            height: Math.round(height),
+        };
+    }
+
+    toggleOpen(force, playSound = true) {
+        const currentState = this.isOpen;
+        const nextState = typeof force === 'boolean' ? force : !currentState;
+
+        if (nextState) {
+            this.animationState = 'opening';
+            this.animationStart = Date.now();
+            this.contentScrollY = 0;
+        } else {
+            this.animationState = 'closing';
+            this.animationStart = Date.now();
+        }
+
+        this.button.setButtonText(nextState ? this.closeText : this.openText);
+        if (this.callback) this.callback(nextState);
+        if (playSound) playClickSound();
+    }
+
+    drawButton(mouseX, mouseY) {
+        const panelWidth = this.optionPanelWidth - PADDING * 2;
+        const buttonWidth = Math.max(64, getTextWidth(this.button.buttonText, FontSizes.REGULAR) + 20);
+
+        this.button.x = this.x;
+        this.button.y = this.y;
+        this.button.drawHighlight(panelWidth, this.containerHeight);
+        drawText(this.title, this.x, this.y + this.containerHeight / 2, FontSizes.REGULAR, THEME.TEXT);
+
+        this.button.x = this.x + panelWidth - buttonWidth;
+        this.button.y = this.y + (this.containerHeight - 18) / 2;
+        this.button.optionPanelWidth = this.optionPanelWidth;
+        this.button.optionPanelHeight = this.optionPanelHeight;
+        this.button.description = null;
+        this.button.draw(mouseX, mouseY);
+
+        if (this.description && isInside(mouseX, mouseY, { x: this.x, y: this.y, width: panelWidth, height: this.containerHeight })) {
+            setTooltip(this.description);
+        }
+    }
+
+    drawOverlay(mouseX, mouseY) {
+        if (this.animationState === 'closed') return;
+
+        const elapsed = Date.now() - this.animationStart;
+        const progress = clamp(elapsed / ANIMATION_DURATION, 0, 1);
+
+        if (this.animationState === 'opening' && progress >= 1) {
+            this.animationState = 'open';
+        } else if (this.animationState === 'closing' && progress >= 1) {
+            this.animationState = 'closed';
+            return;
+        }
+
+        let animValue = 1;
+        if (this.animationState === 'opening') {
+            animValue = easeOutBack(progress);
+        } else if (this.animationState === 'closing') {
+            animValue = 1 - easeInBack(progress);
+        }
+
+        const windowRect = this.getWindowRect();
+        this.windowRect = windowRect;
+
+        if (this.dimScreen) {
+            const screenW = GuiState.getGuiWidth();
+            const screenH = GuiState.getGuiHeight();
+            const bgAlpha = Math.min(0.4, 0.4 * (this.animationState === 'closing' ? 1 - progress : progress));
+            drawRoundedRectangle({
+                x: 0,
+                y: 0,
+                width: screenW,
+                height: screenH,
+                radius: 0,
+                color: new java.awt.Color(0, 0, 0, bgAlpha),
+            });
+        }
+
+        const centerX = windowRect.x + windowRect.width / 2;
+        const centerY = windowRect.y + windowRect.height / 2;
+
+        Render2D.save();
+        Render2D.translate(centerX, centerY);
+        Render2D.scale(animValue, animValue);
+        Render2D.translate(-centerX, -centerY);
+
+        drawShadow(windowRect.x, windowRect.y, windowRect.width, windowRect.height, 20, 0.5);
+
+        drawRoundedRectangleWithBorder({
+            x: windowRect.x,
+            y: windowRect.y,
+            width: windowRect.width,
+            height: windowRect.height,
+            radius: 14,
+            color: THEME.BG_WINDOW,
+            borderWidth: 1,
+            borderColor: THEME.BORDER,
+        });
+
+        drawRoundedRectangle({
+            x: windowRect.x,
+            y: windowRect.y + this.headerHeight,
+            width: windowRect.width,
+            height: 1,
+            radius: 0,
+            color: THEME.BORDER,
+        });
+
+        const titleX = windowRect.x + this.windowPadding;
+        const titleY = windowRect.y + this.headerHeight / 2;
+        drawText(this.title, titleX, titleY, FontSizes.HEADER, THEME.TEXT);
+
+        const closeX = windowRect.x + windowRect.width - this.windowPadding - this.closeSize;
+        const closeY = windowRect.y + (this.headerHeight - this.closeSize) / 2;
+        this.closeRect = {
+            x: closeX,
+            y: closeY,
+            width: this.closeSize,
+            height: this.closeSize,
+        };
+
+        drawRoundedRectangle({
+            x: closeX,
+            y: closeY,
+            width: this.closeSize,
+            height: this.closeSize,
+            radius: 6,
+            color: THEME.BG_INSET,
+        });
+        const closeTextY = closeY + this.closeSize / 2;
+        drawText(CLOSE_TEXT, closeX + this.closeSize / 2, closeTextY, FontSizes.LARGE, THEME.TEXT, 18);
+
+        const contentX = windowRect.x + this.windowPadding + CONTENT_INDENT;
+        const contentY = windowRect.y + this.headerHeight + this.windowPadding - this.contentScrollY;
+        const contentWidth = windowRect.width - (this.windowPadding + CONTENT_INDENT) * 2;
+        const contentHeight = windowRect.height - this.headerHeight - this.windowPadding * 2;
+        const visibleTop = windowRect.y + this.headerHeight;
+        const visibleBottom = windowRect.y + windowRect.height - this.windowPadding;
+
+        Render2D.scissor(windowRect.x, windowRect.y + this.headerHeight + 1, windowRect.width, contentHeight + this.windowPadding);
+
+        const maxScroll = Math.max(0, this.getContentHeight() - contentHeight);
+        this.contentScrollY = Math.max(0, Math.min(this.contentScrollY, maxScroll));
+
+        let currentY = contentY;
+        if (this.statusText) {
+            drawText(this.statusText, contentX, currentY + 6, FontSizes.REGULAR, THEME.TEXT_MUTED);
+            currentY += 20;
+        }
+
+        this.components.forEach((component) => {
+            if (!isComponentVisible(component)) return;
+            if (typeof component.draw !== 'function') return;
+
+            if (component instanceof Button && component.title === component.buttonText) {
+                const btnHeight = 36;
+                const btnWidth = contentWidth;
+
+                component.buttonRect = {
+                    x: contentX,
+                    y: currentY,
+                    width: btnWidth,
+                    height: btnHeight,
+                };
+
+                if (typeof component.updateHoverPress === 'function') {
+                    component.updateHoverPress();
+                }
+
+                if (currentY + btnHeight < visibleTop || currentY > visibleBottom) {
+                    currentY += btnHeight + 10;
+                    return;
+                }
+
+                drawRoundedRectangle({
+                    x: contentX,
+                    y: currentY,
+                    width: btnWidth,
+                    height: btnHeight,
+                    radius: 8,
+                    color: THEME.BG_INSET,
+                });
+                const pressProgress = component.pressProgress || 0;
+                if (pressProgress > 0) {
+                    drawRoundedRectangle({
+                        x: contentX,
+                        y: currentY,
+                        width: btnWidth,
+                        height: btnHeight,
+                        radius: 8,
+                        color: colorWithAlpha(THEME.BG_INSET, 0.45 * pressProgress),
+                    });
+                }
+
+                drawText(
+                    component.buttonText,
+                    contentX + btnWidth / 2,
+                    currentY + btnHeight / 2 + (pressProgress > 0 ? 1 : 0),
+                    FontSizes.REGULAR,
+                    THEME.TEXT,
+                    18
+                );
+
+                currentY += btnHeight + 10;
+                return;
+            }
+
+            const componentHeight = getComponentLayoutHeight(component);
+            if (currentY + componentHeight < visibleTop || currentY > visibleBottom) {
+                component.updateAnimation?.();
+                currentY += componentHeight;
+                return;
+            }
+
+            component.x = contentX;
+            component.y = currentY;
+            component.optionPanelWidth = contentWidth + PADDING * 2;
+            component.optionPanelHeight = contentHeight;
+            component.draw(mouseX, mouseY);
+
+            currentY += componentHeight;
+        });
+
+        Render2D.resetScissor();
+        Render2D.restore();
+    }
+
+    handleButtonClick(mouseX, mouseY) {
+        return this.button.handleClick(mouseX, mouseY);
+    }
+
+    handleOverlayClick(mouseX, mouseY) {
+        if (this.animationState === 'closed') return false;
+        if (this.animationState !== 'open') return true;
+
+        if (isInside(mouseX, mouseY, this.closeRect)) {
+            this.toggleOpen(false);
+            return true;
+        }
+
+        if (!isInside(mouseX, mouseY, this.windowRect)) {
+            this.toggleOpen(false);
+            return true;
+        }
+
+        const contentX = this.windowRect.x + this.windowPadding + CONTENT_INDENT;
+        const contentY = this.windowRect.y + this.headerHeight + this.windowPadding - this.contentScrollY;
+        const contentWidth = this.windowRect.width - (this.windowPadding + CONTENT_INDENT) * 2;
+
+        if (mouseY < this.windowRect.y + this.headerHeight) return true;
+
+        let currentY = contentY;
+        if (this.statusText) currentY += 20;
+
+        for (const component of this.components) {
+            if (!isComponentVisible(component)) continue;
+            if (component instanceof Button && component.title === component.buttonText) {
+                const btnHeight = 36;
+                const btnWidth = contentWidth;
+
+                const clickableArea = {
+                    x: contentX,
+                    y: currentY,
+                    width: btnWidth,
+                    height: btnHeight,
+                };
+
+                const visibleTop = this.windowRect.y + this.headerHeight;
+                const visibleBottom = this.windowRect.y + this.windowRect.height - this.windowPadding;
+
+                if (currentY + btnHeight > visibleTop && currentY < visibleBottom) {
+                    if (isInside(mouseX, mouseY, clickableArea)) {
+                        if (typeof component.triggerPressFeedback === 'function') {
+                            component.triggerPressFeedback();
+                        }
+                        playClickSound();
+                        if (component.callback) component.callback();
+                        return true;
+                    }
+                }
+                currentY += btnHeight + 10;
+                continue;
+            }
+
+            if (typeof component.handleClick !== 'function') {
+                currentY += getComponentLayoutHeight(component);
+                continue;
+            }
+
+            const componentHeight = getComponentLayoutHeight(component);
+
+            const clickableArea = {
+                x: contentX,
+                y: currentY,
+                width: contentWidth,
+                height: componentHeight,
+            };
+
+            const visibleTop = this.windowRect.y + this.headerHeight;
+            const visibleBottom = this.windowRect.y + this.windowRect.height - this.windowPadding;
+
+            if (currentY + componentHeight > visibleTop && currentY < visibleBottom) {
+                if (isInside(mouseX, mouseY, clickableArea)) {
+                    component.x = contentX;
+                    component.y = currentY;
+                    component.optionPanelWidth = contentWidth + PADDING * 2;
+                    component.optionPanelHeight = this.windowRect.height;
+
+                    if (component.handleClick(mouseX, mouseY)) return true;
+                }
+            }
+
+            currentY += componentHeight;
+        }
+
+        return true;
+    }
+
+    handleScroll(mouseX, mouseY, dir) {
+        if (this.animationState === 'closed') return false;
+        if (this.animationState !== 'open') return true;
+        if (!isInside(mouseX, mouseY, this.windowRect)) return true;
+
+        const contentHeight = this.windowRect.height - this.headerHeight - this.windowPadding * 2;
+        const maxScroll = Math.max(0, this.getContentHeight() - contentHeight);
+        const scrollSpeed = 25;
+
+        this.contentScrollY = Math.max(0, Math.min(this.contentScrollY + (dir > 0 ? -1 : 1) * scrollSpeed, maxScroll));
+        return true;
+    }
+
+    handleMouseDrag(mouseX, mouseY) {
+        if (this.animationState !== 'open') return false;
+
+        const contentX = this.windowRect.x + this.windowPadding + CONTENT_INDENT;
+        const contentY = this.windowRect.y + this.headerHeight + this.windowPadding - this.contentScrollY;
+        const contentWidth = this.windowRect.width - (this.windowPadding + CONTENT_INDENT) * 2;
+
+        let currentY = contentY;
+        if (this.statusText) currentY += 20;
+
+        this.components.forEach((component) => {
+            if (!isComponentVisible(component)) return;
+            if (component instanceof Button && component.title === component.buttonText) {
+                currentY += 36 + 10;
+                return;
+            }
+
+            if (typeof component.handleMouseDrag !== 'function') {
+                currentY += getComponentLayoutHeight(component);
+                return;
+            }
+
+            component.x = contentX;
+            component.y = currentY;
+            component.optionPanelWidth = contentWidth + PADDING * 2;
+
+            currentY += getComponentLayoutHeight(component);
+
+            component.handleMouseDrag(mouseX, mouseY);
+        });
+        return true;
+    }
+
+    handleMouseRelease() {
+        if (this.animationState !== 'open') return false;
+        this.components.forEach((component) => {
+            if (typeof component.handleMouseRelease === 'function') {
+                component.handleMouseRelease();
+            }
+        });
+        return true;
+    }
+}

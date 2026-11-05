@@ -1,0 +1,498 @@
+import { ModuleBase } from '../../utils/ModuleBase';
+import { Mousemat } from '../../utils/player/Mousemat';
+import { Rotations } from '../../utils/player/Rotations';
+import { ScheduleTask } from '../../utils/ScheduleTask';
+import { getPestCooldown, getTabListNames, readPests, stripTabFormatting } from '../../utils/TabListUtils';
+import { regrab, ungrab } from '../../utils/Ungrab';
+import { getConfigFile, getGardenPestStatus, randomInt, writeConfigFile } from '../../utils/Utils';
+import { inGarden } from '../../utils/Area';
+import { alert } from '../../utils/Alert';
+import { findItemInHotbar, setItemSlot } from '../../utils/player/Inventory';
+import { farmingSettings } from './FarmingSettings';
+import { farmingDelays } from './FarmingDelays';
+import { rewarpHandler } from './rewarp/RewarpHandler';
+import { rewarpSettings } from './rewarp/RewarpSettings';
+import { getNearbyPest } from '../visuals/PestESP';
+import { loadoutHandler } from './LoadoutHandler';
+import { sunsetPests } from './SunsetPests';
+import { registerSkyblockEvent } from '../../utils/SkyblockEvents';
+
+const MAX_PEST_TRACK_DISTANCE = 14;
+const PEST_STALL_GRACE_TICKS = 20;
+const GUI_RESUME_GRACE_TICKS = 5;
+// Opening a GUI force-releases the attack key: closeInventory() calls
+// keyAttack.setDown(false) and unpressKeys() calls KeyMapping.releaseAll(). Re-arm the
+// click for a few ticks after any GUI closes, or the macro walks with the mouse up.
+// Re-assert the break for this long after a GUI closes or a rewarp returns to farming.
+// The press only fires at the about-to-farm point, and only while a farming tool is held,
+// so a closed loadout/islandtime/npc-sell GUI can never leave the macro walking with the
+// attack released, and we never break the roof (pests) or the ground (trap clearing).
+const FARM_CLICK_WINDOW_MS = 1000;
+// While a GUI is open, updatePosition() never runs, so the player standing still inside
+// the GUI reads as a row-end to the stationary tracker and the macro advances lanes
+// mid-row and walks without breaking. After any GUI close, shield the lane logic for
+// this many ticks and re-baseline the movement so farming resumes exactly where it was.
+const GUI_RESUME_SHIELD_TICKS = 15;
+const SPRAY_CHECK_COOLDOWN_MS = 5_000;
+const SPRAY_RESTORE_DELAY_TICKS = 3;
+const TAB_CHECK_GRACE_MS = 5_000;
+const FARMING = 'Farming';
+const PEST = 'Pest';
+const RESTORING_PEST = 'Restoring Pest';
+const REWARPING = 'Rewarping';
+
+export class FarmingMacro extends ModuleBase {
+    state = null;
+    lastDirection = null;
+    yaw = 0;
+    leftYaw = 0;
+    laneChanging = false;
+    ignoreTicks = 0;
+
+    constructor(options, commandPrefix) {
+        super({ subcategory: 'Farming', isMacro: true, ...options, autoDisableOnWorldUnload: true });
+
+        this.pointsPath = `FarmingMacro/${commandPrefix.replaceAll(' ', '_')}_points.json`;
+        this.points = getConfigFile(this.pointsPath) || {};
+
+        this.bindToggleKey();
+        const rewarpStart = this.addButton('Set Rewarp Start', () => this.saveRewarpPoint('start'), 'Stand at the position reached by the rewarp command.');
+        const rewarpEnd = this.addButton('Set Rewarp End', () => this.saveRewarpPoint('end'), 'Stand at the farm endpoint that should trigger a rewarp.');
+        rewarpSettings.addRewarpButtons(rewarpStart, rewarpEnd);
+        this.createOverlay([
+            {
+                title: 'Status',
+                data: { State: () => (this.mode === FARMING ? this.state : this.mode) },
+            },
+        ]);
+
+        this.on('tick', () => this.handleTick());
+        this.when(() => !inGarden(), 'tick', () => this.toggle(false), true);
+        registerSkyblockEvent('sprayonatorunavailable', () => {
+            if (this.enabled && farmingSettings.useSprayonator) this.sprayonatorUnavailable = true;
+        });
+    }
+
+    onEnable() {
+        if (!inGarden()) {
+            this.message('&cYou must be in the Garden to enable this macro.');
+            this.toggle(false);
+            return;
+        }
+        if ((farmingSettings.killNearbyPests || rewarpSettings.isPestKillingEnabled()) && findItemInHotbar('Vacuum') < 0) {
+            this.message('&cNo Vacuum found in hotbar.');
+            this.toggle(false);
+            return;
+        }
+        if (!rewarpSettings.looping) {
+            if (!this.isPoint(this.points.start) || !this.isPoint(this.points.end)) {
+                this.message('Set both Rewarp points before enabling Rewarp mode.');
+                this.toggle(false);
+                return;
+            }
+            if (this.rewarpPointsOverlap()) {
+                this.message('Rewarp start/end overlap detected. Ensure the points are set correctly.');
+                this.toggle(false);
+                return;
+            }
+        }
+        this.farmingRotation = null;
+        this.nextSprayCheckAt = 0;
+        this.sprayonatorUnavailable = false;
+        this.sprayonatorAction = null;
+        this.mode = FARMING;
+        this.stallGraceTicks = 0;
+        this.resumeClickUntil = 0;
+        this.guiResumeTicks = 0;
+        this.wasInGui = false;
+        this.pestSpawnAlerted = false;
+        ungrab();
+        this.startDelayTicks = 1;
+        const player = Player.getPlayer();
+        if (!player) return;
+
+        this.farmingSlot = Player.getHeldItemIndex();
+        loadoutHandler.select(getPestCooldown() <= loadoutHandler.pestSpawnSwapCooldown ? loadoutHandler.pestSpawningSlot : loadoutHandler.farmingSlot);
+        this.startFarming(player);
+    }
+
+    onDisable() {
+        rewarpHandler.stop();
+        Mousemat.stop();
+        Rotations.stop();
+        Client.unpressKeys();
+        regrab();
+        this.mode = FARMING;
+        this.pestTarget = null;
+        this.pestRotation = null;
+        this.pestFarmState = null;
+        this.stallGraceTicks = 0;
+        if (this.sprayonatorAction) setItemSlot(this.sprayonatorOriginalSlot);
+        this.sprayonatorAction = null;
+        farmingSettings.restoreSlot();
+    }
+
+    handleTick() {
+        if (this.startDelayTicks > 0) {
+            this.startDelayTicks--;
+            return;
+        }
+
+        const player = Player.getPlayer();
+        if (!player) return;
+
+        if (Client.isInGui() && this.mode !== REWARPING) {
+            this.wasInGui = true;
+            this.stationaryTicks = 0;
+            this.stallGraceTicks = Math.max(this.stallGraceTicks, GUI_RESUME_GRACE_TICKS);
+            return;
+        }
+
+        // Arm the re-click window and the lane-logic shield on the GUI-close edge. Standing
+        // still in the GUI read as a row-end, so re-baseline movement and hold the current
+        // lane instead of advancing mid-row.
+        if (this.wasInGui) {
+            this.wasInGui = false;
+            this.resumeClickUntil = Date.now() + FARM_CLICK_WINDOW_MS;
+            this.guiResumeTicks = GUI_RESUME_SHIELD_TICKS;
+            this.stationaryTicks = 0;
+            this.updatePosition(player);
+        }
+
+        if (Mousemat.active) return;
+
+        if (this.mode === REWARPING && !rewarpHandler.isManualActive()) {
+            // Never leave a break held while the rewarper is doing its own thing (roof climb,
+            // trap emptying, return). Farming is the only thing that should break crops.
+            Client.setKey('leftclick', false);
+        }
+
+        switch (this.mode) {
+            case FARMING:
+                return this.handleFarming(player);
+            case PEST:
+                return this.handlePest(player);
+            case RESTORING_PEST:
+                return Client.unpressKeys();
+            case REWARPING:
+                return rewarpHandler.tick(player);
+        }
+    }
+
+    pestThresholdReached() {
+        if (!rewarpSettings.isPestKillingEnabled()) return false;
+        const count = rewarpSettings.getPestKillerMode() === 'Manual' ? readPests().alivePestCount : getGardenPestStatus().gardenPests;
+        return count >= rewarpSettings.pestThreshold;
+    }
+
+    handleFarming(player) {
+        if (loadoutHandler.switching) return Client.unpressKeys();
+        if (this.sprayonatorAction) return;
+        if (farmingSettings.killNearbyPests && !rewarpSettings.isPestKillingEnabled() && this.handlePest(player)) return;
+
+        const looping = rewarpSettings.looping;
+        const hybrid = rewarpSettings.hybrid;
+        if (this.pestThresholdReached()) {
+            const pestColumnClear = this.isPestColumnClear(player);
+            if (looping || hybrid || pestColumnClear) {
+                const returnPoint = { x: player.getX(), y: player.getY(), z: player.getZ() };
+                if (looping || hybrid) ChatLib.command('sethome');
+                return this.beginRewarp(returnPoint, true);
+            }
+        }
+        if (!looping && this.isAtPoint(player, this.points.end)) {
+            return this.beginRewarp(this.points.start, this.pestThresholdReached());
+        }
+        if (looping && this.shouldRunBarnTasks()) {
+            if (rewarpSettings.shouldRunVisitorMacro() || rewarpSettings.philipContactMethod === 'Pathfind') ChatLib.command('sethome');
+            return this.beginRewarp({ x: player.getX(), y: player.getY(), z: player.getZ() });
+        }
+
+        const { hasSection: hasPestSection } = readPests();
+        const pestCooldown = getPestCooldown();
+        if (rewarpSettings.getPestKillerMode() === 'Manual' && hasPestSection && pestCooldown <= loadoutHandler.pestSpawnSwapCooldown) {
+            if (!this.pestSpawnAlerted) {
+                this.pestSpawnAlerted = true;
+                alert('manual pest killing soon');
+                this.message('&eManual pest killing soon');
+            }
+        } else if (hasPestSection && pestCooldown > loadoutHandler.pestSpawnSwapCooldown) {
+            this.pestSpawnAlerted = false;
+        }
+
+        const slot = pestCooldown <= loadoutHandler.pestSpawnSwapCooldown ? loadoutHandler.pestSpawningSlot : loadoutHandler.farmingSlot;
+        if (!loadoutHandler.select(slot)) return Client.unpressKeys();
+
+        if (this.trySprayonator()) return;
+
+        if (Rotations.active) return this.hold();
+
+        if (player.getAbilities().flying) return this.hold('shift');
+
+        if (this.guiResumeTicks > 0) {
+            this.guiResumeTicks--;
+            this.updatePosition(player);
+        } else if (this.stallGraceTicks > 0) {
+            this.stallGraceTicks--;
+            this.updatePosition(player);
+        } else {
+            this.updateFarmState(player);
+        }
+        // GUI closed recently: re-assert the break only at the true point of farming and
+        // only while a farming tool is held, so we never break the roof or the ground.
+        if (this.resumeClickUntil > Date.now() && this.isFarmingTool()) {
+            Client.setKey('leftclick', true);
+        }
+        this.invokeFarmState();
+    }
+
+    onFarmStart(player) {}
+    updateFarmState(player) {}
+    invokeFarmState() {}
+
+    trySprayonator() {
+        const now = Date.now();
+        if (this.sprayonatorUnavailable || !farmingSettings.useSprayonator || now < this.nextSprayCheckAt || now < this.nextTabCheckAt || !this.hasNoSpray()) {
+            return false;
+        }
+
+        const slot = findItemInHotbar('Sprayonator');
+        if (slot < 0) return false;
+
+        this.sprayonatorOriginalSlot = this.farmingSlot;
+        const action = {};
+        this.sprayonatorAction = action;
+        Client.unpressKeys();
+        setItemSlot(slot);
+        ScheduleTask(farmingDelays.ticks('sprayonatorAction'), () => {
+            if (this.sprayonatorAction !== action) return;
+            Client.rightClick();
+            ScheduleTask(farmingDelays.ticks('sprayonatorAction'), () => {
+                if (this.sprayonatorAction !== action) return;
+                setItemSlot(this.sprayonatorOriginalSlot);
+                this.startDelayTicks = Math.max(this.startDelayTicks, SPRAY_RESTORE_DELAY_TICKS);
+                this.nextSprayCheckAt = Date.now() + SPRAY_CHECK_COOLDOWN_MS;
+                this.sprayonatorAction = null;
+            });
+        });
+        return true;
+    }
+
+    hasNoSpray() {
+        return getTabListNames().some((line) => /\bSpray:\s*None\b/.test(stripTabFormatting(line?.getName?.() ?? line)));
+    }
+
+    beginRewarp(rewarpStartPoint = this.points.start, runPestKiller = false) {
+        Client.unpressKeys();
+        this.mode = REWARPING;
+        rewarpHandler.start(this, rewarpStartPoint, runPestKiller);
+    }
+
+    isPestColumnClear(player) {
+        const x = Math.floor(player.getX());
+        const z = Math.floor(player.getZ());
+        for (let y = Math.floor(player.getY()) + 2; y <= 76; y++) {
+            if (String(World.getBlockAt(x, y, z)?.type?.getRegistryName?.()) !== 'minecraft:air') return false;
+        }
+        return true;
+    }
+
+    shouldRunBarnTasks() {
+        return Date.now() >= this.nextTabCheckAt && (rewarpSettings.shouldRunVisitorMacro() || rewarpSettings.shouldRunPhilipBonus());
+    }
+
+    finishRewarp(player) {
+        if (!loadoutHandler.select(loadoutHandler.farmingSlot)) return;
+        if (Player.getHeldItemIndex() !== this.farmingSlot) {
+            setItemSlot(this.farmingSlot);
+            return;
+        }
+        if (!sunsetPests.isDone('night')) return;
+        this.resumeClickUntil = Date.now() + FARM_CLICK_WINDOW_MS;
+        this.guiResumeTicks = GUI_RESUME_SHIELD_TICKS;
+        this.mode = FARMING;
+        this.startFarming(player);
+    }
+
+    handlePest(player) {
+        if (this.mode === PEST && (this.pestTarget?.isDead() || (this.pestTarget && !this.isPestInRange(this.pestTarget)))) {
+            this.finishPest();
+            return true;
+        }
+        if (this.mode === FARMING) {
+            this.pestTarget = getNearbyPest();
+            if (!this.pestTarget) return false;
+        }
+
+        Client.unpressKeys();
+        if (this.mode === FARMING) {
+            this.pestRotation = { yaw: player.getYRot(), pitch: player.getXRot() };
+            this.pestFarmState = {
+                state: this.state,
+                lastDirection: this.lastDirection,
+                yaw: this.yaw,
+                leftYaw: this.leftYaw,
+                laneChanging: this.laneChanging,
+            };
+            this.mode = PEST;
+            farmingSettings.originalSlot = Player.getHeldItemIndex();
+        }
+        if (!farmingSettings.selectVacuum()) return true;
+        Client.setKey('rightclick', true);
+        Rotations.trackEntity(this.pestTarget);
+        return true;
+    }
+
+    isPestInRange(pest) {
+        const eyes = Player.getPlayer()?.getEyePosition();
+        if (!eyes) return false;
+        const dx = pest.getX() - eyes.x();
+        const dy = pest.getY() - eyes.y();
+        const dz = pest.getZ() - eyes.z();
+        return dx * dx + dy * dy + dz * dz <= MAX_PEST_TRACK_DISTANCE ** 2;
+    }
+
+    finishPest() {
+        const rotation = this.pestRotation;
+        const farmState = this.pestFarmState;
+        if (!this.pestTarget && !rotation) return;
+
+        this.mode = RESTORING_PEST;
+        Rotations.stop();
+        Client.unpressKeys();
+        farmingSettings.restoreSlot();
+        if (!rotation || !this.enabled) return;
+
+        const resume = () => {
+            const player = Player.getPlayer();
+            if (this.enabled && player) this.resumeFarming(player, farmState, rotation);
+        };
+        ScheduleTask(farmingDelays.ticks('pestRestore'), () => {
+            if (!farmingSettings.useMousemat) {
+                if (!this.rotateTo(rotation.yaw, rotation.pitch, resume)) resume();
+                return;
+            }
+            if (Mousemat.restore()) {
+                Mousemat.onComplete(resume);
+            } else {
+                this.message(`&cNo Mousemat found in hotbar.`);
+                this.toggle(false);
+            }
+        });
+    }
+
+    resumeFarming(player, farmState, rotation) {
+        this.nextTabCheckAt = Date.now() + TAB_CHECK_GRACE_MS;
+        if (!farmingSettings.useMousemat) {
+            this.startFarming(player);
+            Rotations.lookAtAngles(rotation.yaw, rotation.pitch);
+        }
+        Object.assign(this, farmState);
+        this.pestTarget = null;
+        this.pestRotation = null;
+        this.pestFarmState = null;
+        this.stallGraceTicks = PEST_STALL_GRACE_TICKS;
+        this.mode = FARMING;
+    }
+
+    startFarming(player) {
+        this.nextTabCheckAt = Date.now() + TAB_CHECK_GRACE_MS;
+        this.stationaryTicks = 0;
+        this.updatePosition(player);
+        this.onFarmStart(player);
+    }
+
+    rotateTo(yaw, pitch, callback = null) {
+        if (this.mode === FARMING && callback === null) {
+            if (!this.farmingRotation) this.farmingRotation = { yaw, pitch };
+            ({ yaw, pitch } = this.farmingRotation);
+        }
+
+        if (!farmingSettings.useMousemat) {
+            const started = Rotations.lookAtAngles(yaw, pitch);
+            if (started && callback) Rotations.onComplete(callback);
+            return started;
+        }
+
+        Client.unpressKeys();
+        Rotations.stop();
+        if (!Mousemat.rotateTo(yaw, pitch)) {
+            this.message(`&cNo Mousemat found in hotbar.`);
+            this.toggle(false);
+            return false;
+        }
+        if (callback) Mousemat.onComplete(callback);
+        return true;
+    }
+
+    hold(key = '') {
+        ['a', 'd', 'w', 's', 'shift'].forEach((movement) => Client.setKey(movement, key.includes(movement)));
+        Client.setKey('leftclick', true);
+        Client.setKey('sprint', false);
+    }
+
+    // True only for actual farming tools, so a re-click can never happen while a vacuum
+    // or AOTV is held during pest work, the roof climb, or trap clearing.
+    isFarmingTool() {
+        const name = ChatLib.removeFormatting(String(Player.getInventory()?.getStackInSlot(Player.getHeldItemIndex())?.getName?.() ?? '')).toLowerCase();
+        return ['hoe', 'dicer', 'cutter', 'knife', 'chopper'].some((keyword) => name.includes(keyword));
+    }
+
+    saveRewarpPoint(name) {
+        const player = Player.getPlayer();
+        if (!player) return;
+
+        this.points[name] = { x: player.getX(), y: player.getY(), z: player.getZ() };
+        writeConfigFile(this.pointsPath, this.points);
+        this.message(`&aRewarp ${name} saved.`);
+        if (this.rewarpPointsOverlap()) this.message('Rewarp point currently overlap. The macro will not work.');
+    }
+
+    rewarpPointsOverlap() {
+        if (!this.isPoint(this.points.start) || !this.isPoint(this.points.end)) return false;
+        const { start, end } = this.points;
+        return Math.hypot(start.x - end.x, start.y - end.y, start.z - end.z) <= rewarpSettings.triggerRadius * 2;
+    }
+
+    isAtPoint(player, point) {
+        if (!this.isPoint(point)) return false;
+        const dx = player.getX() - point.x;
+        const dy = player.getY() - point.y;
+        const dz = player.getZ() - point.z;
+        return dx * dx + dy * dy + dz * dz <= rewarpSettings.triggerRadius ** 2;
+    }
+
+    isPoint(point) {
+        return Number.isFinite(point?.x) && Number.isFinite(point?.y) && Number.isFinite(point?.z);
+    }
+
+    getLaneSwitchDelayTicks() {
+        const delay = farmingDelays.ranges.laneSwitch.low;
+        return Math.round(delay / 50);
+    }
+
+    snapYaw(startingYaw, macroYaw) {
+        return this.farmingRotation?.yaw ?? Math.round((startingYaw - macroYaw) / 90) * 90 + macroYaw;
+    }
+
+    updatePosition(player) {
+        this.previousTickX = player.getX();
+        this.previousTickZ = player.getZ();
+    }
+
+    consumeIgnoreTicks(player) {
+        if (this.ignoreTicks <= 0) return false;
+        this.ignoreTicks--;
+        this.updatePosition(player);
+        return true;
+    }
+
+    isStationaryForTicks(player, ticks) {
+        const stationary = player.getX() === this.previousTickX && player.getZ() === this.previousTickZ;
+        this.updatePosition(player);
+        this.stationaryTicks = stationary ? this.stationaryTicks + 1 : 0;
+        if (!stationary || this.stationaryTicks < ticks) return false;
+        this.stationaryTicks = 0;
+        return true;
+    }
+}

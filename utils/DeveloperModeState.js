@@ -1,0 +1,62 @@
+const CONFIG_ROOT = 'V5Config';
+const STATE_FILE = 'developerMode.json';
+
+let developerModeEnabled = false;
+let loadedFromDisk = false;
+
+const saveDeveloperModeState = () => {
+    try {
+        FileLib.write(CONFIG_ROOT, STATE_FILE, JSON.stringify({ enabled: developerModeEnabled }, null, 2), true);
+    } catch (e) {
+        console.error('V5 developer mode state write failed:', e);
+    }
+};
+
+const loadDeveloperModeState = () => {
+    loadedFromDisk = true;
+
+    try {
+        if (!FileLib.exists(CONFIG_ROOT, STATE_FILE)) {
+            developerModeEnabled = false;
+            saveDeveloperModeState();
+            return developerModeEnabled;
+        }
+
+        const raw = FileLib.read(CONFIG_ROOT, STATE_FILE);
+        const payload = JSON.parse(raw || '{}');
+        developerModeEnabled = !!payload.enabled;
+    } catch (e) {
+        developerModeEnabled = false;
+        console.error('V5 developer mode state read failed:', e);
+        saveDeveloperModeState();
+    }
+
+    return developerModeEnabled;
+};
+
+export const setDeveloperModeEnabled = (value) => {
+    developerModeEnabled = !!value;
+    loadedFromDisk = true;
+    saveDeveloperModeState();
+    return developerModeEnabled;
+};
+
+export const isDeveloperModeEnabled = () => {
+    if (!loadedFromDisk) loadDeveloperModeState();
+    return developerModeEnabled;
+};
+
+function warnDeveloper() {
+    if (!isDeveloperModeEnabled()) return;
+    setTimeout(() => {
+        if (!World.isLoaded()) {
+            warnDeveloper();
+        } else {
+            ChatLib.chat("&cDeveloper Mode is enabled. Run '/V5 developerMode false' to disable.");
+            ChatLib.chat('&cDeveloper Mode is UAYOR and disables auto updates.');
+            ChatLib.chat('&cSupport is not provided for developer mode macros as they are unfinished AND DONT WORK.');
+        }
+    }, 7000);
+}
+
+warnDeveloper();

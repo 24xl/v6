@@ -1,0 +1,261 @@
+import { Color, IS_MC_26_3, Identifier, SoundCategory, SoundEvent } from '../utils/Constants';
+
+const DEFAULT_FONT = Render2D.getDefaultFont();
+
+export const colorWithAlpha = (baseColor, alpha) => {
+    let r, g, b, a;
+
+    if (baseColor instanceof Color) {
+        r = baseColor.getRed();
+        g = baseColor.getGreen();
+        b = baseColor.getBlue();
+        a = baseColor.getAlpha();
+    } else if (typeof baseColor === 'number') {
+        r = (baseColor >> 16) & 0xff;
+        g = (baseColor >> 8) & 0xff;
+        b = baseColor & 0xff;
+        const originalAlpha = (baseColor >>> 24) & 0xff;
+        a = originalAlpha === 0 && baseColor !== 0 ? 255 : originalAlpha;
+    } else {
+        return new Color(1, 1, 1, 1).getRGB();
+    }
+
+    const finalAlpha = Math.floor(a * alpha);
+    return ((finalAlpha & 0xff) << 24) | ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff);
+};
+
+export const PADDING = 8;
+export const BORDER_WIDTH = 1;
+export const CORNER_RADIUS = 12;
+
+export const CATEGORY_HEIGHT = 30;
+export const CATEGORY_PADDING = 4;
+export const ITEM_SPACING = 6;
+export const SUBCATEGORY_BUTTON_HEIGHT = 24;
+export const SUBCATEGORY_BUTTON_SPACING = 4;
+
+export const TypingState = {
+    isTyping: false,
+};
+
+export const setTextInputArea = (rect) => Keyboard.INSTANCE.setTextInputArea(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height);
+export const startTextInput = (owner, rect) => {
+    Keyboard.INSTANCE.startTextInput(owner);
+    if (rect) setTextInputArea(rect);
+};
+export const stopTextInput = (owner) => Keyboard.INSTANCE.stopTextInput(owner);
+
+const UNSHIFTED_CHARACTERS = "`1234567890-=[]\\;',./";
+const SHIFTED_CHARACTERS = '~!@#$%^&*()_+{}|:"<>?';
+
+export const getTypedCharacter = (char) => {
+    if (IS_MC_26_3) return char;
+    const shiftDown = Keyboard.isKeyDown(Keyboard.KEY_LSHIFT) || Keyboard.isKeyDown(Keyboard.KEY_RSHIFT);
+    if (!shiftDown) return char;
+    const index = UNSHIFTED_CHARACTERS.indexOf(char);
+    return index === -1 ? char.toUpperCase() : SHIFTED_CHARACTERS[index];
+};
+
+export const THEME = {
+    BG_WINDOW: new Color(0.07, 0.06, 0.055, 1),
+    BG_OVERLAY: new Color(0.045, 0.04, 0.04, 0.84),
+    BG_COMPONENT: new Color(0.09, 0.075, 0.07, 1),
+    BG_ELEVATED: new Color(0.12, 0.1, 0.095, 1),
+    BG_INSET: new Color(0.24, 0.2, 0.19, 1),
+
+    HOVER: new Color(0.15, 0.12, 0.115, 1),
+    ACCENT: new Color(0.9, 0.77, 0.73, 1),
+    ACCENT_GLOW: new Color(0.9, 0.77, 0.73, 0.2),
+    ACCENT_DIM: new Color(0.9, 0.77, 0.73, 0.15),
+
+    TEXT: 0xffffffff,
+    TEXT_MUTED: 0xffaaa09d,
+    TEXT_LINK: 0xffe6c4bb,
+    TEXT_DIM: new Color(0.9, 0.9, 0.9, 1),
+
+    BORDER: new Color(0.3, 0.26, 0.24, 1),
+    BORDER_ACCENT: new Color(0.9, 0.77, 0.73, 0.15),
+
+    KNOB: new Color(1, 1, 1, 1),
+    SWITCH_OFF: new Color(0.34, 0.32, 0.32, 1),
+
+    TOOLTIP_BG: new Color(0.11, 0.12, 0.15, 0.98),
+    TOOLTIP_TEXT: 0xfff0f0f0,
+    TOOLTIP_BORDER: new Color(0.4, 0.7, 1, 0.3),
+
+    NOTIF_BG: new Color(0.11, 0.12, 0.15, 0.95),
+    NOTIF_ICON: 0xdddddd,
+    NOTIF_CLOSE: 0xffaaaaaa,
+    NOTIF_PROGRESS: new Color(0.4, 0.7, 1, 0.5),
+    NOTIF_SUCCESS: new Color(Number.parseInt('10b981', 16)),
+    NOTIF_ERROR: new Color(Number.parseInt('ef4444', 16)),
+    NOTIF_DANGER: new Color(Number.parseInt('ff0f0f', 16)),
+    NOTIF_CHECK_IN: new Color(Number.parseInt('84cc16', 16)),
+    NOTIF_WARNING: new Color(Number.parseInt('f59e0b', 16)),
+    NOTIF_INFO: new Color(Number.parseInt('3b82f6', 16)),
+};
+
+export const drawRect = ({ x, y, width, height, color }) => {
+    const c = (color instanceof Color ? color.getRGB() : color) | 0;
+    Render2D.drawRect(x, y, width, height, c);
+};
+
+export const createHighlight = () => {
+    const fadeInMs = 300;
+    const holdMs = 1800;
+    const fadeOutMs = 900;
+    const baseAlpha = 0.14;
+    const pulseAlpha = 0.2;
+    const inset = 4;
+    const borderWidth = 1;
+    const radius = 12;
+    let start = 0;
+
+    return {
+        startHighlight: () => {
+            start = Date.now();
+        },
+        draw: ({ x, y, width, height, accentColor, accentFillColor }) => {
+            if (!start) return;
+            const elapsed = Date.now() - start;
+            const duration = fadeInMs + holdMs + fadeOutMs;
+            if (elapsed > duration) {
+                start = 0;
+                return;
+            }
+            let pulse;
+            if (elapsed < fadeInMs) {
+                pulse = elapsed / Math.max(1, fadeInMs);
+            } else if (elapsed < fadeInMs + holdMs) {
+                pulse = 1;
+            } else {
+                pulse = 1 - (elapsed - fadeInMs - holdMs) / Math.max(1, fadeOutMs);
+            }
+            const alpha = (baseAlpha + pulseAlpha) * pulse;
+            drawRoundedRectangleWithBorder({
+                x: x - inset,
+                y: y - inset,
+                width: width + inset * 2,
+                height: height + inset * 2,
+                radius,
+                color: colorWithAlpha(accentFillColor, alpha * 0.45),
+                borderWidth,
+                borderColor: colorWithAlpha(accentColor, alpha),
+            });
+        },
+    };
+};
+
+export const drawRoundedRectangle = ({ x, y, width, height, radius, color }) => {
+    const c = (color instanceof Color ? color.getRGB() : color) | 0;
+    Render2D.drawRoundedRect(x, y, width, height, radius, c);
+};
+
+export const drawRoundedRectangleVaried = ({ x, y, width, height, tl, tr, br, bl, color }) => {
+    const c = (color instanceof Color ? color.getRGB() : color) | 0;
+    Render2D.drawRoundedRectVaried(x, y, width, height, c, tl, tr, br, bl);
+};
+
+export const drawRoundedRectangleWithBorder = (r) => {
+    if (r.borderWidth && r.borderWidth > 0 && r.borderColor) {
+        const bw = r.borderWidth;
+        const bc = (r.borderColor instanceof Color ? r.borderColor.getRGB() : r.borderColor) | 0;
+        const outerRadius = r.radius + bw;
+        Render2D.drawRoundedRect(r.x - bw, r.y - bw, r.width + bw * 2, r.height + bw * 2, outerRadius, bc);
+    }
+    const c = (r.color instanceof Color ? r.color.getRGB() : r.color) | 0;
+    Render2D.drawRoundedRect(r.x, r.y, r.width, r.height, r.radius, c);
+};
+
+export const drawShadow = (x, y, width, height, radius = 8, intensity = 0.15) => {
+    const shadowColor = (Math.floor(255 * intensity) << 24) | 0;
+    Render2D.drawDropShadow(x, y, width, height, radius, 10, 0, shadowColor);
+};
+
+export const drawText = (text, x, y, size, color, align = 17) => {
+    const c = (color instanceof Color ? color.getRGB() : color) | 0;
+    Render2D.text(text, x, y, size, c, DEFAULT_FONT, align);
+};
+
+export const getTextWidth = (text, size) => Render2D.textWidth(text, size, DEFAULT_FONT);
+
+export const drawCenteredText = (text, x, width, fontSize, color, yOffset) => {
+    drawText(text, x + width / 2, yOffset, fontSize, color, 18);
+};
+
+export const drawImage = (path, x, y, width, height, radius = 0, alpha = 1) => {
+    if (!path) return;
+    Render2D.drawImage(path, x, y, width, height, radius, alpha);
+};
+
+export const drawImageFromURL = (url, x, y, width, height, radius = 0, alpha = 1) => {
+    if (!url) return;
+    Render2D.drawImageFromUrl(url, x, y, width, height, radius, alpha);
+};
+
+export const drawCircularImage = (path, x, y, size, alpha = 1) => {
+    if (!path) return;
+    Render2D.drawImage(path, x, y, size, size, size / 2, alpha);
+};
+
+export const scissor = (x, y, w, h) => {
+    Render2D.scissor(x, y, w, h);
+};
+
+export const resetScissor = () => {
+    Render2D.resetScissor();
+};
+
+export const clamp = (v, min, max) => (v < min ? min : v > max ? max : v);
+
+export const interpolateColor = (from, to, progress) =>
+    new Color(
+        from.getRed() / 255 + ((to.getRed() - from.getRed()) / 255) * progress,
+        from.getGreen() / 255 + ((to.getGreen() - from.getGreen()) / 255) * progress,
+        from.getBlue() / 255 + ((to.getBlue() - from.getBlue()) / 255) * progress,
+        from.getAlpha() / 255 + ((to.getAlpha() - from.getAlpha()) / 255) * progress
+    );
+
+export const FontSizes = {
+    TINY: 6,
+    SMALL: 7,
+    MEDIUM: 8,
+    REGULAR: 9,
+    LARGE: 10,
+    HEADER: 11,
+};
+
+export const easeInOutQuad = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+
+export const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+
+export const easeOutBack = (x) => {
+    const c1 = 1;
+    const c3 = c1 + 1;
+    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+};
+
+export const easeInBack = (x) => {
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return c3 * x * x * x - c1 * x * x;
+};
+
+export const isInside = (mouseX, mouseY, rect) => mouseX >= rect.x && mouseX <= rect.x + rect.width && mouseY >= rect.y && mouseY <= rect.y + rect.height;
+
+let guiClickSoundEnabled = true;
+export const isGuiClickSoundEnabled = () => guiClickSoundEnabled;
+
+export const setGuiClickSoundEnabled = (enabled) => {
+    guiClickSoundEnabled = enabled !== false;
+};
+
+export const playClickSound = () => {
+    if (!guiClickSoundEnabled) return;
+    World.getWorld().playPlayerSound(
+        SoundEvent.createVariableRangeEvent(Identifier.fromNamespaceAndPath('minecraft', 'entity.experience_orb.pickup')),
+        SoundCategory.MASTER,
+        0.5,
+        1.0
+    );
+};

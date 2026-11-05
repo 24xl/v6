@@ -1,0 +1,150 @@
+# V5 Developer README
+
+General users should use the public docs:
+https://rdbt.top/docs/getting-started
+
+The rest of this README is for developers and contributors.
+
+## License Summary
+
+This project is licensed under **GNU GPL v3.0**. In short:
+
+1. Anyone can copy, modify, and modify this software.
+2. Every distribution must include the license text and existing copyright notices.
+3. You can use this software privately.
+4. If you distribute modified versions, you must provide the complete source code under GPL-3.0.
+
+- This means that any forks/copies/clones must have the source code freely available.
+
+## Repositories
+
+V5 is split across two repositories:
+
+- **Fabric mod (V5Loader):** https://github.com/V5-Client/V5Loader  
+  Contains the technical client internals (rendering, pathfinding, ChatTriggers JavaScript engine).
+- **JavaScript module (V5):** https://github.com/V5-Client/V5  
+  Contains macros/scripts used by the client.
+
+## Creating Custom Macros & Modules
+
+We highly recommend using UserScripts to create custom modules rather that modifiying the V5 source directly.
+
+## Developing the JavaScript Module ([V5](https://github.com/V5-Client/V5))
+
+1. In-game, run `/V5 developerMode true`.
+   This disables auto-updater behavior so your local edits are not overwritten.
+2. You can find the javascript source in `/minecraft/config/ChatTriggers/modules/V5`.
+3. After making code changes, run `/ct load` to reload immediately.
+4. Use `/ct console` to view the JavaScript console.
+
+More detailed contributor docs may be added in the future.
+# Changelog
+
+## V5.2.1 - 26.3 Support
+
+- Support for 26.3
+- Bazaar to NPC macro auto reconnect if limbo or disconect
+- Improved rendering performance significantly
+
+### Rift features!
+
+- Mirrorverse Dance Room Macro
+- Kloon Hacking Minigame QOL Macro
+
+### Hybrid Rewarp Farming mode
+
+This combines the two existing modes.
+It is for farms with a start/end point.
+It works by:
+
+1.  /sethome, then does rewarp actions such as pest killing, then /warp garden, to get back to the home.
+2.  Once it reaches the end of the farm it will manually fly back to the configured start and continue farming.
+
+## V5.2.0 - 26.2 Support
+
+### New features
+
+- Support for Vulkan Rendering, which can greatly improve FPS.
+- Added an in-game changelog, found in the bottom left of the GUI.
+- Added Documentation and keybind buttons to module settings.
+- Mining Bot and Ore Macro now automatically refuel empty drills.
+- Added Discord authentication and account status to the dashboard, with an option to re-authenticate.
+- Stridersurfer Macro now supports the Helix Chopper.
+
+### Powder Nuker
+
+- Automatically nukes hardstone within a selected Crystal Hollows region.
+- Regions -> Jungle, Mines of Divan, Goblin Hideout, and Precursor Remnants
+- Snail Mode that disables sneaking due to 100 speed.
+- Moves down layers when there is no hardstone left nearby.
+- Automatically refuels through an Abiphone.
+
+### Ore Macro
+
+- New route-based mining macro that walks/etherwarps between waypoints and mines ore waypints.
+- Build and manage saved routes through a route editor GUI.
+- Use `/v5 mining ore` for command help, with `list`, `load <name>`, `save <name>`, `start`, `stop`, `status`, and `edit` commands.
+- Places mining deployables.
+- Automatically activates mining abilities when ready, with rod swapping for autopet rules.
+- Automatically refuels empty drills and restarts the route afterward.
+
+### Mining Bot
+
+- Improved Mining Bot target selection and rotations, including retrying stubborn blocks at a different aim point.
+- Added Mining Rotation Speed, Sneak While Mining, Minimum Visible Rays, and Block Reach settings to Mining Bot.
+- Mining Bot now approaches visible blocks outside mining reach and stops movement once they are reachable.
+- Added Precision Miner particle aiming and stopped mining rotations while menus are open or abilities are being activated.
+
+### Nuker
+
+- Nuker now follows treasure chest lock particles to solve chests without max Great Explorer.
+
+### Farming
+
+- Auto Philip Bonus can now contact Philip through an Abiphone or `/call Philip`, avoiding a trip to the barn when no other barn tasks are needed.
+- Moved Visitor Macro, Auto Philip Bonus, and Pest Killer rewarp options into settings popups.
+- Standardized Farming Delays settings to milliseconds, with adjustable ranges from 50 to 1,000 ms.
+
+### Bazaar NPC Macro
+
+- Added Bazaar to NPC, a macro that finds Bazaar items priced below their NPC sell value, places buy orders, claims filled items, and sells them through `/trades`.
+- Requires Cookie Buff for `/bz`.
+- Empty your inventory before using, I am not responsible for it npc selling your terminator.
+
+- Due to how this money making method works, it is entirely based on activity so as more people use the macro, the less money you will make.
+- The profit also highly depends on what items are availible to flip so it can range to 5 -> 100 million coins per hour.
+- The `Hourly Profit` shown in the overlay is an esimate assuming you are never outbid.
+- Hypixel has a 500 million coin NPC sell limit which will limit how long you can run the macro for.
+- In private testing, this macro makes roughly ~150M per day, running for 2-4 hours before NPC limit is reached.
+
+### Auto Forge
+
+- Automatically forges items and claims completed ones.
+
+### Picture-in-Picture
+
+- Run `/v5 pip` to toggle.
+
+### Auto Superpairs
+
+- Automatically completes superpairs.
+- This means that the entire experimentation is now automated and fully AFK.
+- Can be selected to target or ignore XP pairs.
+
+### Profile Hider
+
+- Custom usernames now support #RRGGBBName colors, legacy, section-sign formatting, and chroma text (default).
+
+### Improvements
+
+- Significantly improved GUI, overlay, and rendering performance.
+- Invalid /v5 commands now show an error instead of sending to server.
+- Pathfinder warns if a destination is in an unloaded chunk.
+- The GUI now shows the client version and an error indicator when no Discord profile picture is available.
+- Fixed mana detection for the updated hypixel action bar.
+
+### User Safety
+
+- Auto updater now uses github as the download source instead of rdbt backend.
+- This can be independantly audited and reviewed to prove there is no RAT.
+- Profit calc
