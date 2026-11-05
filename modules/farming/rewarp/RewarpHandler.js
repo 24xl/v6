@@ -56,8 +56,7 @@ class RewarpHandler {
     const pestMode = rewarpSettings.getPestKillerMode();
     let pestTask;
     if (pestMode === "Manual") pestTask = manualPestKiller;
-    else if (pestMode === "-Walk" || pestMode === "Walk")
-      pestTask = walkPestKiller;
+    else if (pestMode === "Walk") pestTask = walkPestKiller;
     else pestTask = pestKiller;
     if (runPestKiller) this.tasks.push(pestTask, autoSell);
     this.phase = hasBarnTasks

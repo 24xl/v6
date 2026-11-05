@@ -1,234 +1,214 @@
-import { ModuleBase } from '../../utils/ModuleBase';
-import { chat } from '../../utils/Chat';
-import { OverlayManager } from '../../gui/OverlayUtils';
-import { Vec3d } from '../../utils/Constants';
-import { File } from '../../utils/Constants';
-import { Slider } from '../../gui/components/Slider';
-import { ToggleButton } from '../../gui/components/Toggle';
-import { MultiToggle } from '../../gui/components/Dropdown';
-import { Color } from '../../utils/Constants';
-
-const DUNGEON_MAP_DIR = new File('./config/ChatTriggers/modules/V5Config/DungeonMap');
-if (!DUNGEON_MAP_DIR.exists()) DUNGEON_MAP_DIR.mkdirs();
+import { ModuleBase } from "../../utils/ModuleBase";
+import { chat } from "../../utils/Chat";
+import { OverlayManager } from "../../gui/OverlayUtils";
+import { DungeonState } from "../../utils/dungeon/DungeonState";
+import {
+  DungeonDetector,
+  isInDungeon,
+  getDungeonFloor,
+  updateDungeonStateFromScoreboard,
+} from "../../utils/dungeon/DungeonDetector";
+import { scanHotbarMap } from "../../utils/dungeon/DungeonScanner";
+import { updatePlayers } from "../../utils/dungeon/DungeonPlayerTracker";
+import { checkForMimic } from "../../utils/dungeon/MimicDetector";
+import { DungeonConfig } from "../../utils/dungeon/DungeonConfig";
 
 class DungeonMap extends ModuleBase {
-    constructor() {
-        super({
-            name: 'Dungeon Map',
-            subcategory: 'Catacombs',
-            description: 'Displays a custom dungeon map HUD (legit mode - shows explored rooms only)',
-            showEnabledToggle: true,
-        });
+  constructor() {
+    super({
+      name: "Dungeon Map",
+      subcategory: "Catacombs",
+      description:
+        "Legit dungeon minimap with room/secret tracking, player positions, mimic detection",
+      showEnabledToggle: false,
+      autoDisableOnWorldUnload: true,
+    });
 
-        this.enabled = false;
-        this.showHud = false;
-        this.showRoomNames = false;
-        this.showSecrets = true;
-        this.darkenUnexplored = true;
-        this.showPlayerIcons = true;
-        this.showPlayerNames = false;
-        this.mapX = 10;
-        this.mapY = 80;
-        this.mapScale = 1.1;
-        this.mapWidth = 250;
-        this.mapHeight = 180;
-        this.scanCooldown = 500;
+    this.active = false;
+    this.scanCounter = 0;
 
-        // Dungeon data
-        this.rooms = [];
-        this.doors = [];
-        this.playerPositions = [];
-        this.lastScanTick = 0;
-        this.scanCooldown = 500;
-        this.mapX = 10;
-        this.mapY = 80;
-        this.mapScale = 1.1;
-        this.mapWidth = 250;
-        this.mapHeight = 180;
-        this.dungeonScanned = false;
-        this.rooms = [];
-        this.doors = [];
-        this.playerPositions = [];
-        this.lastScanTick = 0;
-        this.scanCooldown = 500;
-        this.mapX = 10;
-        this.mapY = 80;
-        this.mapScale = 1.1;
-        this.mapWidth = 250;
-        this.mapHeight = 180;
+    this.addToggle(
+      "Enabled",
+      (value) => {
+        this.active = value;
+        DungeonConfig.enabled = value;
+      },
+      "Master toggle for the dungeon map",
+      true,
+    );
 
-        // Settings
-        this.addToggle(
-            'Show HUD',
-            (value) => { this.showHud = value; },
-            'Toggle the dungeon map HUD display.',
-            this.showHud
-        );
+    this.addToggle(
+      "Show Room Names",
+      (value) => {
+        DungeonConfig.showRoomNames = value;
+      },
+      "Display room names on the map",
+      true,
+    );
 
-        this.addToggle(
-            'Show Room Names',
-            (value) => { this.showRoomNames = value; },
-            'Display room names on the map.',
-            this.showRoomNames
-        );
+    this.addToggle(
+      "Show Puzzle Names",
+      (value) => {
+        DungeonConfig.showPuzzleNames = value;
+      },
+      "Display puzzle and trap room names",
+      true,
+    );
 
-        this.addToggle(
-            'Show Secrets',
-            (value) => { this.showSecrets = value; },
-            'Display secret counts on rooms.',
-            this.showSecrets
-        );
+    this.addToggle(
+      "Show Secrets",
+      (value) => {
+        DungeonConfig.showSecrets = value;
+      },
+      "Display max secrets in top-left of rooms",
+      false,
+    );
 
-        this.addToggle(
-            'Darken Unexplored',
-            (value) => { this.darkenUnexplored = value; },
-            'Darken unexplored rooms on the map.',
-            this.darkenUnexplored
-        );
+    this.addToggle(
+      "Show Secrets Progress",
+      (value) => {
+        DungeonConfig.showSecretsProgress = value;
+      },
+      "Display found/max secrets (e.g., 7/9) on rooms",
+      false,
+    );
 
-        this.addToggle(
-            'Show Player Icons',
-            (value) => { this.showPlayerIcons = value; },
-            'Show player icons on the map.',
-            this.showPlayerIcons
-        );
+    this.addToggle(
+      "Darken Unexplored",
+      (value) => {
+        DungeonConfig.darkenUnexplored = value;
+      },
+      "Darken unopened rooms on the map",
+      true,
+    );
 
-        this.addToggle(
-            'Show Player Names',
-            (value) => { this.showPlayerNames = value; },
-            'Show player names on the map.',
-            this.showPlayerNames
-        );
+    this.addToggle(
+      "Show Player Heads",
+      (value) => {
+        DungeonConfig.playerHeads = value;
+      },
+      "Show player heads on the map",
+      true,
+    );
 
-        this.addSlider(
-            'Map X Position',
-            0,
-            500,
-            this.mapX,
-            (value) => { this.mapX = Math.round(value); },
-            'X coordinate of the map on screen.'
-        );
+    this.addToggle(
+      "Show Mimic Room",
+      (value) => {
+        DungeonConfig.showMimic = value;
+      },
+      "Show which room contains the mimic (F6-7)",
+      true,
+    );
 
-        this.addSlider(
-            'Map Y Position',
-            0,
-            500,
-            this.mapY,
-            (value) => { this.mapY = Math.round(value); },
-            'Y coordinate of the map on screen.'
-        );
+    this.addToggle(
+      "Hide In Boss",
+      (value) => {
+        DungeonConfig.hideInBoss = value;
+      },
+      "Hide the map after entering the boss room",
+      false,
+    );
 
-        this.addSlider(
-            'Map Scale',
-            0.5,
-            3.0,
-            this.mapScale,
-            (value) => { this.mapScale = Number(value.toFixed(1)); },
-            'Scale of the map display.'
-        );
+    this.addColorPicker(
+      "Background Color",
+      (c) => {
+        DungeonConfig.backgroundColor = c;
+      },
+      "Change the background color and transparency of the map",
+      [0, 0, 0, 179],
+    );
 
-        this.addSlider(
-            'Map Width',
-            100,
-            500,
-            this.mapWidth,
-            (value) => { this.mapWidth = Math.round(value); },
-            'Width of the map display.'
-        );
+    this.addColorPicker(
+      "Wither Door Color",
+      (c) => {
+        DungeonConfig.witherDoorColor = c;
+      },
+      "Changes the wither door color",
+      [0, 255, 0, 255],
+    );
 
-        this.addSlider(
-            'Map Height',
-            100,
-            500,
-            this.mapHeight,
-            (value) => { this.mapHeight = Math.round(value); },
-            'Height of the map display.'
-        );
+    this.addSlider(
+      "Map Scale",
+      0.5,
+      3.0,
+      1.1,
+      (value) => {
+        DungeonConfig.mapScale = Number(value.toFixed(1));
+        OverlayManager.updateDungeonMapScale?.(value);
+      },
+      "Scale of the map display",
+    );
 
-        this.addSlider(
-            'Scan Cooldown (ms)',
-            100,
-            2000,
-            this.scanCooldown,
-            (value) => { this.scanCooldown = Math.round(value); },
-            'How often to scan the dungeon (milliseconds).'
-        );
+    this.addSlider(
+      "Map X",
+      0,
+      500,
+      10,
+      (value) => {
+        DungeonConfig.mapX = Math.round(value);
+        OverlayManager.updateDungeonMapPos?.(value, null);
+      },
+      "X coordinate of the map on screen",
+    );
 
-        this.addSlider(
-            'Map Scale',
-            0.5,
-            3.0,
-            this.mapScale,
-            (value) => { this.mapScale = Number(value.toFixed(1)); },
-            'Scale of the map display.'
-        );
+    this.addSlider(
+      "Map Y",
+      0,
+      500,
+      80,
+      (value) => {
+        DungeonConfig.mapY = Math.round(value);
+        OverlayManager.updateDungeonMapPos?.(null, value);
+      },
+      "Y coordinate of the map on screen",
+    );
+
+    this.on("tick", () => this.onTick());
+    this.on("worldUnload", () => this.onWorldUnload());
+  }
+
+  onTick() {
+    if (!this.active) {
+      OverlayManager.setDungeonMapEnabled?.(false);
+      return;
     }
 
-    onEnable() {
-        this.enabled = true;
-        this.showHud = true;
-        this.message('&aDungeon Map enabled.');
+    if (!isInDungeon()) {
+      OverlayManager.setDungeonMapEnabled?.(false);
+      if (DungeonState.rooms.length > 0) DungeonState.reset();
+      return;
     }
 
-    onDisable() {
-        this.enabled = false;
-        this.showHud = false;
-        this.message('&cDungeon Map disabled.');
+    OverlayManager.setDungeonMapEnabled?.(true);
+
+    this.scanCounter++;
+    if (this.scanCounter % 5 === 0) {
+      scanHotbarMap();
     }
 
-    onTick() {
-        if (!this.enabled) return;
-        
-        const now = Date.now();
-        if (now - this.lastScanTick < this.scanCooldown) return;
-        this.lastScanTick = now;
-        
-        this.scanDungeonLegit();
+    updatePlayers();
+    updateDungeonStateFromScoreboard();
+
+    if (DungeonConfig.scanMimic) {
+      checkForMimic();
     }
 
-    scanDungeonLegit() {
-        // Legit mode: only scan visible areas, record player position
-        const player = Player.getPlayer();
-        if (!player) return;
-
-        // Record player position for map rendering
-        this.playerPositions.push({
-            x: player.getX(),
-            y: player.getY(),
-            z: player.getZ(),
-            timestamp: Date.now()
-        });
-        
-        // Keep only last 1000 positions
-        if (this.playerPositions.length > 1000) {
-            this.playerPositions.shift();
-        }
-
-        // Scan visible rooms/doors in render distance
-        this.scanVisibleAreas();
+    const floor = getDungeonFloor();
+    if (floor && !DungeonState.floorNumber) {
+      DungeonState.floorNumber = floor;
     }
+  }
 
-    scanVisibleAreas() {
-        // Scan visible rooms/doors in render distance using ChatTriggers API
-        // This is a simplified legit scanner - only scans loaded chunks
-        if (!World.isLoaded()) return;
-        
-        try {
-            // Use ChatTriggers Dungeon API if available
-            if (typeof Dungeon !== 'undefined' && Dungeon.inDungeon) {
-                // Record player position for map rendering
-                const player = Player.getPlayer();
-                if (player) {
-                    // Update player position tracking
-                }
-            }
-        } catch (e) {
-            // Silently fail if Dungeon API not available
-        }
-    }
+  onWorldUnload() {
+    DungeonState.reset();
+  }
 
-    // Legacy cheater mode removed - only legit mode available
-    // Cheater mode (seeing through walls) removed for fairness
+  toggle(value) {
+    const newVal = typeof value === "boolean" ? value : !this.active;
+    this.active = newVal;
+    DungeonConfig.enabled = newVal;
+    OverlayManager.setDungeonMapEnabled?.(newVal && isInDungeon());
+  }
 }
 
 new DungeonMap();

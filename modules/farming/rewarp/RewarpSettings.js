@@ -161,7 +161,8 @@ class RewarpSettings extends ModuleBase {
       "Mode",
       0,
       0,
-      ["Fly", "-Walk", "Manual"],
+      0,
+      ["Fly", "Walk", "Manual"],
       true,
       (options) =>
         (this.pestKillerMode =
@@ -243,9 +244,7 @@ class RewarpSettings extends ModuleBase {
   }
 
   isPestKillingEnabled() {
-    return ["Fly", "-Walk", "Walk", "Manual"].includes(
-      this.getPestKillerMode(),
-    );
+    return ["Fly", "Walk", "Manual"].includes(this.getPestKillerMode());
   }
 
   addRewarpButtons(...buttons) {
