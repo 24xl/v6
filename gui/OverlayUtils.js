@@ -507,13 +507,9 @@ class OverlayUtils {
     const otherBoxes = Object.entries(this.editorBoxes).filter(
       ([target]) => target !== this.dragTarget,
     );
-    const getSnapPositions = (
-      axis,
-      size,
-      perpendicularStart,
-      perpendicularSize,
-    ) =>
-      otherBoxes.reduce((positions, [target, other]) => {
+    const getSnapPositions = (axis, size, perpendicularStart, perpendicularSize) =>
+      otherBoxes.reduce((positions, targetOther) => {
+        const [target, other] = targetOther;
         const perpendicularAxis = axis === "x" ? "y" : "x";
         const otherPerpendicularStart = other[perpendicularAxis];
         const otherPerpendicularEnd =
