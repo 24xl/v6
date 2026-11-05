@@ -1,4 +1,4 @@
-import { DungeonState } from "./DungeonState";
+import DungeonState from "./DungeonState";
 import {
   isInDungeon,
   getDungeonFloor,
