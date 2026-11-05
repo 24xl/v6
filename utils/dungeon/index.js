@@ -1,6 +1,5 @@
 export { DungeonState } from "./DungeonState";
 export {
-  DungeonDetector,
   isInDungeon,
   getDungeonFloor,
   getDungeonMode,
