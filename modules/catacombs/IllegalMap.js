@@ -1,4 +1,8 @@
 import { ModuleBase } from '../../utils/ModuleBase';
+import { OverlayManager } from '../../gui/OverlayUtils';
+import { DataComponents } from '../../utils/Constants';
+import { Overlays } from '../../gui/core/GuiState';
+import { drawText, getTextWidth } from '../../gui/Utils';
 
 // Port of UnclaimedBloom6/IllegalMap (MIT). Everything here runs off the hotbar map item, scoreboard and tab list,
 // so it does not need BloomCore, Amaterasu, PogData or any 1.8.9 classes.
@@ -39,6 +43,22 @@ const ROOM_RGB = [
 const argb = (r, g, b, a = 255) => (((a & 255) << 24) | ((r & 255) << 16) | ((g & 255) << 8) | (b & 255)) | 0;
 const strip = (text) => ChatLib.removeFormatting(String(text ?? ''));
 const lineText = (line) => strip(line?.getName?.() ?? line).trim();
+
+// Skia text has no shadow, so draw a dark copy underneath.
+const shadowText = (str, x, y, size, color, align = 17) => {
+    drawText(str, x + size * 0.08, y + size * 0.08, size, argb(0, 0, 0, 200), align);
+    drawText(str, x, y, size, color, align);
+};
+
+const drawCheck = (x, y, s, color) => {
+    Render2D.drawLine(x, y + s * 0.55, x + s * 0.35, y + s * 0.9, s * 0.22, color);
+    Render2D.drawLine(x + s * 0.35, y + s * 0.9, x + s, y + s * 0.1, s * 0.22, color);
+};
+
+const drawCross = (x, y, s, color) => {
+    Render2D.drawLine(x + s * 0.1, y + s * 0.1, x + s * 0.9, y + s * 0.9, s * 0.22, color);
+    Render2D.drawLine(x + s * 0.9, y + s * 0.1, x + s * 0.1, y + s * 0.9, s * 0.22, color);
+};
 
 const state = {
     inDungeon: false,
@@ -96,17 +116,43 @@ function updateDungeonInfo() {
     }
 }
 
+const dbg = { mapFound: false, mapId: 'none', colors: 0, lastError: '', errorShown: false };
+
+function reportError(where, e) {
+    dbg.lastError = where + ': ' + e + (e && e.stack ? ' @ ' + String(e.stack).split('\n')[0] : '');
+    console.error('[IllegalMap] ' + dbg.lastError);
+    if (!dbg.errorShown) {
+        dbg.errorShown = true;
+        ChatLib.chat('&c[Dungeon Map] ' + dbg.lastError + ' &7(run /dmapdebug)');
+    }
+}
+
+function getLevel() {
+    return World.getWorld() || Client.getMinecraft().level;
+}
+
 function findMapColors() {
-    const player = Player.getPlayer();
-    const level = Client.getMinecraft().level;
-    if (!player || !level) return null;
-    const MapItem = net.minecraft.world.item.MapItem;
-    const Items = net.minecraft.world.item.Items;
+    dbg.mapFound = false;
+    const level = getLevel();
+    if (!level) return null;
+    const inventory = Player.getInventory();
+    if (!inventory) return null;
     for (let i = 0; i < 9; i++) {
-        const stack = player.getInventory().getItem(i);
-        if (!stack || stack.isEmpty() || !stack.is(Items.FILLED_MAP)) continue;
-        const data = MapItem.getSavedData(stack, level);
-        if (data && data.colors) return data.colors;
+        const item = inventory.getStackInSlot(i);
+        if (!item) continue;
+        const name = String(item.getType().getRegistryName());
+        if (name.indexOf('filled_map') === -1) continue;
+        const stack = item.toMC();
+        if (!DataComponents.MAP_ID) throw new Error('DataComponents.MAP_ID does not exist on this Minecraft version');
+        const mapId = stack.get(DataComponents.MAP_ID);
+        dbg.mapId = String(mapId);
+        if (!mapId) continue;
+        const data = level.getMapData(mapId);
+        if (data && data.colors) {
+            dbg.mapFound = true;
+            dbg.colors = data.colors.length;
+            return data.colors;
+        }
     }
     return null;
 }
@@ -248,6 +294,24 @@ function scanMap(colors) {
     state.fullyScanned = rooms.length > 0;
 }
 
+const SAMPLE = {
+    rooms: [
+        { components: [[2, 5]], type: RoomTypes.ENTRANCE, checkmark: Checkmark.GREEN, explored: true },
+        { components: [[2, 4]], type: RoomTypes.NORMAL, checkmark: Checkmark.WHITE, explored: true },
+        { components: [[1, 4], [1, 3]], type: RoomTypes.PUZZLE, checkmark: Checkmark.NONE, explored: true },
+        { components: [[3, 4]], type: RoomTypes.TRAP, checkmark: Checkmark.NONE, explored: false },
+        { components: [[2, 3], [3, 3]], type: RoomTypes.YELLOW, checkmark: Checkmark.NONE, explored: false },
+        { components: [[2, 2]], type: RoomTypes.BLOOD, checkmark: Checkmark.NONE, explored: false },
+    ],
+    doors: [
+        { dx: 4, dz: 9, type: DoorTypes.NORMAL, explored: true },
+        { dx: 3, dz: 8, type: DoorTypes.NORMAL, explored: true },
+        { dx: 5, dz: 8, type: DoorTypes.WITHER, explored: false },
+        { dx: 4, dz: 5, type: DoorTypes.BLOOD, explored: false },
+    ],
+    info: { secrets: 12, crypts: 5, deaths: 0, score: 300, mimic: false, secretsLine: '' },
+};
+
 class IllegalMap extends ModuleBase {
     constructor() {
         super({
@@ -258,9 +322,6 @@ class IllegalMap extends ModuleBase {
         });
 
         this.cfg = {
-            scale: 1.0,
-            x: 10,
-            y: 10,
             background: argb(0, 0, 0, 120),
             checkmarks: true,
             heads: true,
@@ -280,9 +341,6 @@ class IllegalMap extends ModuleBase {
         this.addToggle('Show Dungeon Info', (v) => (this.cfg.info = v), 'Secrets, crypts, deaths and score under the map', true);
         this.addToggle('Darken Unexplored', (v) => (this.cfg.darken = v), 'Dim rooms you have not visited', true);
         this.addToggle('Hide In Boss', (v) => (this.cfg.hideInBoss = v), 'Hide the map once the boss fight starts', false);
-        this.addSlider('Map Scale', 0.5, 3, 1, (v) => (this.cfg.scale = v), 'Size of the map');
-        this.addSlider('Map X', 0, 1000, 10, (v) => (this.cfg.x = v), 'Horizontal position in pixels');
-        this.addSlider('Map Y', 0, 1000, 10, (v) => (this.cfg.y = v), 'Vertical position in pixels');
         this.addColorPicker(
             'Background Color',
             new java.awt.Color(0, 0, 0, 120),
@@ -290,9 +348,32 @@ class IllegalMap extends ModuleBase {
             'Map background colour and opacity'
         );
 
+        OverlayManager.dungeonMapRenderer = (x, y, scale) => this.renderMap(SAMPLE.rooms, SAMPLE.doors, SAMPLE.info, x, y, scale, false);
+
         this.on('step', () => this.update()).setFps(4);
-        this.on('renderOverlay', () => this.draw());
+        this.renderCallback = () => this.draw();
+        this.renderRegistration = null;
         register('worldUnload', () => resetState());
+        register('command', () => {
+            const lines = [
+                'inDungeon=' + state.inDungeon + ' floor=' + state.floor + ' module enabled=' + this.enabled,
+                'map item found=' + dbg.mapFound + ' mapId=' + dbg.mapId + ' colors=' + dbg.colors,
+                'corner=' + JSON.stringify(state.corner) + ' roomSize=' + state.roomSize + ' gap=' + state.gap,
+                'rooms=' + state.rooms.length + ' doors=' + state.doors.length + ' fullyScanned=' + state.fullyScanned,
+                'overlay enabled=' + OverlayManager.dungeonMapSettings.enabled + ' x=' + OverlayManager.dungeonMapSettings.x + ' y=' + OverlayManager.dungeonMapSettings.y,
+                'lastError=' + (dbg.lastError || 'none'),
+            ];
+            lines.forEach((l) => ChatLib.chat('&b[Dungeon Map] &f' + l));
+        }).setName('dmapdebug');
+    }
+
+    onEnable() {
+        if (!this.renderRegistration) this.renderRegistration = Render2D.registerV5Render(this.renderCallback);
+    }
+
+    onDisable() {
+        if (this.renderRegistration) Render2D.unregisterV5Render(this.renderRegistration);
+        this.renderRegistration = null;
     }
 
     update() {
@@ -305,21 +386,31 @@ class IllegalMap extends ModuleBase {
             const colors = findMapColors();
             if (colors) scanMap(colors);
         } catch (e) {
-            console.error('[IllegalMap] update failed: ' + e);
+            reportError('update', e);
         }
     }
 
     draw() {
         try {
+            const pos = OverlayManager.dungeonMapSettings;
+            if (pos.enabled === false || Overlays.Gui.isOpen()) return;
             if (!state.inDungeon || !state.fullyScanned) return;
-            const { scale, x: x0, y: y0 } = this.cfg;
+            if (this.cfg.hideInBoss && state.bossEntry) return;
+            this.renderMap(state.rooms, state.doors, state.info, pos.x, pos.y, pos.scale || 1, true);
+        } catch (e) {
+            reportError('draw', e);
+        }
+    }
+
+    renderMap(rooms, doors, info, x0, y0, scale, live) {
+        try {
             const cell = 5 * scale;
             const unit = (v) => v * cell;
             const w = MAP_PX * scale;
 
             if ((this.cfg.background >>> 24) > 0) Render2D.drawRect(x0, y0, w, w, this.cfg.background);
 
-            for (const room of state.rooms) {
+            for (const room of rooms) {
                 const [r, g, b] = ROOM_RGB[room.type] || ROOM_RGB[RoomTypes.UNKNOWN];
                 const alpha = !room.explored && this.cfg.darken ? 110 : 255;
                 const col = argb(r, g, b, alpha);
@@ -333,19 +424,20 @@ class IllegalMap extends ModuleBase {
                     if (set.has(cx + 1 + ',' + cy) && set.has(cx + ',' + (cy + 1)) && set.has(cx + 1 + ',' + (cy + 1)))
                         Render2D.drawRect(rx + unit(3), ry + unit(3), unit(1), unit(1), col);
                 }
+                const [fx, fy] = room.components[0];
+                const mx = x0 + unit(1 + fx * 4 + 0.5);
+                const my = y0 + unit(1 + fy * 4 + 0.5);
                 if (this.cfg.checkmarks && room.checkmark !== Checkmark.NONE) {
-                    const [cx, cy] = room.components[0];
-                    const sym = room.checkmark === Checkmark.GREEN ? '✔' : room.checkmark === Checkmark.WHITE ? '✔' : '✘';
-                    const colr = room.checkmark === Checkmark.GREEN ? argb(85, 255, 85) : room.checkmark === Checkmark.WHITE ? argb(255, 255, 255) : argb(255, 85, 85);
-                    Render2D.drawStringWithShadow(sym, x0 + unit(1 + cx * 4 + 1), y0 + unit(1 + cy * 4 + 1) - 2 * scale, colr);
+                    if (room.checkmark === Checkmark.GREEN) drawCheck(mx, my, unit(2), argb(85, 255, 85));
+                    else if (room.checkmark === Checkmark.WHITE) drawCheck(mx, my, unit(2), argb(255, 255, 255));
+                    else drawCross(mx, my, unit(2), argb(255, 60, 60));
                 } else if (!room.explored && room.type !== RoomTypes.UNKNOWN) {
-                    const [cx, cy] = room.components[0];
-                    Render2D.drawStringWithShadow('?', x0 + unit(1 + cx * 4 + 1), y0 + unit(1 + cy * 4 + 1) - 2 * scale, argb(200, 200, 200));
+                    shadowText('?', x0 + unit(1 + fx * 4 + 1.5), y0 + unit(1 + fy * 4 + 1.5), unit(2.4), argb(220, 220, 220), 18);
                 }
             }
 
             if (this.cfg.doorsOn) {
-                for (const d of state.doors) {
+                for (const d of doors) {
                     let c = argb(107, 58, 17);
                     if (d.type === DoorTypes.WITHER) c = argb(0, 0, 0);
                     else if (d.type === DoorTypes.BLOOD) c = argb(255, 0, 0);
@@ -358,20 +450,21 @@ class IllegalMap extends ModuleBase {
                 }
             }
 
-            if (this.cfg.heads) this.drawPlayers(x0, y0, w, scale);
+            if (this.cfg.heads && live) this.drawPlayers(x0, y0, w, scale);
 
             if (this.cfg.info) {
-                const i = state.info;
-                Render2D.drawStringWithShadow('Secrets: ' + i.secrets + '   Crypts: ' + i.crypts, x0, y0 + w + 2, argb(255, 255, 255));
-                Render2D.drawStringWithShadow('Deaths: ' + i.deaths + '   Score: ' + i.score, x0, y0 + w + 12, i.score >= 300 ? argb(85, 255, 85) : i.score >= 270 ? argb(255, 255, 85) : argb(255, 85, 85));
+                const size = 6 * scale + 2;
+                shadowText('Secrets: ' + info.secrets + '   Crypts: ' + info.crypts, x0, y0 + w + size, size, argb(255, 255, 255));
+                const scoreColor = info.score >= 300 ? argb(85, 255, 85) : info.score >= 270 ? argb(255, 255, 85) : argb(255, 85, 85);
+                shadowText('Deaths: ' + info.deaths + '   Score: ' + info.score, x0, y0 + w + size * 2.2, size, scoreColor);
             }
         } catch (e) {
-            console.error('[IllegalMap] draw failed: ' + e);
+            reportError('render', e);
         }
     }
 
     drawPlayers(x0, y0, w, scale) {
-        const players = World.getAllPlayers ? World.getAllPlayers() : [];
+        const players = World.getAllPlayers();
         for (const p of players) {
             const name = p.getName();
             const x = p.getX();
@@ -382,7 +475,10 @@ class IllegalMap extends ModuleBase {
             const my = y0 + ((z - DUNGEON_MIN) / (DUNGEON_MAX - DUNGEON_MIN)) * w;
             const size = 8 * scale;
             Render2D.drawImageFromUrl('https://mc-heads.net/avatar/' + name + '/32', mx - size / 2, my - size / 2, size, size, 2);
-            if (this.cfg.names) Render2D.drawStringWithShadow(name, mx - Render2D.getStringWidth(name) / 2, my + size / 2 + 1, argb(255, 255, 255));
+            if (this.cfg.names) {
+                const ts = 5 * scale + 2;
+                shadowText(name, mx - getTextWidth(name, ts) / 2, my + size / 2 + ts / 2 + 1, ts, argb(255, 255, 255));
+            }
         }
     }
 }
