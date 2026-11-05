@@ -161,7 +161,6 @@ class RewarpSettings extends ModuleBase {
       "Mode",
       0,
       0,
-      0,
       ["Fly", "Walk", "Manual"],
       true,
       (options) =>
