@@ -3,14 +3,13 @@ import { chat } from "../../utils/Chat";
 import { OverlayManager } from "../../gui/OverlayUtils";
 import DungeonState from "../../utils/dungeon/DungeonState";
 import {
-  DungeonDetector,
   isInDungeon,
   getDungeonFloor,
   updateDungeonStateFromScoreboard,
-} from "../../utils/dungeon/DungeonDetector";
-import { scanHotbarMap } from "../../utils/dungeon/DungeonScanner";
-import { updatePlayers } from "../../utils/dungeon/DungeonPlayerTracker";
-import { checkForMimic } from "../../utils/dungeon/MimicDetector";
+} from "../../utils/dungeon";
+import { scanHotbarMap } from "../../utils/dungeon";
+import { updatePlayers } from "../../utils/dungeon";
+import { checkForMimic } from "../../utils/dungeon";
 import { DungeonConfig } from "../../utils/dungeon/DungeonConfig";
 
 class DungeonMap extends ModuleBase {
