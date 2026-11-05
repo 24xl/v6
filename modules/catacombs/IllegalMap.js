@@ -119,7 +119,8 @@ function updateDungeonInfo() {
 const dbg = { mapFound: false, mapId: 'none', colors: 0, lastError: '', errorShown: false };
 
 function reportError(where, e) {
-    dbg.lastError = where + ': ' + e + (e && e.stack ? ' @ ' + String(e.stack).split('\n')[0] : '');
+    dbg.lastError = where + ': ' + e + (e && e.stack ? ' @ ' + String(e.stack).split('
+')[0] : '');
     console.error('[IllegalMap] ' + dbg.lastError);
     if (!dbg.errorShown) {
         dbg.errorShown = true;
@@ -351,8 +352,7 @@ class IllegalMap extends ModuleBase {
         OverlayManager.dungeonMapRenderer = (x, y, scale) => this.renderMap(SAMPLE.rooms, SAMPLE.doors, SAMPLE.info, x, y, scale, false);
 
         this.on('step', () => this.update()).setFps(4);
-        this.renderCallback = () => this.draw();
-        this.renderRegistration = null;
+        this.on('renderOverlay', () => this.draw());
         register('worldUnload', () => resetState());
         register('command', () => {
             const lines = [
@@ -365,15 +365,6 @@ class IllegalMap extends ModuleBase {
             ];
             lines.forEach((l) => ChatLib.chat('&b[Dungeon Map] &f' + l));
         }).setName('dmapdebug');
-    }
-
-    onEnable() {
-        if (!this.renderRegistration) this.renderRegistration = Render2D.registerV5Render(this.renderCallback);
-    }
-
-    onDisable() {
-        if (this.renderRegistration) Render2D.unregisterV5Render(this.renderRegistration);
-        this.renderRegistration = null;
     }
 
     update() {
