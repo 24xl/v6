@@ -15,7 +15,6 @@ import { RoomTypes } from "./RoomTypes";
 import { Checkmark } from "./Checkmark";
 import { DoorTypes } from "./DoorTypes";
 import {
-  MimicDetector,
   checkForMimic,
   onWitherKeyObtained,
   onWitherDoorOpened,
@@ -38,7 +37,6 @@ export const DungeonPlayer = DungeonPlayer;
 export const RoomTypes = RoomTypes;
 export const Checkmark = Checkmark;
 export const DoorTypes = DoorTypes;
-export const MimicDetector = MimicDetector;
 export const checkForMimic = checkForMimic;
 export const onWitherKeyObtained = onWitherKeyObtained;
 export const onWitherDoorOpened = onWitherDoorOpened;
