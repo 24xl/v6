@@ -110,7 +110,7 @@ class DungeonMap extends ModuleBase {
 
     this.addColorPicker(
       "Background Color",
-      [0, 0, 0, 179],
+      0x000000b3,
       (c) => {
         DungeonConfig.backgroundColor = c;
       },
@@ -119,7 +119,7 @@ class DungeonMap extends ModuleBase {
 
     this.addColorPicker(
       "Wither Door Color",
-      [0, 255, 0, 255],
+      0x00ff00ff,
       (c) => {
         DungeonConfig.witherDoorColor = c;
       },
