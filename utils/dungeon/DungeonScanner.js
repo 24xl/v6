@@ -4,10 +4,8 @@ import { Door } from "./Door";
 import { RoomTypes } from "./RoomTypes";
 import { Checkmark } from "./Checkmark";
 import { DoorTypes } from "./DoorTypes";
-import {
-  CHECKMARK_FROM_CENTER_COLOR,
-  ROOM_TYPE_FROM_MAP_COLOR,
-} from "./RoomTypes";
+import { ROOM_TYPE_FROM_MAP_COLOR } from "./RoomTypes";
+import { CHECKMARK_FROM_CENTER_COLOR } from "./Checkmark";
 import { DOOR_TYPE_FROM_COLOR } from "./DoorTypes";
 
 const MAP_WIDTH = 128;
