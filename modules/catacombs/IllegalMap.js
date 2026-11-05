@@ -119,8 +119,7 @@ function updateDungeonInfo() {
 const dbg = { mapFound: false, mapId: 'none', colors: 0, lastError: '', errorShown: false };
 
 function reportError(where, e) {
-    dbg.lastError = where + ': ' + e + (e && e.stack ? ' @ ' + String(e.stack).split('
-')[0] : '');
+    dbg.lastError = where + ': ' + e + (e && e.stack ? ' @ ' + String(e.stack).split('\n')[0] : '');
     console.error('[IllegalMap] ' + dbg.lastError);
     if (!dbg.errorShown) {
         dbg.errorShown = true;
