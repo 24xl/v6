@@ -26,8 +26,6 @@ import {
   getStatsHudBounds,
   getStatsHudLines,
 } from "./OverlayRenderers";
-import DungeonState from "../utils/dungeon/DungeonState";
-import { DungeonConfig } from "../utils/dungeon/DungeonConfig";
 
 const GRID_SIZE = 10;
 const ELEMENT_SNAP_DISTANCE = 4;
@@ -66,12 +64,6 @@ class OverlayUtils {
       scale: 1.0,
       enabled: true,
     };
-    this.dungeonMapSettings = {
-      x: 10,
-      y: 10,
-      scale: 1.0,
-      enabled: true,
-    };
 
     this.editorOrder = [
       "default",
@@ -79,7 +71,6 @@ class OverlayUtils {
       "hudInventory",
       "hudStats",
       "music",
-      "dungeonMap",
     ];
     this.editorBoxes = {};
     this.exampleOverlay = null;
@@ -633,10 +624,6 @@ class OverlayUtils {
   }
 
   renderID(id, forceGUI = false, screenSize = null) {
-    if (id.name === "dungeonMap") {
-      return this.renderDungeonMap(id, forceGUI, screenSize);
-    }
-
     const anim = this.animations[id.name];
     let progress = anim ? anim.progress : 0;
 
@@ -890,208 +877,6 @@ class OverlayUtils {
     }
   }
 
-  renderDungeonMap(id, forceGUI = false, screenSize = null) {
-    const anim = this.animations[id.name];
-    let progress = anim ? anim.progress : 0;
-
-    if (forceGUI) progress = 1.0;
-    if (!forceGUI && (!anim || (anim.target === 0 && anim.progress <= 0.01)))
-      return;
-
-    const settings = this.dungeonMapSettings;
-    const scale = settings.scale;
-    const sw = screenSize ? screenSize.sw : Render2D.screen.getWidth();
-    const sh = screenSize ? screenSize.sh : Render2D.screen.getHeight();
-
-    let x = settings.x;
-    let y = settings.y;
-
-    if (sw && sh) {
-      const clamped = this.clampToScreen(
-        x,
-        y,
-        250 * scale,
-        180 * scale,
-        sw,
-        sh,
-        0,
-      );
-      x = clamped.x;
-      y = clamped.y;
-      if (forceGUI) {
-        settings.x = x;
-        settings.y = y;
-      }
-    }
-
-    const currentHeight = 180 * scale * progress;
-    const currentWidth = 250 * scale * progress;
-    const radius = CORNER_RADIUS * scale;
-    const bgColor = colorWithAlpha(THEME.BG_COMPONENT, progress);
-    const borderColor = colorWithAlpha(THEME.BORDER, progress);
-
-    drawRoundedRectangleWithBorder({
-      x: x,
-      y: y,
-      width: currentWidth,
-      height: currentHeight,
-      radius: radius,
-      color: bgColor,
-      borderWidth: BORDER_WIDTH * scale,
-      borderColor: borderColor,
-    });
-
-    if (progress > 0.1) {
-      try {
-        Render2D.scissor(x, y, currentWidth, currentHeight);
-
-        const dungeon = DungeonState;
-        if (dungeon.fullyScanned && dungeon.rooms.length) {
-          Render2D.translate(x, y);
-          Render2D.scale(scale);
-
-          if (DungeonConfig.backgroundColor[3] > 0) {
-            const [r, g, b, a] = DungeonConfig.backgroundColor;
-            Render2D.drawRect(Renderer.color(r, g, b, a), 0, 0, 250, 180);
-          }
-
-          for (const room of dungeon.rooms) {
-            if (!room.explored && DungeonConfig.darkenUnexplored) {
-              this.drawRoom(room, 0.3);
-            } else {
-              this.drawRoom(room, 1.0);
-            }
-            if (DungeonConfig.showRoomNames) this.drawRoomName(room);
-            if (DungeonConfig.showSecrets) this.drawRoomSecrets(room);
-            if (DungeonConfig.showSecretsProgress)
-              this.drawRoomSecretsProgress(room);
-            if (
-              DungeonConfig.checkmarkStyle !== 2 &&
-              !DungeonConfig.showSecretsProgress
-            ) {
-              this.drawCheckmark(room);
-            }
-          }
-
-          for (const door of dungeon.doors) {
-            this.drawDoor(door);
-          }
-
-          if (DungeonConfig.dungeonInfo === 0) {
-            this.drawInfoUnderMap(dungeon.mapLine1, dungeon.mapLine2);
-          }
-
-          if (DungeonConfig.mapBorder !== 0) {
-            this.drawBorder();
-          }
-
-          for (const player of dungeon.players) {
-            this.drawPlayerHead(player);
-          }
-
-          Render2D.scale(1 / scale);
-          Render2D.translate(-x, -y);
-        }
-
-        Render2D.resetScissor();
-      } catch (e) {
-        console.error(e);
-      }
-    }
-
-    if (forceGUI) {
-      this.currentDungeonMapBox = {
-        x,
-        y,
-        width: 250 * scale,
-        height: 180 * scale,
-      };
-    }
-  }
-
-  drawDungeonMapPreview(sw, sh) {
-    const settings = this.dungeonMapSettings;
-    const scale = settings.scale;
-    const x = settings.x;
-    const y = settings.y;
-    const width = 250 * scale;
-    const height = 180 * scale;
-
-    const radius = CORNER_RADIUS * scale;
-    const bgColor = THEME.BG_COMPONENT;
-    const borderColor = THEME.BORDER;
-
-    drawRoundedRectangleWithBorder({
-      x: x,
-      y: y,
-      width: width,
-      height: height,
-      radius: radius,
-      color: bgColor,
-      borderWidth: BORDER_WIDTH * scale,
-      borderColor: borderColor,
-    });
-
-    Render2D.translate(x, y);
-    Render2D.scale(scale);
-
-    if (DungeonConfig.backgroundColor[3] > 0) {
-      const [r, g, b, a] = DungeonConfig.backgroundColor;
-      Render2D.drawRect(Renderer.color(r, g, b, a), 0, 0, 250, 180);
-    }
-
-    Render2D.drawRect(Renderer.color(100, 100, 100, 255), 50, 50, 150, 80);
-    Render2D.drawRect(Renderer.color(50, 150, 50, 255), 70, 70, 110, 40);
-    Render2D.drawRect(Renderer.color(150, 50, 50, 255), 120, 120, 60, 60);
-
-    Render2D.scale(1 / scale);
-    Render2D.translate(-x, -y);
-
-    return {
-      x: x - BORDER_WIDTH * scale,
-      y: y - BORDER_WIDTH * scale,
-      width: width + BORDER_WIDTH * scale * 2,
-      height: height + BORDER_WIDTH * scale * 2,
-      border: BORDER_WIDTH * scale,
-    };
-  }
-
-  drawRoom(room, alpha = 1.0) {
-    // Room rendering placeholder
-  }
-
-  drawRoomName(room) {
-    // Room name rendering placeholder
-  }
-
-  drawRoomSecrets(room) {
-    // Room secrets rendering placeholder
-  }
-
-  drawRoomSecretsProgress(room) {
-    // Room secrets progress rendering placeholder
-  }
-
-  drawCheckmark(room) {
-    // Checkmark rendering placeholder
-  }
-
-  drawDoor(door) {
-    // Door rendering placeholder
-  }
-
-  drawPlayerHead(player) {
-    // Player head rendering placeholder
-  }
-
-  drawInfoUnderMap(line1, line2) {
-    // Info under map rendering placeholder
-  }
-
-  drawBorder() {
-    // Border rendering placeholder
-  }
-
   drawGUI() {
     const sw = Render2D.screen.getWidth();
     const sh = Render2D.screen.getHeight();
@@ -1133,10 +918,6 @@ class OverlayUtils {
 
         if (target === "music") {
           this.editorBoxes.music = this.drawMusicPreview(sw, sh);
-        }
-
-        if (target === "dungeonMap") {
-          this.editorBoxes.dungeonMap = this.drawDungeonMapPreview(sw, sh);
         }
       });
 
@@ -1262,7 +1043,6 @@ class OverlayUtils {
     });
     this.saveHudSettings();
     this.saveMusicSettings();
-    this.saveDungeonMapSettings();
   }
 
   saveHudSettings() {
@@ -1276,13 +1056,6 @@ class OverlayUtils {
     writeConfigFile(
       "OverlayPositions/music_overlay.json",
       this.getOverlaySettings(this.musicSettings),
-    );
-  }
-
-  saveDungeonMapSettings() {
-    writeConfigFile(
-      "OverlayPositions/dungeon_map.json",
-      this.getOverlaySettings(this.dungeonMapSettings),
     );
   }
 
@@ -1362,13 +1135,6 @@ class OverlayUtils {
       y: 100,
       scale: 1.0,
     });
-
-    const dungeonMapData = getConfigFile("OverlayPositions/dungeon_map.json");
-    this.applyOverlaySettings(this.dungeonMapSettings, dungeonMapData, {
-      x: 10,
-      y: 10,
-      scale: 1.0,
-    });
   }
 
   getHudOverlay(kind, sw, sh, border = 0) {
@@ -1413,25 +1179,6 @@ class OverlayUtils {
       border,
       overlay,
     };
-    return overlay;
-  }
-
-  getDungeonMapOverlay(sw, sh) {
-    const settings = this.dungeonMapSettings;
-    const bounds = { width: 250, height: 180 };
-    const overlay = { ...settings, ...bounds };
-    Object.assign(
-      overlay,
-      this.clampToScreen(
-        overlay.x,
-        overlay.y,
-        overlay.width,
-        overlay.height,
-        sw,
-        sh,
-        0,
-      ),
-    );
     return overlay;
   }
 

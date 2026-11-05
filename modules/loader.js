@@ -118,6 +118,11 @@ import "./other/DojoMacro";
 import "./other/ButtonGallery";
 
 /* COMBAT */
-import "./combat/DungeonMap";
 import "./combat/CombatBot";
 import "./combat/CombatNavigation";
+
+try {
+    require('./combat/IllegalMap');
+} catch (e) {
+    console.error('[V5] Dungeon Map failed to load: ' + e + (e && e.stack ? '\n' + e.stack : ''));
+}
