@@ -110,20 +110,20 @@ class DungeonMap extends ModuleBase {
 
     this.addColorPicker(
       "Background Color",
+      [0, 0, 0, 179],
       (c) => {
         DungeonConfig.backgroundColor = c;
       },
       "Change the background color and transparency of the map",
-      [0, 0, 0, 179],
     );
 
     this.addColorPicker(
       "Wither Door Color",
+      [0, 255, 0, 255],
       (c) => {
         DungeonConfig.witherDoorColor = c;
       },
       "Changes the wither door color",
-      [0, 255, 0, 255],
     );
 
     this.addSlider(
