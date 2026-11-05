@@ -1,4 +1,4 @@
-name: Auto Release Plex-Mojmap.zip
+name: Auto Release V5-Mojmap.zip
 on:
   push:
     tags:
@@ -14,14 +14,14 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Build Plex-Mojmap.zip
+      - name: Build V5-Mojmap.zip
         run: |
-          zip -r Plex-Mojmap.zip . -x "*.git*" -x ".github/*" -x "release.sh"
+          zip -r V5-Mojmap.zip . -x "*.git*" -x ".github/*" -x "release.sh"
           
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: Plex-Mojmap.zip
+          files: V5-Mojmap.zip
           name: Release ${{ github.ref_name }}
           body: "Automated release of version ${{ github.ref_name }}"
         env:
