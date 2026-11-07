@@ -114,3 +114,12 @@ export function setEnabled(v) {
 export function setColor(r, g, b, a) {
     starMobColor = new RenderColor(r, g, b, a);
 }
+
+const StarMobESP = {
+    getStarMobs,
+    setEnabled,
+    setColor,
+    renderStarMobs,
+};
+
+export default StarMobESP;
