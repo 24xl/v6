@@ -1,6 +1,6 @@
 import scanner from './scanner/DungeonScanner';
 import graph from './graph/DungeonGraph';
-import { DoorTile } from './scan/DungeonScanUtils';
+import { DoorTile } from './scanner/DungeonScanner';
 import { ChatLib } from '../../utils/Chat';
 import { register } from '../../utils/Utils';
 

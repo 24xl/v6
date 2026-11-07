@@ -52,7 +52,7 @@ class RoomTile extends DungeonTile {
     }
 }
 
-class DoorTile extends DungeonTile {
+export class DoorTile extends DungeonTile {
     constructor(x, z, type) {
         super(x, z);
         this.type = 'DOOR';
