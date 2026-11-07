@@ -180,7 +180,7 @@ class DungeonVisuals extends ModuleBase {
     }
 
     updateStarMobs() {
-        const entities = World.getAllEntities();
+        const entities = World.getAllEntities?.() || [];
         const found = new Map();
         for (const e of entities) {
             const name = e.getName?.()?.removeFormatting?.() || '';
@@ -256,7 +256,7 @@ class DungeonVisuals extends ModuleBase {
     updateWitherDoors() {
         if (!this.cfg.features.witherDoorEsp) return;
         const doors = [];
-        const entities = World.getAllEntities();
+        const entities = World.getAllEntities?.() || [];
         for (const e of entities) {
             const name = e.getName?.()?.removeFormatting?.() || '';
             if (name.includes('Wither Door') || name.includes('Blood Door')) {

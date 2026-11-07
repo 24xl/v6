@@ -225,8 +225,10 @@ class DungeonScanner {
         const roomChests = new Map();
         const entities = World.getAllEntities?.() || [];
         for (const e of entities) {
-            if (!(e instanceof net.minecraft.world.level.block.entity.ChestBlockEntity)) continue;
-            if (!e.getBlockState?.()?.is?.(net.minecraft.world.level.block.Blocks.TRAPPED_CHEST)) continue;
+            const blockState = e.getBlockState?.();
+            if (!blockState?.is?.(net.minecraft.world.level.block.Blocks.TRAPPED_CHEST)) continue;
+            const blockEntity = e.getBlockEntity?.();
+            if (!blockEntity) continue;
 
             const pos = e.getBlockPos();
             const room = this.getRoomFromPos({ x: pos.x, y: pos.y, z: pos.z });

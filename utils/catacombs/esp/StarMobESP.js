@@ -45,7 +45,8 @@ function checkStarMob(armorStand, name) {
         return;
     }
 
-    const possible = World.getEntitiesInAABB(armorStand.getBoundingBox().expand(0, -1, 0));
+    // Fallback: find nearby non-ArmorStand entities
+    const possible = World.getAllEntities?.() || [];
     for (const e of possible) {
         if (e === armorStand || starMobs.has(e.getId())) continue;
         if (e instanceof net.minecraft.world.entity.player.Player) {
@@ -58,11 +59,6 @@ function checkStarMob(armorStand, name) {
         break;
     }
 }
-
-register('entityUnload', (entity) => {
-    starMobs.delete(entity.getId());
-    checkedMobs.delete(entity.getId());
-});
 
 register('worldUnload', () => {
     starMobs.clear();
