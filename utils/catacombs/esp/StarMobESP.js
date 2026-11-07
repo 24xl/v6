@@ -1,14 +1,15 @@
-import { Color } from '../../Constants';
-import { Render3D, RenderColor } from '../../Constants';
-import { scanner } from '../scanner/DungeonScanner';
+import scanner from '../scanner/DungeonScanner';
 
 const starMobs = new Map();
 const checkedMobs = new Set();
 
 const DEFAULT_COLOR = new RenderColor(255, 255, 0, 180);
 
+let starMobColor = DEFAULT_COLOR;
+let enabled = false;
+
 register('packetReceived', (packet) => {
-    if (!scanner.isInDungeon() || scanner.isInBoss()) return;
+    if (!enabled || !scanner.isInDungeon() || scanner.isInBoss()) return;
     if (!packet.getEntityMetadata) return;
 
     const watcher = packet.getEntityMetadata();
@@ -75,7 +76,7 @@ export function setStarMobColor(r, g, b, a) {
 }
 
 export function renderStarMobs(pticks) {
-    if (starMobs.size === 0) return;
+    if (!enabled || starMobs.size === 0) return;
     if (!scanner.isInDungeon() || scanner.isInBoss()) return;
 
     for (const [, mob] of starMobs) {
@@ -110,4 +111,12 @@ function makeBoxLines(x, y, z, w, h, d) {
 
 export function getStarMobs() {
     return starMobs;
+}
+
+export function setEnabled(v) {
+    enabled = v;
+}
+
+export function setColor(r, g, b, a) {
+    starMobColor = new RenderColor(r, g, b, a);
 }

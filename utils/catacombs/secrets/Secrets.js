@@ -1,9 +1,9 @@
-import { Render3D, RenderColor } from '../../Constants';
-import { scanner } from '../scanner/DungeonScanner';
+import scanner from '../scanner/DungeonScanner';
 
 const clickedSecrets = new Map();
 let secretColor = new RenderColor(0, 255, 0, 130);
 let displayTime = 3000;
+let enabled = false;
 
 register('chat', (pos) => {
     const [x, y, z] = pos.split(',').map(Number);
@@ -29,7 +29,7 @@ export function setDisplayTime(ms) {
 }
 
 export function renderSecrets() {
-    if (!scanner.isInDungeon()) return;
+    if (!enabled || !scanner.isInDungeon()) return;
 
     const now = Date.now();
     for (const [key, time] of clickedSecrets) {
@@ -66,9 +66,18 @@ export function highlightSecret(x, y, z) {
     clickedSecrets.set(`${x},${y},${z}`, Date.now());
 }
 
+export function setEnabled(v) {
+    enabled = v;
+}
+
+export function setColor(r, g, b, a) {
+    secretColor = new RenderColor(r, g, b, a);
+}
+
 const secretsAPI = {
     renderSecrets,
-    setSecretColor,
+    setEnabled,
+    setColor,
     setDisplayTime,
     highlightSecret,
 };
