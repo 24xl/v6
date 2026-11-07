@@ -30,7 +30,7 @@ register('worldUnload', () => {
     scanner.reset();
 });
 
-export const DungeonCore = {
+const DungeonCore = {
     scanner,
     graph,
     starMobs,
@@ -42,3 +42,5 @@ export const DungeonCore = {
     getDoorESP: () => doorESP,
     getSecrets: () => secretsAPI,
 };
+
+export default DungeonCore;
