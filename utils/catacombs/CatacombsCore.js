@@ -43,4 +43,4 @@ const DungeonCore = {
     getSecrets: () => secretsAPI,
 };
 
-export default DungeonCore;
+module.exports = DungeonCore;
