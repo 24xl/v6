@@ -125,4 +125,4 @@ import "./combat/CombatNavigation";
 import "../utils/catacombs/CatacombsCore";
 import "../utils/catacombs/CatacombsCommands";
 import "./catacombs/DungeonVisuals";
-import "./catacombs/IllegalMap";
+import "./catacombs/DungeonScannerModule";

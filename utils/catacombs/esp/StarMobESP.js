@@ -69,8 +69,6 @@ register('worldUnload', () => {
     checkedMobs.clear();
 });
 
-let starMobColor = DEFAULT_COLOR;
-
 export function setStarMobColor(r, g, b, a) {
     starMobColor = new RenderColor(r, g, b, a);
 }
