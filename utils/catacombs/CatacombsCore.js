@@ -1,7 +1,7 @@
 import { scanner } from './scanner/DungeonScanner';
 import { graph } from './graph/DungeonGraph';
-import { starMobs } from '../esp/StarMobESP';
-import { secrets } from '../secrets/Secrets';
+import { starMobs } from './esp/StarMobESP';
+import { secrets } from './secrets/Secrets';
 
 register('tick', () => {
     scanner.tick();
