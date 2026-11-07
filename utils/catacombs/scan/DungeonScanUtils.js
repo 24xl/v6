@@ -1,173 +1,241 @@
-import { Vec3d } from '../../Constants';
+import { BP } from '../../Constants';
 
-let roomsJson = [];
-try {
-    const content = FileLib.read('catacombs', 'rooms-modern.json');
-    if (content && content.trim()) {
-        roomsJson = JSON.parse(content);
-    }
-} catch (e) {
-    console.error('[DungeonScanUtils] Failed to load rooms-modern.json:', e);
-}
+export const RoomType = Object.freeze({
+    BLOOD: 'BLOOD',
+    FAIRY: 'FAIRY',
+    RARE: 'RARE',
+    CHAMPION: 'CHAMPION',
+    PUZZLE: 'PUZZLE',
+    TRAP: 'TRAP',
+    NORMAL: 'NORMAL',
+    ENTRANCE: 'ENTRANCE',
+});
 
-const START_X = -185;
-const START_Z = -185;
-const ROOM_SIZE = 32;
-const HALF_ROOM_SIZE = 15;
+export const DoorType = Object.freeze({
+    BLOOD: 'BLOOD',
+    WITHER: 'WITHER',
+    NORMAL: 'NORMAL',
+    ENTRANCE: 'ENTRANCE',
+});
+
+// Numeric on purpose: a room's state only moves "forward" in this order.
+export const RoomState = Object.freeze({
+    GREEN: 0,
+    CLEARED: 1,
+    DISCOVERED: 2,
+    FAILED: 3,
+    UNOPENED: 4,
+    UNDISCOVERED: 5,
+});
+
+export const SecretType = Object.freeze({
+    CHEST: 'CHEST',
+    ITEM: 'ITEM',
+    BAT: 'BAT',
+    LEVER: 'LEVER',
+    REDSTONE_KEY: 'REDSTONE_KEY',
+    WITHER_ESSENCE: 'WITHER_ESSENCE',
+});
+
+export const GRID_START_X = -185;
+export const GRID_START_Z = -185;
+export const ROOM_SIZE = 32;
+export const HALF_ROOM_SIZE = 15;
+
+const ROOMS_JSON_MODULE = 'V5';
+const ROOMS_JSON_PATH = 'utils/catacombs/rooms/rooms-modern.json';
+
+const SECRET_KEYS = ['redstoneKey', 'wither', 'bat', 'item', 'chest', 'lever'];
 
 const IGNORED_CORE_BLOCKS = new Set([
-    'minecraft:chest', 'minecraft:trapped_chest',
-    'minecraft:piston_head', 'minecraft:moving_piston',
-    'minecraft:water', 'minecraft:lava',
-    'minecraft:fire', 'minecraft:soul_fire',
+    'minecraft:chest',
+    'minecraft:trapped_chest',
+    'minecraft:piston_head',
+    'minecraft:moving_piston',
+    'minecraft:water',
+    'minecraft:lava',
+    'minecraft:fire',
+    'minecraft:soul_fire',
 ]);
+
+const BLOCK_REGISTRY = net.minecraft.core.registries.BuiltInRegistries.BLOCK;
+
+function normalizeRoom(raw) {
+    const coords = raw.secretCoords || {};
+    const secretCoords = {};
+    for (const key of SECRET_KEYS) secretCoords[key] = Array.isArray(coords[key]) ? coords[key] : [];
+
+    return {
+        name: raw.name,
+        type: raw.type,
+        shape: raw.shape,
+        cores: raw.cores || [],
+        secretCoords,
+        trappedChests: raw.trappedChests || 0,
+        reviveStones: raw.reviveStones || 0,
+        secrets: raw.secrets || 0,
+        crypts: raw.crypts || 0,
+        isUnknown() {
+            return this.name === 'Unknown' && this.shape === 'Unknown';
+        },
+    };
+}
+
+export function createUnknownRoomData(type) {
+    return normalizeRoom({ name: 'Unknown', type, shape: 'Unknown', cores: [] });
+}
+
+export const ROOM_SHAPE_TILE_COUNT = Object.freeze({
+    Unknown: 0,
+    L: 3,
+    '1x1': 1,
+    '1x2': 2,
+    '1x3': 3,
+    '1x4': 4,
+    '2x2': 4,
+});
 
 const roomsByCore = new Map();
 const roomsByName = new Map();
-const secretMap = new Map();
-const coreTokenCache = new Map();
 
-(function initRoomMaps() {
-    for (const room of roomsJson) {
-        for (const core of room.cores) {
-            roomsByCore.set(core, room);
-        }
+(function loadRooms() {
+    const raw = FileLib.read(ROOMS_JSON_MODULE, ROOMS_JSON_PATH);
+    if (!raw || !raw.trim()) {
+        console.error('[Catacombs] could not read ' + ROOMS_JSON_MODULE + '/' + ROOMS_JSON_PATH + ' - room detection is disabled');
+        return;
+    }
+
+    let list;
+    try {
+        list = JSON.parse(raw);
+    } catch (error) {
+        console.error('[Catacombs] rooms-modern.json is not valid JSON: ' + error);
+        return;
+    }
+
+    for (const entry of list) {
+        const room = normalizeRoom(entry);
         roomsByName.set(room.name, room);
-        if (room.secretCoords) {
-            secretMap.set(room.name, room.secretCoords);
-        }
+        for (const core of room.cores) roomsByCore.set(core, room);
     }
 })();
 
-function getBlockTokenHash(block) {
-    if (coreTokenCache.has(block)) return coreTokenCache.get(block);
-    const name = block.getRegistryName?.()?.toString?.() || block.toString();
-    const token = IGNORED_CORE_BLOCKS.has(name) || name.endsWith('_planks')
-        ? 'minecraft:air'
-        : name;
-    const hash = String(token).hashCode();
-    coreTokenCache.set(block, hash);
+export const getRoomCount = () => roomsByName.size;
+export const getRoomData = (hash) => roomsByCore.get(hash) ?? null;
+export const getRoomDataByName = (name) => roomsByName.get(name) ?? null;
+export const getAllRoomData = () => Array.from(roomsByName.values());
+
+export function coord(value) {
+    if (value == null) return { x: 0, y: 0, z: 0 };
+    if (typeof value.x === 'number') return { x: value.x, y: typeof value.y === 'number' ? value.y : 0, z: value.z };
+    return { x: Number(value.getX()), y: Number(value.getY()), z: Number(value.getZ()) };
+}
+
+// Same result as Java's String.hashCode(): the room cores in rooms-modern.json were built with it.
+export function javaStringHash(text) {
+    let hash = 0;
+    for (let i = 0; i < text.length; i++) hash = (Math.imul(hash, 31) + text.charCodeAt(i)) | 0;
     return hash;
 }
 
-export function getCore(x, z) {
-    const world = World.getWorld();
-    if (!world) return 1;
-    const pos = new net.minecraft.core.BlockPos.MutableBlockPos(x, 0, z);
-    let hash = 1;
+const blockNameCache = [];
+const coreTokenCache = [];
 
+function blockName(block) {
+    const id = BLOCK_REGISTRY.getId(block);
+    let name = blockNameCache[id];
+    if (name === undefined) {
+        name = String(BLOCK_REGISTRY.getKey(block).toString());
+        blockNameCache[id] = name;
+    }
+    return { id, name };
+}
+
+function coreToken(block) {
+    const { id, name } = blockName(block);
+    let token = coreTokenCache[id];
+    if (token === undefined) {
+        token = javaStringHash(IGNORED_CORE_BLOCKS.has(name) || name.endsWith('_planks') ? 'minecraft:air' : name);
+        coreTokenCache[id] = token;
+    }
+    return token;
+}
+
+export function getWorld() {
+    return World.getWorld();
+}
+
+export function isChunkLoaded(x, z) {
+    const world = getWorld();
+    if (!world) return false;
+    return !!world.hasChunkAt(new BP(Math.floor(x), 64, Math.floor(z)));
+}
+
+export function getStateAt(x, y, z) {
+    const world = getWorld();
+    if (!world) return null;
+    return world.getBlockState(new BP(Math.floor(x), Math.floor(y), Math.floor(z)));
+}
+
+export function getBlockNameAt(x, y, z) {
+    const state = getStateAt(x, y, z);
+    return state ? blockName(state.getBlock()).name : 'minecraft:air';
+}
+
+export function getCore(x, z) {
+    const world = getWorld();
+    if (!world) return 1;
+
+    let hash = 1;
     for (let y = 140; y >= 12; y--) {
-        const state = world.getBlockState(pos.setY(y));
-        if (!state) continue;
-        const block = state.getBlock();
-        const tokenHash = coreTokenCache.get(block) ?? getBlockTokenHash(block);
-        hash = hash * 31 + tokenHash;
+        const block = world.getBlockState(new BP(x, y, z)).getBlock();
+        hash = (Math.imul(hash, 31) + coreToken(block)) | 0;
     }
     return hash;
 }
 
 export function getHighestY(x, z) {
-    const world = World.getWorld();
+    const world = getWorld();
     if (!world) return 0;
-    const pos = new net.minecraft.core.BlockPos.MutableBlockPos(x, 0, z);
+
     for (let y = 256; y >= 0; y--) {
-        const state = world.getBlockState(pos.setY(y));
-        if (!state || state.isAir() || state.getBlock() === net.minecraft.world.level.block.Blocks.GOLD_BLOCK) continue;
+        const state = world.getBlockState(new BP(x, y, z));
+        if (state.isAir()) continue;
+        if (blockName(state.getBlock()).name === 'minecraft:gold_block') continue;
         return y;
     }
     return 0;
 }
 
-export function getRoomGraf(vec) {
-    const roomIndexX = Math.round((vec.x - START_X) / ROOM_SIZE);
-    const roomIndexZ = Math.round((vec.z - START_Z) / ROOM_SIZE);
-    const gridX = roomIndexX * 2;
-    const gridZ = roomIndexZ * 2;
-    return [Math.max(0, Math.min(10, gridX)), Math.max(0, Math.min(10, gridZ))];
+export function getRoomGraf(pos) {
+    const p = coord(pos);
+    const gridX = Math.round((p.x - GRID_START_X) / ROOM_SIZE) * 2;
+    const gridZ = Math.round((p.z - GRID_START_Z) / ROOM_SIZE) * 2;
+    return [Math.min(10, Math.max(0, gridX)), Math.min(10, Math.max(0, gridZ))];
 }
 
-export function getRoomFromPos(vec, dungeonList) {
-    const [gx, gz] = getRoomGraf(vec);
-    const idx = gz * 11 + gx;
-    const tile = dungeonList[idx];
-    return tile?.uniqueRoom ?? null;
-}
-
-export function getRoomData(hash) {
-    return roomsByCore.get(hash) ?? null;
-}
-
-export function getRoomDataByName(name) {
-    return roomsByName.get(name) ?? null;
-}
-
-export function getSecretCoords(roomName) {
-    return secretMap.get(roomName) ?? null;
-}
-
-const CLAY_OFFSETS = [
-    [-HALF_ROOM_SIZE, -HALF_ROOM_SIZE],
-    [HALF_ROOM_SIZE, -HALF_ROOM_SIZE],
-    [HALF_ROOM_SIZE, HALF_ROOM_SIZE],
-    [-HALF_ROOM_SIZE, HALF_ROOM_SIZE],
-];
-
-export function getRelativeCoord(realPos, roomCorner, rotation) {
-    const cx = roomCorner.x;
-    const cz = roomCorner.z;
-    const centeredX = realPos.x - cx;
-    const centeredZ = realPos.z - cz;
-
-    const deg = ((rotation % 360) + 360) % 360;
-    let rx = centeredX;
-    let rz = centeredZ;
-
-    if (deg === 90) { rx = centeredZ; rz = -centeredX; }
-    else if (deg === 180) { rx = -centeredX; rz = -centeredZ; }
-    else if (deg === 270) { rx = -centeredZ; rz = centeredX; }
-
-    return [rx, rz];
+export function rotate(pos, degree) {
+    const p = coord(pos);
+    switch (((degree % 360) + 360) % 360) {
+        case 90:
+            return { x: p.z, y: p.y, z: -p.x };
+        case 180:
+            return { x: -p.x, y: p.y, z: -p.z };
+        case 270:
+            return { x: -p.z, y: p.y, z: p.x };
+        default:
+            return { x: p.x, y: p.y, z: p.z };
+    }
 }
 
 export function getRealCoord(pos, roomCenter, rotation) {
-    const cx = roomCenter.x;
-    const cz = roomCenter.z;
-
-    const deg = ((rotation % 360) + 360) % 360;
-    let rx = pos.x;
-    let rz = pos.z;
-
-    if (deg === 90) { rx = pos.z; rz = -pos.x; }
-    else if (deg === 180) { rx = -pos.x; rz = -pos.z; }
-    else if (deg === 270) { rx = -pos.z; rz = pos.x; }
-
-    return { x: rx + cx, y: pos.y, z: rz + cz };
+    const c = coord(roomCenter);
+    const r = rotate(pos, rotation);
+    return { x: r.x + c.x, y: r.y, z: r.z + c.z };
 }
 
-export const RoomType = {
-    NORMAL: 'NORMAL',
-    PUZZLE: 'PUZZLE',
-    TRAP: 'TRAP',
-    YELLOW: 'YELLOW',
-    BLOOD: 'BLOOD',
-    FAIRY: 'FAIRY',
-    ENTRANCE: 'ENTRANCE',
-    UNKNOWN: 'UNKNOWN',
-};
-
-export const DoorType = {
-    NORMAL: 'NORMAL',
-    WITHER: 'WITHER',
-    BLOOD: 'BLOOD',
-    ENTRANCE: 'ENTRANCE',
-};
-
-export const RoomState = {
-    UNKNOWN: 'UNKNOWN',
-    DISCOVERED: 'DISCOVERED',
-    UNDISCOVERED: 'UNDISCOVERED',
-};
-
-export function isFairyRoom(room) {
-    return room?.data?.type === RoomType.FAIRY;
+export function getRelativeCoord(realPos, roomCorner, rotation) {
+    const c = coord(roomCorner);
+    const p = coord(realPos);
+    return rotate({ x: p.x - c.x, y: p.y, z: p.z - c.z }, -rotation);
 }

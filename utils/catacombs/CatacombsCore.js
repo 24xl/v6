@@ -1,46 +1,41 @@
-import scanner from './scanner/DungeonScanner';
+import { DungeonEvents } from './DungeonEvents';
+import { location } from './DungeonLocation';
+import scanner, { DoorTile, RoomTile, UniqueRoom, UnknownTile, getRoomFromPos } from './scanner/DungeonScanner';
 import graph from './graph/DungeonGraph';
-import starMobs from './esp/StarMobESP';
-import doorESP from './esp/DoorESP';
-import secretsAPI from './secrets/Secrets';
+import * as ScanUtils from './scan/DungeonScanUtils';
+import * as DoorKeys from './keys/DoorKeys';
 
 register('tick', () => {
     scanner.tick();
-});
-
-register('renderWorld', (pticks) => {
-    if (!scanner.isInDungeon() || scanner.isInBoss()) return;
-
-    if (starMobs?.renderStarMobs) starMobs.renderStarMobs(pticks);
-});
-
-register('renderWorld', () => {
-    if (!scanner.isInDungeon() || scanner.isInBoss()) return;
-
-    doorESP.renderDoors?.();
-});
-
-register('renderWorld', () => {
-    if (!scanner.isInDungeon() || scanner.isInBoss()) return;
-
-    secretsAPI.renderSecrets?.();
 });
 
 register('worldUnload', () => {
     scanner.reset();
 });
 
-const DungeonCore = {
+register('worldLoad', () => {
+    scanner.reset();
+});
+
+export const DungeonCore = {
+    location,
+    events: DungeonEvents,
     scanner,
     graph,
-    starMobs,
-    doorESP,
-    secretsAPI,
+    keys: DoorKeys,
+    utils: ScanUtils,
+    RoomType: ScanUtils.RoomType,
+    DoorType: ScanUtils.DoorType,
+    RoomState: ScanUtils.RoomState,
+    SecretType: ScanUtils.SecretType,
+    DoorTile,
+    RoomTile,
+    UniqueRoom,
+    UnknownTile,
+    getRoomFromPos,
     getScanner: () => scanner,
     getGraph: () => graph,
-    getStarMobs: () => starMobs,
-    getDoorESP: () => doorESP,
-    getSecrets: () => secretsAPI,
 };
 
+export { scanner, graph, location, DungeonEvents, DoorTile, RoomTile, UniqueRoom, UnknownTile, getRoomFromPos };
 export default DungeonCore;

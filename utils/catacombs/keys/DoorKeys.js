@@ -1,39 +1,28 @@
-let witherKeys = 0;
-let bloodKeys = 0;
+import { location } from '../DungeonLocation';
 
-register('chat', () => {
-    witherKeys++;
-}).setCriteria(/^(?:\[[^\]]+\] )*\w+ has obtained Wither Key!$/);
+const keys = { wither: 0, blood: 0 };
 
-register('chat', () => {
-    if (witherKeys > 0) witherKeys--;
-}).setCriteria(/^\w+ opened a WITHER door!$/);
+const messageText = (event) => {
+    const message = event?.message;
+    return String(message?.getUnformattedText?.() ?? message?.unformattedText ?? '');
+};
 
-register('chat', () => {
-    bloodKeys++;
-}).setCriteria(/^(?:\[[^\]]+\] )*\w+ has obtained Blood Key!$/);
+register('chat', (event) => {
+    if (!location.inDungeon) return;
+    const text = messageText(event);
 
-register('chat', () => {
-    if (bloodKeys > 0) bloodKeys--;
-}).setCriteria(/^The BLOOD DOOR has been opened!$/);
-
-register('worldUnload', () => {
-    witherKeys = 0;
-    bloodKeys = 0;
+    if (/^(?:\[[^\]]+\] )?\w+ has obtained Wither Key!$/.test(text)) keys.wither++;
+    else if (/^(?:\[[^\]]+\] )?\w+ opened a WITHER door!$/.test(text)) keys.wither = Math.max(0, keys.wither - 1);
+    else if (/^(?:\[[^\]]+\] )?\w+ has obtained Blood Key!$/.test(text)) keys.blood++;
+    else if (text === 'The BLOOD DOOR has been opened!') keys.blood = Math.max(0, keys.blood - 1);
 });
 
-export function getWitherKeys() {
-    return witherKeys;
-}
+register('worldUnload', () => {
+    keys.wither = 0;
+    keys.blood = 0;
+});
 
-export function getBloodKeys() {
-    return bloodKeys;
-}
-
-export function hasWitherKey() {
-    return witherKeys > 0;
-}
-
-export function hasBloodKey() {
-    return bloodKeys > 0;
-}
+export const getWitherKeys = () => keys.wither;
+export const getBloodKeys = () => keys.blood;
+export const hasWitherKey = () => keys.wither > 0;
+export const hasBloodKey = () => keys.blood > 0;

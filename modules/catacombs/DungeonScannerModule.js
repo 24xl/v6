@@ -1,113 +1,76 @@
 import { ModuleBase } from '../../utils/ModuleBase';
 import { DungeonCore } from '../../utils/catacombs/CatacombsCore';
+import { chat } from '../../utils/Chat';
+
+const { scanner, graph, location, DoorTile, DoorType, SecretType, keys } = DungeonCore;
+const AABB = net.minecraft.world.phys.AABB;
+
+const SECRET_COLORS = {
+    [SecretType.CHEST]: new RenderColor(0, 255, 0, 255),
+    [SecretType.ITEM]: new RenderColor(0, 170, 255, 255),
+    [SecretType.BAT]: new RenderColor(255, 170, 0, 255),
+    [SecretType.LEVER]: new RenderColor(255, 255, 255, 255),
+    [SecretType.REDSTONE_KEY]: new RenderColor(255, 0, 0, 255),
+    [SecretType.WITHER_ESSENCE]: new RenderColor(170, 0, 255, 255),
+};
+
+const toRenderColor = (color) => new RenderColor(color.getRed(), color.getGreen(), color.getBlue(), color.getAlpha());
 
 class DungeonScannerModule extends ModuleBase {
     constructor() {
         super({
             name: 'Dungeon Scanner',
             subcategory: 'Catacombs',
-            description: 'Scans dungeon rooms/doors, highlights star mobs, wither doors, secrets',
-            tooltip: 'Toggle individual visual features below',
-            showEnabledToggle: false,
+            description: 'Scans the dungeon grid and highlights doors / secrets using the shared catacombs API',
+            tooltip: 'Backed by utils/catacombs. Use /dungeonscan for debug output.',
         });
 
-        this.addToggle(
-            'Star Mob ESP',
-            (v) => { DungeonCore.starMobs.enabled = v; },
-            'Highlight starred mobs (✯ Fels, ✯ Withermancer, Shadow Assassin)',
-            false
-        );
+        this.doorEsp = true;
+        this.secretEsp = false;
+        this.keyColor = new RenderColor(0, 255, 0, 255);
+        this.noKeyColor = new RenderColor(255, 0, 0, 255);
 
-        this.addColorPicker(
-            'Star Mob Color',
-            new java.awt.Color(255, 255, 0, 180),
-            (c) => DungeonCore.starMobs.setColor(c.getRed(), c.getGreen(), c.getBlue(), c.getAlpha()),
-            'Color for starred mob boxes'
-        );
+        this.addToggle('Door ESP', (v) => (this.doorEsp = v), 'Outline unopened wither and blood doors', true);
+        this.addColorPicker('Has Key Color', java.awt.Color.GREEN, (c) => (this.keyColor = toRenderColor(c)), 'Door color when you hold the matching key');
+        this.addColorPicker('No Key Color', java.awt.Color.RED, (c) => (this.noKeyColor = toRenderColor(c)), 'Door color when you do not hold the key');
+        this.addToggle('Secret ESP', (v) => (this.secretEsp = v), 'Outline known secret locations in the room you are standing in', false);
+        this.addToggle('Mimic Detection', (v) => (scanner.mimicDetectionEnabled = v), 'Find the mimic room on F6/F7 by counting trapped chests', false);
+        this.addButton('Rescan', () => scanner.reset(), 'Clear scanned data and scan again');
+        this.addButton('Print Blood Rush', () => {
+            const path = graph.getBloodRush();
+            chat(path.length ? '&aBlood rush: &f' + path.map((room) => room.name).join(' > ') : '&cNo blood rush path yet');
+        });
 
-        this.addToggle(
-            'Wither Door ESP',
-            (v) => { DungeonCore.doorESP.enabled = v; },
-            'Highlight wither/blood doors ahead of you',
-            false
-        );
+        this.on('postRenderWorld', () => this.render());
+    }
 
-        this.addColorPicker(
-            'Wither Door Color',
-            new java.awt.Color(255, 0, 0, 180),
-            (c) => DungeonCore.doorESP.setColor(c.getRed(), c.getGreen(), c.getBlue(), c.getAlpha()),
-            'Color for wither/blood door boxes'
-        );
+    render() {
+        if (!location.inDungeon || location.inBoss) return;
+        if (this.doorEsp) this.renderDoors();
+        if (this.secretEsp) this.renderSecrets();
+    }
 
-        this.addToggle(
-            'Blood Door Color (Key)',
-            (v) => { DungeonCore.doorESP.keyColorEnabled = v; },
-            'Show doors green when you have the key',
-            true
-        );
+    renderDoors() {
+        for (const tile of scanner.dungeonList) {
+            if (!(tile instanceof DoorTile) || tile.opened) continue;
+            if (tile.type !== DoorType.WITHER && tile.type !== DoorType.BLOOD) continue;
 
-        this.addColorPicker(
-            'Key Highlight Color',
-            new java.awt.Color(0, 255, 0, 180),
-            (c) => DungeonCore.doorESP.setKeyColor(c.getRed(), c.getGreen(), c.getBlue(), c.getAlpha()),
-            'Color when you have the door key'
-        );
+            const hasKey = tile.type === DoorType.BLOOD ? keys.hasBloodKey() : keys.hasWitherKey();
+            const box = new AABB(tile.aabb.minX, tile.aabb.minY, tile.aabb.minZ, tile.aabb.maxX, tile.aabb.maxY, tile.aabb.maxZ);
+            Render3D.drawWireFrameBox(box, hasKey ? this.keyColor : this.noKeyColor, 2, false);
+        }
+    }
 
-        this.addToggle(
-            'Secret Highlights',
-            (v) => { DungeonCore.secretsAPI.enabled = v; },
-            'Highlight secret chests when clicked',
-            false
-        );
+    renderSecrets() {
+        const room = scanner.currentRoom;
+        if (!room || room.rotation === null) return;
 
-        this.addColorPicker(
-            'Secret Color',
-            new java.awt.Color(0, 255, 0, 130),
-            (c) => DungeonCore.secretsAPI.setColor(c.getRed(), c.getGreen(), c.getBlue(), c.getAlpha()),
-            'Color for secret highlights'
-        );
-
-        this.addSlider(
-            'Secret Display Time (s)',
-            1,
-            10,
-            3,
-            (v) => DungeonCore.secretsAPI.setDisplayTime(v * 1000),
-            'How long secret highlights stay visible'
-        );
-
-        this.addButton(
-            'Scan Now',
-            () => DungeonCore.scanner.scan(),
-            'Manually trigger a full dungeon scan'
-        );
-
-        this.addButton(
-            'Reset Scanner',
-            () => DungeonCore.scanner.reset(),
-            'Clear all scanned data'
-        );
-
-        this.addButton(
-            'Debug: Blood Rush',
-            () => {
-                const path = DungeonCore.graph.getBloodRush();
-                ChatLib.chat('&aBlood rush: ' + path.map(r => r.data.name).join(' > '));
-            },
-            'Print blood rush path to chat'
-        );
-
-        this.addButton(
-            'Debug: Mimic Room',
-            () => {
-                const m = DungeonCore.scanner.mimicRoom;
-                if (m) ChatLib.chat('&aMimic in: ' + m.data.name);
-                else ChatLib.chat('&cNo mimic found');
-            },
-            'Print mimic room to chat'
-        );
-
-        this.bindToggleKey('Toggle Dungeon Scanner');
+        for (const [type, positions] of room.secretCoords) {
+            const color = SECRET_COLORS[type];
+            for (const p of positions) {
+                Render3D.drawWireFrameBox(new AABB(p.x, p.y, p.z, p.x + 1, p.y + 1, p.z + 1), color, 2, false);
+            }
+        }
     }
 }
 

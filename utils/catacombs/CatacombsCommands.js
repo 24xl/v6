@@ -1,68 +1,69 @@
-import scanner from './scanner/DungeonScanner';
-import graph from './graph/DungeonGraph';
-import { DoorTile } from './scanner/DungeonScanner';
-import { ChatLib } from '../../utils/Chat';
-import { register } from '../../utils/Utils';
+import { chat } from '../Chat';
+import { DungeonCore } from './CatacombsCore';
 
-register('command', (...args) => {
-    const cmd = args[0]?.toLowerCase();
-    
-    switch (cmd) {
+const { scanner, graph, location, DoorTile, utils } = DungeonCore;
+
+const requireDungeon = () => {
+    if (location.inDungeon) return true;
+    chat('&cNot in a dungeon');
+    return false;
+};
+
+register('command', (sub) => {
+    switch (String(sub ?? '').toLowerCase()) {
         case 'scan':
-            if (!scanner.isInDungeon()) return ChatLib.chat('&cNot in dungeon');
+            if (!requireDungeon()) return;
             scanner.scan();
-            ChatLib.chat('&aScan complete. Rooms: ' + scanner.uniqueRooms.size + ', Doors: ' + scanner.witherDoors);
+            chat(`&aScan complete. Rooms: ${scanner.uniqueRooms.size}, wither doors: ${scanner.witherDoors}`);
             break;
-            
+
         case 'rooms':
-            if (!scanner.isInDungeon()) return ChatLib.chat('&cNot in dungeon');
-            for (const [key, room] of scanner.uniqueRooms) {
-                ChatLib.chat(`&b${key}&f: ${room.data.name} &7(${room.components.length} comps) &cSecrets: ${room.data.secrets || 0}`);
+            if (!requireDungeon()) return;
+            for (const [name, room] of scanner.uniqueRooms) {
+                chat(`&b${name} &7(${room.tiles.length} tiles, rot ${room.rotation ?? '?'}) &cSecrets: ${room.data.secrets}`);
             }
             break;
-            
-        case 'doors':
-            if (!scanner.isInDungeon()) return ChatLib.chat('&cNot in dungeon');
+
+        case 'doors': {
+            if (!requireDungeon()) return;
             let count = 0;
             for (const tile of scanner.dungeonList) {
-                if (tile instanceof DoorTile) {
-                    count++;
-                    ChatLib.chat(`&bDoor &7${tile.x}, ${tile.z} &f${tile.doorType} &cOpened: ${tile.opened}`);
-                }
+                if (!(tile instanceof DoorTile)) continue;
+                count++;
+                chat(`&bDoor &7${tile.x}, ${tile.z} &f${tile.type} &cOpened: ${tile.opened}`);
             }
-            ChatLib.chat('&aTotal doors: ' + count);
+            chat(`&aTotal doors: ${count}`);
             break;
-            
-        case 'graph':
-            if (!scanner.isInDungeon()) return ChatLib.chat('&cNot in dungeon');
+        }
+
+        case 'graph': {
+            if (!requireDungeon()) return;
             const path = graph.getBloodRush();
-            ChatLib.chat('&aBlood rush path:');
-            for (const room of path) {
-                ChatLib.chat(`  &f${room.data.name} &7(${room.components.map(c => c.join(',')).join(';')})`);
-            }
-            if (graph.fairyRoom) {
-                ChatLib.chat(`&dFairy room: ${graph.fairyRoom.data.name}`);
-                ChatLib.chat(`&dBefore fairy: ${graph.roomBeforeFairy?.data.name}`);
-                ChatLib.chat(`&dAfter fairy: ${graph.nextRoomAfterFairy?.data.name}`);
-            }
+            chat(path.length ? '&aBlood rush: &f' + path.map((room) => room.name).join(' > ') : '&cNo blood rush path yet');
             break;
-            
-        case 'mimic':
-            if (!scanner.isInDungeon()) return ChatLib.chat('&cNot in dungeon');
-            if (scanner.mimicRoom) {
-                ChatLib.chat('&aMimic found in: ' + scanner.mimicRoom.data.name);
-                ChatLib.chat('&aChests: ' + scanner.mimicRoom.trappedChestPositions.length);
-            } else {
-                ChatLib.chat('&cNo mimic found yet');
-            }
+        }
+
+        case 'here': {
+            if (!requireDungeon()) return;
+            const room = scanner.currentRoom;
+            if (!room) return chat('&cNot inside a known room');
+            chat(`&aRoom: &f${room.name} &7rot ${room.rotation ?? '?'} corner ${room.clayPos ? room.clayPos.x + ',' + room.clayPos.z : '?'}`);
             break;
-            
+        }
+
+        case 'status':
+            chat(
+                `&7inDungeon=${location.inDungeon} floor=${location.floor} boss=${location.inBoss} ` +
+                    `rooms=${scanner.uniqueRooms.size} scanned=${scanner.hasScanned} jsonRooms=${utils.getRoomCount()}`
+            );
+            break;
+
         case 'reset':
             scanner.reset();
-            ChatLib.chat('&aScanner reset');
+            chat('&aScanner reset');
             break;
-            
+
         default:
-            ChatLib.chat('&b/dungenscan <scan|rooms|doors|graph|mimic|reset>');
+            chat('&b/dungeonscan <status|scan|rooms|doors|graph|here|reset>');
     }
-}).setName('dungenscan');
+}).setName('dungeonscan');
