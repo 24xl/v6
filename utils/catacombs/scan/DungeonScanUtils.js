@@ -1,6 +1,14 @@
 import { Vec3d } from '../../Constants';
 
-const roomsJson = JSON.parse(FileLib.read('catacombs', 'rooms-modern.json'));
+let roomsJson = [];
+try {
+    const content = FileLib.read('catacombs', 'rooms-modern.json');
+    if (content && content.trim()) {
+        roomsJson = JSON.parse(content);
+    }
+} catch (e) {
+    console.error('[DungeonScanUtils] Failed to load rooms-modern.json:', e);
+}
 
 const START_X = -185;
 const START_Z = -185;
