@@ -122,4 +122,7 @@ import "./combat/CombatBot";
 import "./combat/CombatNavigation";
 
 /* CATACOMBS */
+import "./catacombs/CatacombsCore";
+import "./catacombs/CatacombsCommands";
+import "./catacombs/DungeonVisuals";
 import "./catacombs/IllegalMap";
