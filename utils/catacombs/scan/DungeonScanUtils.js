@@ -1,5 +1,5 @@
-import { Vec3d } from '../../Constants';
-import { FileLib } from '../../utils/Utils';
+import { Vec3d } from '../../../Constants';
+import { FileLib } from '../../../utils/Utils';
 
 const roomsJson = JSON.parse(FileLib.read('catacombs', 'rooms-modern.json'));
 
