@@ -1,5 +1,5 @@
 import { Vec3d } from '../../Constants';
-import { roomsJson } from '../rooms/rooms-modern.json';
+import roomsJson from '../rooms/rooms-modern.json';
 
 const START_X = -185;
 const START_Z = -185;
