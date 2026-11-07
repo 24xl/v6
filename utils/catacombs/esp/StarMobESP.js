@@ -48,7 +48,8 @@ function checkStarMob(armorStand, name) {
     for (const e of possible) {
         if (e === armorStand || starMobs.has(e.getId())) continue;
         if (e instanceof net.minecraft.world.entity.player.Player) {
-            if (e.isInvisible() || e.getUUID().version() !== 2 || e === Player.getPlayer()) continue;
+            const localPlayer = Player.getPlayer();
+            if (e.isInvisible() || e.getUUID().version() !== 2 || (localPlayer && e === localPlayer)) continue;
         }
         if (e instanceof net.minecraft.world.entity.boss.wither.WitherBoss) continue;
         if (e instanceof net.minecraft.world.entity.projectile.arrow.AbstractArrow) continue;

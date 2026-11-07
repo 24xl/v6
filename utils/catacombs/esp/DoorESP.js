@@ -1,4 +1,4 @@
-import { scanner } from '../scanner/DungeonScanner';
+import scanner from '../scanner/DungeonScanner';
 import { DoorType, RoomState } from '../scan/DungeonScanUtils';
 import { Render3D, RenderColor } from '../../Constants';
 
@@ -55,3 +55,10 @@ function makeBoxLines(x, y, z, w, h, d) {
     ];
     return corners.map(([x, y, z]) => new net.minecraft.world.phys.Vec3(x, y, z));
 }
+
+const doorESP = {
+    renderDoors,
+    setDoorColor,
+};
+
+export default doorESP;

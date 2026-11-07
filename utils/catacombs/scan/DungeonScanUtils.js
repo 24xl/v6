@@ -51,11 +51,14 @@ function getBlockTokenHash(block) {
 }
 
 export function getCore(x, z) {
+    const world = World.getWorld();
+    if (!world) return 1;
     const pos = new net.minecraft.core.BlockPos.MutableBlockPos(x, 0, z);
     let hash = 1;
 
     for (let y = 140; y >= 12; y--) {
-        const state = World.getWorld().getBlockState(pos.setY(y));
+        const state = world.getBlockState(pos.setY(y));
+        if (!state) continue;
         const block = state.getBlock();
         const tokenHash = coreTokenCache.get(block) ?? getBlockTokenHash(block);
         hash = hash * 31 + tokenHash;
@@ -64,10 +67,12 @@ export function getCore(x, z) {
 }
 
 export function getHighestY(x, z) {
+    const world = World.getWorld();
+    if (!world) return 0;
     const pos = new net.minecraft.core.BlockPos.MutableBlockPos(x, 0, z);
     for (let y = 256; y >= 0; y--) {
-        const state = World.getWorld().getBlockState(pos.setY(y));
-        if (state.isAir() || state.getBlock() === net.minecraft.world.level.block.Blocks.GOLD_BLOCK) continue;
+        const state = world.getBlockState(pos.setY(y));
+        if (!state || state.isAir() || state.getBlock() === net.minecraft.world.level.block.Blocks.GOLD_BLOCK) continue;
         return y;
     }
     return 0;

@@ -1,4 +1,4 @@
-import { scanner } from '../scanner/DungeonScanner';
+import scanner from '../scanner/DungeonScanner';
 import { RoomType, DoorType } from '../scan/DungeonScanUtils';
 
 class DungeonGraph {

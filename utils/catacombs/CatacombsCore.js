@@ -1,7 +1,8 @@
-import { scanner } from './scanner/DungeonScanner';
-import { graph } from './graph/DungeonGraph';
-import { starMobs } from './esp/StarMobESP';
-import { secrets } from './secrets/Secrets';
+import scanner from './scanner/DungeonScanner';
+import graph from './graph/DungeonGraph';
+import starMobs from './esp/StarMobESP';
+import doorESP from './esp/DoorESP';
+import secretsAPI from './secrets/Secrets';
 
 register('tick', () => {
     scanner.tick();
@@ -16,13 +17,13 @@ register('renderWorld', (pticks) => {
 register('renderWorld', () => {
     if (!scanner.isInDungeon() || scanner.isInBoss()) return;
 
-    graph?.renderDoors?.();
+    doorESP.renderDoors?.();
 });
 
 register('renderWorld', () => {
     if (!scanner.isInDungeon() || scanner.isInBoss()) return;
 
-    secrets?.renderSecrets?.();
+    secretsAPI.renderSecrets?.();
 });
 
 register('worldUnload', () => {
@@ -32,8 +33,12 @@ register('worldUnload', () => {
 export const DungeonCore = {
     scanner,
     graph,
+    starMobs,
+    doorESP,
+    secretsAPI,
     getScanner: () => scanner,
     getGraph: () => graph,
     getStarMobs: () => starMobs,
-    getSecrets: () => secrets,
+    getDoorESP: () => doorESP,
+    getSecrets: () => secretsAPI,
 };

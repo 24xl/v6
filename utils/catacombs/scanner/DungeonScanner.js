@@ -223,7 +223,7 @@ class DungeonScanner {
 
     findMimicRoom() {
         const roomChests = new Map();
-        const entities = World.getAllEntities();
+        const entities = World.getAllEntities?.() || [];
         for (const e of entities) {
             if (!(e instanceof net.minecraft.world.level.block.entity.ChestBlockEntity)) continue;
             if (!e.getBlockState?.()?.is?.(net.minecraft.world.level.block.Blocks.TRAPPED_CHEST)) continue;

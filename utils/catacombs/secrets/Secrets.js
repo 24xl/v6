@@ -65,3 +65,12 @@ function makeBoxLines(x, y, z, w, h, d) {
 export function highlightSecret(x, y, z) {
     clickedSecrets.set(`${x},${y},${z}`, Date.now());
 }
+
+const secretsAPI = {
+    renderSecrets,
+    setSecretColor,
+    setDisplayTime,
+    highlightSecret,
+};
+
+export default secretsAPI;
