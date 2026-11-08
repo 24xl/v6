@@ -40,6 +40,8 @@ const refreshAuth = () => showAuth(null);
 authButton = new Button('Auth disabled', 0, 0, 'N/A', () => {});
 authButton.description = 'No Discord authentication in this fork.';
 refreshAuth();
+
+const getActiveModules = () => {
     const revision = getEnabledModulesRevision();
     if (revision === activeModulesRevision) return activeModules;
 

@@ -33,7 +33,7 @@ const GUI_RESUME_GRACE_TICKS = 5;
     // mid-row and walks without breaking. After any GUI close, shield the lane logic for
     // this many ticks and re-baseline the movement so farming resumes exactly where it was.
     const GUI_RESUME_SHIELD_TICKS = 40;
-const SPRAY_CHECK_COOLDOWN_MS = 5_000;
+    const SPRAY_CHECK_COOLDOWN_MS = 5_000;
 const SPRAY_RESTORE_DELAY_TICKS = 3;
 const TAB_CHECK_GRACE_MS = 5_000;
 const FARMING = 'Farming';
