@@ -147,7 +147,7 @@ export function javaStringHash(text) {
 const blockNameCache = {};
 const coreTokenCache = {};
 
-// hash * 31 stays below 2^53, so "| 0" wraps to int32 exactly like Java without needing Math.imul.
+// hash * 31 stays below 2^53, so "| 0" wraps to int32 exactly like Java.
 function describeBlock(block) {
     if (registryWorks) {
         try {
