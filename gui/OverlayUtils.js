@@ -64,13 +64,6 @@ class OverlayUtils {
       scale: 1.0,
       enabled: true,
     };
-    this.dungeonMapSettings = {
-      x: 10,
-      y: 10,
-      scale: 1.0,
-      enabled: true,
-    };
-    this.dungeonMapRenderer = null;
 
     this.editorOrder = [
       "default",
@@ -78,7 +71,6 @@ class OverlayUtils {
       "hudInventory",
       "hudStats",
       "music",
-      "dungeonMap",
     ];
     this.editorBoxes = {};
     this.exampleOverlay = null;
@@ -589,7 +581,6 @@ class OverlayUtils {
     if (target === "hudStats") return this.hudSettings.stats;
     if (target === "hudInventory") return this.hudSettings.inventory;
     if (target === "music") return this.musicSettings;
-    if (target === "dungeonMap") return this.dungeonMapSettings;
     return null;
   }
 
@@ -929,10 +920,6 @@ class OverlayUtils {
           this.editorBoxes.music = this.drawMusicPreview(sw, sh);
           return;
         }
-
-        if (target === "dungeonMap") {
-          this.editorBoxes.dungeonMap = this.drawDungeonMapPreview(sw, sh);
-        }
       });
 
       Object.entries(this.editorBoxes).forEach(([target, box]) => {
@@ -989,7 +976,6 @@ class OverlayUtils {
             hudStats: 0.6,
             hudInventory: 0.55,
             music: 0.6,
-            dungeonMap: 0.3,
           }[target];
           drawRoundedRectangle({
             ...box,
@@ -1058,7 +1044,6 @@ class OverlayUtils {
     });
     this.saveHudSettings();
     this.saveMusicSettings();
-    this.saveDungeonMapSettings();
   }
 
   saveHudSettings() {
@@ -1072,13 +1057,6 @@ class OverlayUtils {
     writeConfigFile(
       "OverlayPositions/music_overlay.json",
       this.getOverlaySettings(this.musicSettings),
-    );
-  }
-
-  saveDungeonMapSettings() {
-    writeConfigFile(
-      "OverlayPositions/dungeon_map.json",
-      this.getOverlaySettings(this.dungeonMapSettings),
     );
   }
 
@@ -1156,13 +1134,6 @@ class OverlayUtils {
     this.applyOverlaySettings(this.musicSettings, musicData, {
       x: 100,
       y: 100,
-      scale: 1.0,
-    });
-
-    const dungeonMapData = getConfigFile("OverlayPositions/dungeon_map.json");
-    this.applyOverlaySettings(this.dungeonMapSettings, dungeonMapData, {
-      x: 10,
-      y: 10,
       scale: 1.0,
     });
   }
@@ -1263,41 +1234,6 @@ class OverlayUtils {
       totalTime: "--:--",
     });
     return overlay;
-  }
-
-  drawDungeonMapPreview(sw, sh) {
-    const settings = this.dungeonMapSettings;
-    const scale = settings.scale || 1;
-    const width = 125 * scale;
-    const height = 142 * scale;
-    Object.assign(
-      settings,
-      this.clampToScreen(
-        settings.x,
-        settings.y,
-        width,
-        height,
-        sw,
-        sh,
-        BORDER_WIDTH * scale,
-      ),
-    );
-    if (this.dungeonMapRenderer) {
-      try {
-        this.dungeonMapRenderer(settings.x, settings.y, scale);
-      } catch (e) {
-        console.error(e);
-      }
-    }
-    Render2D.drawHollowRect(
-      settings.x,
-      settings.y,
-      width,
-      height,
-      1,
-      colorWithAlpha(THEME.BORDER, 1),
-    );
-    return { ...settings, x: settings.x, y: settings.y, width, height };
   }
 
   openPositionsGUI() {

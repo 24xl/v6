@@ -6,15 +6,15 @@ const sendGradient = (prefix, ...args) => {
     Client.getMinecraft().execute(() => GradientChat.sendGradientMsg(prefix, 0x05b9f9, 0x0539f9, ...args));
 };
 
-export const chat = (message) => sendGradient('V5 »', message);
+export const chat = (message) => sendGradient('Plex >>', message);
 
 export function chatDebug(message) {
-    if (isDeveloperModeEnabled()) sendGradient('V5 Debug »', message);
+    if (isDeveloperModeEnabled()) sendGradient('Plex >>', message);
 }
 
 export function chatFailsafe(message, includeIntensity = true) {
-    sendGradient('V5 Failsafes »', message);
-    if (includeIntensity) sendGradient('V5 Failsafes »', '&c&lCurrent intensity: ' + FailsafeUtils.getIntensity());
+    sendGradient('Plex >>', message);
+    if (includeIntensity) sendGradient('Plex >>', '&c&lCurrent intensity: ' + FailsafeUtils.getIntensity());
 }
 
-export const chatPathfinder = (message) => sendGradient('V5 Pathfinding »', message);
+export const chatPathfinder = (message) => sendGradient('Plex >>', message);
