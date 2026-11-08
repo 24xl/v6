@@ -195,8 +195,10 @@ class ManualPestKiller {
                 Client.setKey('shift', true);
             }
         } else if (this.roofStage === ROOF_STAGES.SNEAKING) {
-            Client.setKey('rightclick', true);
-            this.roofStage = ROOF_STAGES.CASTING;
+            if (Player.isSneaking()) {
+                Client.setKey('rightclick', true);
+                this.roofStage = ROOF_STAGES.CASTING;
+            }
         }
 
         if (Date.now() - this.roofStartedAt > ROOF_TIMEOUT_MS) {

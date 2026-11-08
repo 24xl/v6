@@ -120,3 +120,6 @@ import "./other/ButtonGallery";
 /* COMBAT */
 import "./combat/CombatBot";
 import "./combat/CombatNavigation";
+
+/* CATACOMBS */
+import "./catacombs/Cheats";

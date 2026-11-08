@@ -4,7 +4,6 @@ import { visitorMacro } from "./VisitorMacro";
 import { rewarpSettings } from "./RewarpSettings";
 import Pathfinder from "../../../utils/pathfinder/PathFinder";
 import { pestKiller } from "./PestKiller";
-import { walkPestKiller } from "./WalkPestKiller";
 import { pestTraps } from "./PestTraps";
 import { manualPestKiller } from "./ManualPestKiller";
 import { loadoutHandler } from "../LoadoutHandler";
@@ -56,7 +55,6 @@ class RewarpHandler {
     const pestMode = rewarpSettings.getPestKillerMode();
     let pestTask;
     if (pestMode === "Manual") pestTask = manualPestKiller;
-    else if (pestMode === "Walk") pestTask = walkPestKiller;
     else pestTask = pestKiller;
     if (runPestKiller) this.tasks.push(pestTask, autoSell);
     this.phase = hasBarnTasks
@@ -76,7 +74,6 @@ class RewarpHandler {
     philipMacro.stop();
     pestKiller.stop();
     manualPestKiller.stop();
-    walkPestKiller.stop();
     pestTraps.stop();
     if (this.returnStarted && Pathfinder.isPathing()) Pathfinder.resetPath();
   }
@@ -108,7 +105,7 @@ class RewarpHandler {
       while ((this.task = this.tasks.shift())) {
         if (this.task === autoSell && !autoSell.shouldRun()) continue;
         if (
-          (this.task === pestKiller || this.task === walkPestKiller || this.task === manualPestKiller) &&
+          (this.task === pestKiller || this.task === manualPestKiller) &&
           !loadoutHandler.select(loadoutHandler.pestKillingSlot)
         ) {
           this.tasks.unshift(this.task);

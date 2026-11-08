@@ -4,12 +4,9 @@ Private roadmap notes. Never committed.
 
 ## High Priority
 
-- [ ] **Pest Walker** — needs work
-  - Multiple pest killers (Fly, Walk, Manual) share ~90% duplicate code — consolidate
-  - WalkPestKiller's `handOff()` pauses automation but has 60s timeout; ManualPestKiller duplicates roof-climb logic
-  - Roof climb (AIMING → SNEAKING → CASTING) copied in 3 files
-  - Particle capture → pathing chain is fragile
-  - `fallbackToPlotTeleport()` should be shared
+- [ ] **Pest Walker** — ✅ Walk mode removed (2026-11-08)
+  - WalkPestKiller.js deleted — only Fly (PestKiller) and Manual remain
+  - Remaining: Fly + Manual share roof-climb logic — consolidate later
 
 - [ ] **Trap Refill** — pest trap clearing after pest killer finishes
   - RewarpSettings has `pestTraps` + `trapPlot` but no implementation

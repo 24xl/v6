@@ -28,3 +28,9 @@ Private changelog. 🍴 = fork-only, ↑ = upstream sync.
   - CategoryManager.js: Documentation button opening `rdbt.top/docs/...` → no-op
   - Failsafes.js: `postBanLog()` POST to `/api/logs/bans` → no-op
 - All features fully self-contained, no external backend dependency
+
+## 102-r2 (2026-11-08) — Walk pest killer removed
+- Deleted `modules/farming/rewarp/WalkPestKiller.js` (~788 lines)
+- Removed "Walk" from RewarpSettings pest killer mode (now only Fly, Manual)
+- Updated RewarpHandler: removed walkPestKiller imports, task selection, loadout swap
+- Manual + Fly now share roof-climb logic — consolidation pending
