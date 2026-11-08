@@ -79,7 +79,12 @@ class Cheats extends ModuleBase {
             const mcItem = heldItem.toMC?.();
             if (!mcItem) return;
 
-            const customData = mcItem.get?.(DataComponents.CUSTOM_DATA);
+            let customData;
+            try {
+                customData = mcItem.get(DataComponents.CUSTOM_DATA);
+            } catch (e) {
+                return;
+            }
             if (!customData) return;
 
             const customDataTag = customData.copyTag?.();
