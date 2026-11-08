@@ -76,16 +76,12 @@ export class RoomTile {
         this.uniqueRoom = null;
         this.isSeparator = false;
         this.kind = 'room';
-        this._state = RoomState.UNDISCOVERED;
+        this.state = RoomState.UNDISCOVERED;
     }
 
-    get state() {
-        return this._state;
-    }
-
-    set state(next) {
-        const previous = this._state;
-        this._state = next;
+    setState(next) {
+        const previous = this.state;
+        this.state = next;
         if (this.uniqueRoom?.mainRoom !== this) return;
         if (previous === next) return;
         if (this.data.name === 'Unknown') return;

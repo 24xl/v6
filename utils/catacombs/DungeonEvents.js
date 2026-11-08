@@ -3,7 +3,10 @@ const listeners = new Map();
 export function on(name, callback) {
     if (!listeners.has(name)) listeners.set(name, new Set());
     listeners.get(name).add(callback);
-    return () => listeners.get(name)?.delete(callback);
+    return () => {
+        const set = listeners.get(name);
+        if (set) set.delete(callback);
+    };
 }
 
 export function emit(name, payload) {

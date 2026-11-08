@@ -2,8 +2,45 @@ import { DungeonEvents } from './DungeonEvents';
 import { location } from './DungeonLocation';
 import scanner, { DoorTile, RoomTile, UniqueRoom, UnknownTile, getRoomFromPos } from './scanner/DungeonScanner';
 import graph from './graph/DungeonGraph';
-import * as ScanUtils from './scan/DungeonScanUtils';
-import * as DoorKeys from './keys/DoorKeys';
+import {
+    DoorType,
+    RoomState,
+    RoomType,
+    SecretType,
+    coord,
+    getAllRoomData,
+    getBlockNameAt,
+    getCore,
+    getHighestY,
+    getRealCoord,
+    getRelativeCoord,
+    getRoomCount,
+    getRoomData,
+    getRoomDataByName,
+    getRoomGraf,
+    isChunkLoaded,
+    javaStringHash,
+    rotate,
+} from './scan/DungeonScanUtils';
+import { getBloodKeys, getWitherKeys, hasBloodKey, hasWitherKey } from './keys/DoorKeys';
+
+const ScanUtils = {
+    coord,
+    getAllRoomData,
+    getBlockNameAt,
+    getCore,
+    getHighestY,
+    getRealCoord,
+    getRelativeCoord,
+    getRoomCount,
+    getRoomData,
+    getRoomDataByName,
+    getRoomGraf,
+    isChunkLoaded,
+    javaStringHash,
+    rotate,
+};
+const DoorKeys = { getBloodKeys, getWitherKeys, hasBloodKey, hasWitherKey };
 
 register('tick', () => {
     scanner.tick();
@@ -24,10 +61,10 @@ export const DungeonCore = {
     graph,
     keys: DoorKeys,
     utils: ScanUtils,
-    RoomType: ScanUtils.RoomType,
-    DoorType: ScanUtils.DoorType,
-    RoomState: ScanUtils.RoomState,
-    SecretType: ScanUtils.SecretType,
+    RoomType,
+    DoorType,
+    RoomState,
+    SecretType,
     DoorTile,
     RoomTile,
     UniqueRoom,
