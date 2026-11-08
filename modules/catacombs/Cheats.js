@@ -73,7 +73,7 @@ class Cheats extends ModuleBase {
 
             if (player.isUsingItem()) return;
 
-            const heldItem = player.getHeldItem();
+            const heldItem = Player.getHeldItem();
             if (!heldItem) return;
 
             const mcItem = heldItem.toMC?.();
