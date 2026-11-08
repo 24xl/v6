@@ -11,14 +11,11 @@ class Cheats extends ModuleBase {
             subcategory: 'Catacombs',
             description: 'Catacombs cheat features.',
             tooltip: 'Catacombs cheat features.',
+            showEnabledToggle: false,
         });
 
         this.termAcEnabled = false;
         this.termAcCps = 5;
-
-        this.addButton('Cheats', () => {
-            // placeholder for future features
-        }, 'Catacombs cheat features (WIP)');
 
         const popup = this.addPopup('Terminator AC', null, 'Auto left-click while holding right-click with the Terminator.');
 
@@ -46,8 +43,6 @@ class Cheats extends ModuleBase {
         );
         popup.addComponent(slider, 'Target clicks per second (5-10).');
 
-        this.termAcBaseCps = 5;
-        this.termAcLastDriftAt = 0;
         this.termAcNextClickAt = 0;
         this.termAcSecretUuids = new Set([
             '2865274b-3097-394e-8149-ec629c72d850',
@@ -121,7 +116,7 @@ class Cheats extends ModuleBase {
                 }
             }
 
-            this.termAcNextClickAt = this.computeNextClick(now);
+            this.termAcNextClickAt = this.computeNextClick(Date.now());
             Client.leftClick();
         } catch (error) {
             console.error('[Terminator AC] tick error: ' + error);
@@ -129,38 +124,11 @@ class Cheats extends ModuleBase {
     }
 
     computeNextClick(now) {
-        if (now - this.termAcLastDriftAt > 1000) {
-            this.termAcBaseCps = this.termAcCps + this.gaussianInt(-10, 10) / 10;
-            this.termAcLastDriftAt = now;
-        }
-
-        const baseDelay = Math.floor(1000 / this.termAcBaseCps);
-
-        const u1 = 1 - Math.random();
-        const u2 = 1 - Math.random();
-        const gauss = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-        const offset = gauss < 0 ? Math.trunc(gauss * 10) : Math.trunc(gauss * 25);
-
-        let finalDelay = baseDelay + offset;
-
-        const roll = Math.random();
-        if (roll < 0.01) {
-            finalDelay += 100 + Math.floor(Math.random() * 150);
-        } else if (roll < 0.03) {
-            finalDelay = 5 + Math.floor(Math.random() * 10);
-        }
-
-        return now + finalDelay;
-    }
-
-    gaussianInt(min, max) {
-        const u1 = 1 - Math.random();
-        const u2 = 1 - Math.random();
-        const gauss = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-        const mean = min + (max - min) / 2;
-        const std = (max - min) / 6;
-        const val = gauss * std + mean;
-        return Math.trunc(Math.max(min, Math.min(max, val)));
+        const cps = this.termAcCps;
+        const jitter = Math.random() < 0.5 ? -1 : 1;
+        const actualCps = cps + jitter;
+        const delay = Math.floor(1000 / actualCps);
+        return now + delay;
     }
 }
 
