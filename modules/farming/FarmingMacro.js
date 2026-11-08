@@ -21,18 +21,18 @@ const MAX_PEST_TRACK_DISTANCE = 14;
 const PEST_STALL_GRACE_TICKS = 20;
 const GUI_RESUME_GRACE_TICKS = 5;
 // Opening a GUI force-releases the attack key: closeInventory() calls
-// keyAttack.setDown(false) and unpressKeys() calls KeyMapping.releaseAll(). Re-arm the
-// click for a few ticks after any GUI closes, or the macro walks with the mouse up.
-// Re-assert the break for this long after a GUI closes or a rewarp returns to farming.
-// The press only fires at the about-to-farm point, and only while a farming tool is held,
-// so a closed loadout/islandtime/npc-sell GUI can never leave the macro walking with the
-// attack released, and we never break the roof (pests) or the ground (trap clearing).
-const FARM_CLICK_WINDOW_MS = 1000;
-// While a GUI is open, updatePosition() never runs, so the player standing still inside
-// the GUI reads as a row-end to the stationary tracker and the macro advances lanes
-// mid-row and walks without breaking. After any GUI close, shield the lane logic for
-// this many ticks and re-baseline the movement so farming resumes exactly where it was.
-const GUI_RESUME_SHIELD_TICKS = 15;
+    // keyAttack.setDown(false) and unpressKeys() calls KeyMapping.releaseAll(). Re-arm the
+    // click for a few ticks after any GUI closes, or the macro walks with the mouse up.
+    // Re-assert the break for this long after a GUI closes or a rewarp returns to farming.
+    // The press only fires at the about-to-farm point, and only while a farming tool is held,
+    // so a closed loadout/islandtime/npc-sell GUI can never leave the macro walking with the
+    // attack released, and we never break the roof (pests) or the ground (trap clearing).
+    const FARM_CLICK_WINDOW_MS = 3000;
+    // While a GUI is open, updatePosition() never runs, so the player standing still inside
+    // the GUI reads as a row-end to the stationary tracker and the macro advances lanes
+    // mid-row and walks without breaking. After any GUI close, shield the lane logic for
+    // this many ticks and re-baseline the movement so farming resumes exactly where it was.
+    const GUI_RESUME_SHIELD_TICKS = 40;
 const SPRAY_CHECK_COOLDOWN_MS = 5_000;
 const SPRAY_RESTORE_DELAY_TICKS = 3;
 const TAB_CHECK_GRACE_MS = 5_000;

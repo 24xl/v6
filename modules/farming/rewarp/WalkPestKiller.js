@@ -58,6 +58,8 @@ class WalkPestKiller {
     this.pathToken = 0;
     this.plotEmptySince = 0;
     farmingSettings.originalSlot = Player.getHeldItemIndex();
+    // Force plot discovery + sunset/roof sequence before hunting pests
+    this.currentPlot = null;
   }
 
   tick() {

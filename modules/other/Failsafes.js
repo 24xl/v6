@@ -5,8 +5,6 @@ import { ModuleBase } from '../../utils/ModuleBase';
 import { ClientboundDisconnectPacket, ClientboundLoginDisconnectPacket } from '../../utils/Packets';
 import { getLastActiveMacros, getLastDisableMeta, getStartTime, isMacroRunning } from '../../utils/MacroState';
 import { formatUptime } from '../../utils/TimeUtils';
-const JURL = Java.type('java.net.URL');
-const JOutputStreamWriter = Java.type('java.io.OutputStreamWriter');
 
 class Failsafes extends ModuleBase {
     constructor() {
@@ -135,60 +133,7 @@ class Failsafes extends ModuleBase {
     }
 
     postBanLog(reason) {
-        if (!reason?.includes('https://www.hypixel.net/appeal')) return;
-
-        const now = Date.now();
-        if (now - this.lastBanLogTime < 60000) return;
-        this.lastBanLogTime = now;
-
-        new Thread(() => {
-            try {
-                const jwt = V5Auth.getFreshJwtToken();
-                const url = new JURL('https://backend.rdbt.top/api/logs/bans');
-                const conn = url.openConnection();
-                conn.setRequestMethod('POST');
-                conn.setDoOutput(true);
-                conn.setRequestProperty('User-Agent', 'V5Loader/1.1');
-                if (jwt) conn.setRequestProperty('Authorization', `Bearer ${jwt}`);
-                conn.setRequestProperty('Content-Type', 'application/json; charset=UTF-8');
-
-                const lastMacros = getLastActiveMacros();
-                const lastMacroMeta = getLastDisableMeta(lastMacros[0]);
-                const lastDisableTimestamp = lastMacroMeta?.timestamp;
-                const within5Minutes = typeof lastDisableTimestamp === 'number' && Date.now() - lastDisableTimestamp <= 5 * 60 * 1000;
-
-                const body = JSON.stringify({
-                    reason,
-                    lastMacro: lastMacros.join(', ') || 'None',
-                    currentlyMacroing: isMacroRunning() || within5Minutes,
-                    macroRuntime: isMacroRunning() ? formatUptime(getStartTime()) : null,
-                    ingame_username: Player?.getName?.() || 'unknown',
-                    config_contents: this.getConfigFileContents(),
-                    installed_mods: new File('./mods').listFiles().join('\n'),
-                });
-
-                const wr = new JOutputStreamWriter(conn.getOutputStream());
-                wr.write(body);
-                wr.close();
-
-                const status = conn.getResponseCode();
-                if (status < 200 || status >= 300) {
-                    console.error(`Error sending ban log. Status: ${status}`);
-                }
-                conn.disconnect();
-            } catch (e) {
-                console.error(`Exception sending ban log: ${e}`);
-            }
-        }).start();
-    }
-
-    getConfigFileContents() {
-        try {
-            return FileLib.read('V5Config', 'config.json');
-        } catch (e) {
-            console.error(`Exception reading config for ban log: ${e}`);
-            return null;
-        }
+        // Disabled in self-hosted fork: no backend to receive ban logs
     }
 
     getFilesInDir() {

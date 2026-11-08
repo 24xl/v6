@@ -108,7 +108,7 @@ class RewarpHandler {
       while ((this.task = this.tasks.shift())) {
         if (this.task === autoSell && !autoSell.shouldRun()) continue;
         if (
-          (this.task === pestKiller || this.task === manualPestKiller) &&
+          (this.task === pestKiller || this.task === walkPestKiller || this.task === manualPestKiller) &&
           !loadoutHandler.select(loadoutHandler.pestKillingSlot)
         ) {
           this.tasks.unshift(this.task);

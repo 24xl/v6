@@ -68,20 +68,7 @@ const macroToggleButton = new Button(
 );
 let bindingModule = null;
 const keybindButton = new Button('', 0, 0, 'Unbound', () => (bindingModule = getSelectedModule()), { showContainer: false });
-const documentationButton = new Button(
-    '',
-    0,
-    0,
-    'Docs',
-    () =>
-        FileLib.open(
-            `https://rdbt.top/docs/modules/${getSelectedModule()
-                .name.toLowerCase()
-                .replace(/[^a-z0-9]+/g, '-')
-                .replace(/^-+|-+$/g, '')}`
-        ),
-    { showContainer: false }
-);
+const documentationButton = new Button('', 0, 0, 'Docs', () => {}, { showContainer: false });
 
 const SCROLL_SMOOTHING_FACTOR = 0.25;
 const AUTO_SCROLL_SMOOTHING_FACTOR = 0.06;

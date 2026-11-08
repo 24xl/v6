@@ -1,7 +1,6 @@
-# V5 Developer README
+# V5 Developer README (24xl/v6 fork)
 
-General users should use the public docs:
-https://rdbt.top/docs/getting-started
+**This is a self-hosted fork — no original backend.** General users: use the upstream docs at https://rdbt.top/docs/getting-started (but note: this fork removes all backend calls).
 
 The rest of this README is for developers and contributors.
 
