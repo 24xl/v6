@@ -3,7 +3,7 @@ import { DungeonCore } from '../../utils/catacombs/CatacombsCore';
 import { chat } from '../../utils/Chat';
 
 const { scanner, graph, location, DoorTile, DoorType, SecretType, keys } = DungeonCore;
-const AABB = net.minecraft.world.phys.AABB;
+const BoundingBox = net.minecraft.world.phys.AABB;
 
 const SECRET_COLORS = {
     [SecretType.CHEST]: new RenderColor(0, 255, 0, 255),
@@ -56,7 +56,7 @@ class DungeonScannerModule extends ModuleBase {
             if (tile.type !== DoorType.WITHER && tile.type !== DoorType.BLOOD) continue;
 
             const hasKey = tile.type === DoorType.BLOOD ? keys.hasBloodKey() : keys.hasWitherKey();
-            const box = new AABB(tile.aabb.minX, tile.aabb.minY, tile.aabb.minZ, tile.aabb.maxX, tile.aabb.maxY, tile.aabb.maxZ);
+            const box = new BoundingBox(tile.aabb.minX, tile.aabb.minY, tile.aabb.minZ, tile.aabb.maxX, tile.aabb.maxY, tile.aabb.maxZ);
             Render3D.drawWireFrameBox(box, hasKey ? this.keyColor : this.noKeyColor, 2, false);
         }
     }
@@ -68,7 +68,7 @@ class DungeonScannerModule extends ModuleBase {
         for (const [type, positions] of room.secretCoords) {
             const color = SECRET_COLORS[type];
             for (const p of positions) {
-                Render3D.drawWireFrameBox(new AABB(p.x, p.y, p.z, p.x + 1, p.y + 1, p.z + 1), color, 2, false);
+                Render3D.drawWireFrameBox(new BoundingBox(p.x, p.y, p.z, p.x + 1, p.y + 1, p.z + 1), color, 2, false);
             }
         }
     }

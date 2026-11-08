@@ -58,7 +58,13 @@ const IGNORED_CORE_BLOCKS = new Set([
     'minecraft:soul_fire',
 ]);
 
-const BLOCK_REGISTRY = net.minecraft.core.registries.BuiltInRegistries.BLOCK;
+let BLOCK_REGISTRY = null;
+try {
+    BLOCK_REGISTRY = net.minecraft.core.registries.BuiltInRegistries.BLOCK;
+} catch (error) {
+    console.error('[Catacombs] block registry unavailable, using description ids: ' + error);
+}
+let registryWorks = BLOCK_REGISTRY !== null;
 
 function normalizeRoom(raw) {
     const coords = raw.secretCoords || {};
@@ -134,29 +140,42 @@ export function coord(value) {
 // Same result as Java's String.hashCode(): the room cores in rooms-modern.json were built with it.
 export function javaStringHash(text) {
     let hash = 0;
-    for (let i = 0; i < text.length; i++) hash = (Math.imul(hash, 31) + text.charCodeAt(i)) | 0;
+    for (let i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) | 0;
     return hash;
 }
 
-const blockNameCache = [];
-const coreTokenCache = [];
+const blockNameCache = {};
+const coreTokenCache = {};
 
-function blockName(block) {
-    const id = BLOCK_REGISTRY.getId(block);
-    let name = blockNameCache[id];
-    if (name === undefined) {
-        name = String(BLOCK_REGISTRY.getKey(block).toString());
-        blockNameCache[id] = name;
+// hash * 31 stays below 2^53, so "| 0" wraps to int32 exactly like Java without needing Math.imul.
+function describeBlock(block) {
+    if (registryWorks) {
+        try {
+            const id = BLOCK_REGISTRY.getId(block);
+            let name = blockNameCache[id];
+            if (name === undefined) {
+                name = String(BLOCK_REGISTRY.getKey(block).toString());
+                blockNameCache[id] = name;
+            }
+            return { key: id, name };
+        } catch (error) {
+            registryWorks = false;
+            console.error('[Catacombs] block registry lookup failed, falling back to description ids: ' + error);
+        }
     }
-    return { id, name };
+
+    // "block.minecraft.stone" -> "minecraft:stone"
+    const description = String(block.getDescriptionId());
+    const name = description.replace(/^block\./, '').replace('.', ':');
+    return { key: 'n:' + name, name };
 }
 
 function coreToken(block) {
-    const { id, name } = blockName(block);
-    let token = coreTokenCache[id];
+    const { key, name } = describeBlock(block);
+    let token = coreTokenCache[key];
     if (token === undefined) {
         token = javaStringHash(IGNORED_CORE_BLOCKS.has(name) || name.endsWith('_planks') ? 'minecraft:air' : name);
-        coreTokenCache[id] = token;
+        coreTokenCache[key] = token;
     }
     return token;
 }
@@ -179,7 +198,7 @@ export function getStateAt(x, y, z) {
 
 export function getBlockNameAt(x, y, z) {
     const state = getStateAt(x, y, z);
-    return state ? blockName(state.getBlock()).name : 'minecraft:air';
+    return state ? describeBlock(state.getBlock()).name : 'minecraft:air';
 }
 
 export function getCore(x, z) {
@@ -189,7 +208,7 @@ export function getCore(x, z) {
     let hash = 1;
     for (let y = 140; y >= 12; y--) {
         const block = world.getBlockState(new BP(x, y, z)).getBlock();
-        hash = (Math.imul(hash, 31) + coreToken(block)) | 0;
+        hash = (hash * 31 + coreToken(block)) | 0;
     }
     return hash;
 }
@@ -201,7 +220,7 @@ export function getHighestY(x, z) {
     for (let y = 256; y >= 0; y--) {
         const state = world.getBlockState(new BP(x, y, z));
         if (state.isAir()) continue;
-        if (blockName(state.getBlock()).name === 'minecraft:gold_block') continue;
+        if (describeBlock(state.getBlock()).name === 'minecraft:gold_block') continue;
         return y;
     }
     return 0;

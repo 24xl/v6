@@ -1,5 +1,4 @@
 import FailsafeUtils from '../failsafes/FailsafeUtils';
-export const ChatLib = chat;
 import { isDeveloperModeEnabled } from './DeveloperModeState';
 
 const sendGradient = (prefix, ...args) => {
