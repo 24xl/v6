@@ -1,0 +1,58 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "compaction": {
+    "auto": false,
+    "prune": false,
+    "reserved": 20000
+  },
+  "provider": {
+    "plex": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Auto",
+      "options": {
+        "baseURL": "http://localhost:3001/v1",
+        "apiKey": "freellmapi-279dfefd60a6f2f294e3fa9c43b5b6b5e0320fe4aff8dad8"
+      },
+      "models": {
+        "auto": {
+          "name": "Plex Router"
+        },
+        "gemini-3.8-flash": {
+          "name": "Gemini 3.8 Flash"
+        },
+        "deepseek-v4-flash": {
+          "name": "DeepSeek V4 Flash"
+        },
+        "qwen3.8-max": {
+          "name": "Qwen3.8 Max"
+        },
+        "glm-5.3": {
+          "name": "GLM 5.3"
+        }
+      }
+    }
+  },
+  "plugin": [
+    "opencode-skills-collection@latest",
+    "@dietrichgebert/ponytail"
+  ],
+  "model": "plex/auto",
+  "skills": {
+    "force-testing": "allow",
+    "lint-and-validate": "allow",
+    "jest-skill": "allow",
+    "simplify": "allow",
+    "awesome-regression-sweep": "allow",
+    "qlty-check": "allow",
+    "awesome-test-writing": "allow",
+    "resolve-conflicts": "allow",
+    "awesome-test-gap-audit": "allow",
+    "changelog-orchestrator": "allow",
+    "code-guard": "allow",
+    "minecraft-testing": "allow",
+    "minecraft-modding": "allow",
+    "v5-dev-rules": "allow",
+    "v5-quickref": "allow",
+    "v5-debug": "allow"
+  }
+}

@@ -3,6 +3,8 @@ import { Slider } from '../../gui/components/Slider';
 import { ToggleButton } from '../../gui/components/Toggle';
 import { DataComponents } from '../../utils/Constants';
 import { isInBoss } from '../../utils/catacombs/DungeonLocation';
+import { MultiToggle } from '../../gui/components/Dropdown';
+import { autoTerminalSettings } from '../../utils/catacombs/terminals/AutoTerminalSettings';
 
 class Cheats extends ModuleBase {
     constructor() {
@@ -51,6 +53,98 @@ class Cheats extends ModuleBase {
         ]);
 
         register('tick', () => this.onTerminatorAcTick());
+
+        this.setupAutoTerminalPopup();
+    }
+
+    setupAutoTerminalPopup() {
+        const s = autoTerminalSettings;
+        const popup = this.addPopup('Auto Terminal', null, 'Automatically clicks F7 terminals for you.');
+
+        let autoDelay;
+        let minDelay;
+        let maxDelay;
+        let melodyFirstClick;
+        let melodySkip;
+        let skipMode;
+        let skipFirstRow;
+
+        const refreshVisibility = () => {
+            autoDelay.visible = !s.randomDelay;
+            minDelay.visible = s.randomDelay;
+            maxDelay.visible = s.randomDelay;
+            melodyFirstClick.visible = s.melody;
+            melodySkip.visible = s.melody;
+            skipMode.visible = s.melody && s.melodySkip;
+            skipFirstRow.visible = s.melody && s.melodySkip;
+        };
+
+        const addToggle = (title, key, description) => {
+            const component = new ToggleButton(
+                title,
+                0,
+                0,
+                undefined,
+                undefined,
+                (v) => {
+                    s[key] = !!v;
+                    refreshVisibility();
+                },
+                s[key]
+            );
+            popup.addComponent(component, description);
+            return component;
+        };
+
+        const addSlider = (title, min, max, step, key, description) => {
+            const component = new Slider(title, min, max, 0, 0, undefined, undefined, s[key], (v) => (s[key] = Math.round(v)));
+            component.step = step;
+            popup.addComponent(component, description);
+            return component;
+        };
+
+        const addChoice = (title, names, key, description) => {
+            const component = new MultiToggle(
+                title,
+                0,
+                0,
+                names,
+                true,
+                (options) => {
+                    const picked = options.find((option) => option.enabled);
+                    s[key] = picked ? names.indexOf(picked.name) : s[key];
+                },
+                names[s[key]]
+            );
+            popup.addComponent(component, description);
+            return component;
+        };
+
+        addToggle('Auto Terminal', 'enabled', 'Enable the auto-terminal.');
+
+        addToggle('Random Delay', 'randomDelay', 'Normal distributed by min and max.');
+        autoDelay = addSlider('Click Delay', 80, 500, 10, 'autoDelay', 'Fixed delay between clicks in milliseconds.');
+        minDelay = addSlider('Min Random Delay', 50, 500, 10, 'minRandomDelay', 'The minimum possible delay.');
+        maxDelay = addSlider('Max Random Delay', 80, 500, 10, 'maxRandomDelay', 'The maximum possible delay.');
+        addToggle('Off Tick Clicks', 'offtick', 'Makes the auto check every frame if it can click or not instead of every server tick.');
+        addChoice('Click Order', ['None', 'Random', 'Human', 'Skizo'], 'clickOrder', 'Human: Logic pathing. Skizo: Chaotic/Furthest.');
+
+        addToggle('Melody', 'melody', 'Automatically solve the melody terminal.');
+        melodyFirstClick = addToggle('Melody: First Click Delay', 'melodyFcDelay', 'Wait out the first click delay before the first melody click.');
+        melodySkip = addToggle('Melody: Skip', 'melodySkip', 'Click the next rows early.');
+        skipMode = addChoice('Melody: Skip Mode', ['Edges', 'All'], 'melodySkipMode', 'Edges: only skip from the outer columns. All: skip from any column.');
+        skipFirstRow = addToggle('Melody: Skip First Row', 'melodySkipFirstRow', 'Also skip from the first row.');
+
+        addToggle('Numbers', 'numbers', 'Auto-solve the Numbers terminal.');
+        addToggle('Colors', 'colors', 'Auto-solve the Colors terminal.');
+        addToggle('Rubix', 'rubix', 'Auto-solve the Rubix terminal.');
+        addToggle('Red-Green', 'redGreen', 'Auto-solve the Red-Green terminal.');
+        addToggle('Start-With', 'startWith', 'Auto-solve the Starts With terminal.');
+
+        addSlider('First Click Delay (ticks)', 0, 8, 1, 'firstClickDelay', 'The delay in server ticks for how long a terminal will block clicks when you open it.');
+        addSlider('Break Timeout', 300, 800, 50, 'breakTimeout', 'How long should the solver wait for a click to be confirmed by hypixel.');
+
+        refreshVisibility();
     }
 
     onTerminatorAcTick() {
