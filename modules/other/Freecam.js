@@ -13,7 +13,7 @@ class Freecam extends ModuleBase {
             name: 'Freecam',
             subcategory: 'Visuals',
             description: 'Fly around, right click an entity to spectate.',
-            theme: '#5fb0ff',
+            theme: '#ff00d0',
             autoDisableOnWorldUnload: true,
             showEnabledToggle: false,
         });
@@ -52,7 +52,7 @@ class Freecam extends ModuleBase {
             return;
         }
         getModule('Freelook')?.toggle(false);
-        this.message('&aEnabled &7(Right-click an entity to spectate)');
+        this.message('&aEnabled');
         this.cameraPos = this.getInitialCameraPos(player, wrapTo180(player.getYRot()), player.getXRot());
         this.velocity = new Vec3d(0, 0, 0);
         this.savedPerspective = mc.options.getCameraType();
@@ -190,7 +190,7 @@ class Freecam extends ModuleBase {
         Client.setUngrabbed(true);
         Client.setSpectatedEntity(target.toMC());
         this.syncPossessedCamera();
-        this.message(`&aSpectating &f${target.getName()} &7(Right-click to release)`);
+        this.message(`&7Spectating &b${target.getName()} &7(Right-click to release)`);
     }
 
     releasePossession(silent = false) {
@@ -216,7 +216,7 @@ class Freecam extends ModuleBase {
         const entity = this.getPossessedPlayer();
         if (!entity) {
             this.releasePossession(true);
-            this.message('&cThat entity is no longer loaded');
+            this.message('&7That entity is no longer loaded.');
             return;
         }
 

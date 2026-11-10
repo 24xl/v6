@@ -1,6 +1,6 @@
 ---
 name: v5-dev-rules
-description: Enforces V5 development rules from AGENTS.md. Requires test-first development, isolated simulation for complex features, and evidence-based debugging. Points to useful skills and blocks destructive operations.
+description: Enforces V5 development rules from AGENTS.md. Requires test-first development, isolated simulation for complex features, and evidence-based debugging. Points to useful skills and blocks destructive operations. AUTO-READS relevant project files to understand context.
 use when: Any code edit in the V5 project
 do not use when: Pure documentation or configuration-only changes
 opencode:
@@ -11,9 +11,16 @@ opencode:
 
 **This skill enforces the rules in AGENTS.md for the V5 ChatTriggers project.**
 
-## Required Reading
+## First Step: Understand the Context
 
-Before making ANY code change, the agent MUST read `/home/plex/Desktop/v6/AGENTS.md` and follow its rules.
+When given a task, the agent MUST:
+1. Read `/home/plex/Desktop/v6/AGENTS.md` for project rules
+2. Read `/home/plex/Desktop/v6/future_plans.md` for roadmap context
+3. Read relevant module code to understand existing patterns
+4. Read `/home/plex/Desktop/v6/.opencode/V5_WORKFLOW.md` for workflow guidance
+5. Use `v5-quickref` to look up APIs and patterns
+
+**Do NOT start coding until you understand the context.**
 
 ## Rule 1 — Test First, Code Second
 
@@ -65,6 +72,23 @@ Block these operations without explicit user confirmation:
 
 **Use the `code-guard` skill to enforce this automatically.**
 
+## Rule 5 — Proactive Investigation
+
+When given a task like "integrate X code" or "fix Y feature":
+1. Read the original source code if provided
+2. Read the existing V5 code for similar features
+3. Compare and identify integration points
+4. Quote the specific lines that need changes
+5. Do NOT just "add the code" — understand WHY and HOW
+
+**Example for integration tasks:**
+- Read original code location
+- Read target location in V5
+- Check if dependencies exist (utils, packets, GUI components)
+- Check if APIs match (original might use different ChatTriggers APIs)
+- Identify missing registrations (event handlers, GUI components)
+- Quote the specific mismatches found
+
 ## Skills to Use
 
 The agent SHOULD invoke these skills when relevant:
@@ -74,6 +98,8 @@ The agent SHOULD invoke these skills when relevant:
 - `code-guard` — Blocks destructive operations, requires reasoning explanation
 - `simplify` — Refactoring after tests pass
 - `jest-skill` — For writing unit tests if you create a Jest setup
+- `v5-quickref` — Look up APIs, patterns, file locations (auto-invokes)
+- `v5-debug` — Debugging patterns for errors (invoke when debugging)
 
 ## Project Structure Reference
 
@@ -136,3 +162,12 @@ The error is "Cannot read property 'slotId' of undefined" at line 45 in Terminal
 ```
 I think the issue is with the slot ID handling. I'll fix it. (BLOCKED - guessing without reading the error)
 ```
+
+**Good (integration task):**
+```
+I'll read the original Noam code in /home/plex/Desktop/files (1)/, then read the V5 terminal files in modules/catacombs/terminals/, compare them to identify API mismatches, then write a simulation to test the logic before integrating.
+```
+
+**Bad (integration task):**
+```
+I'll copy the files from the original location to V5. (BLOCKED - no investigation, no simulation)
