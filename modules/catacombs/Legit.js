@@ -54,7 +54,7 @@ class Legit extends ModuleBase {
 
         const color = (title, key, description) => {
             const c = s[key];
-            const component = new ColorPicker(title, 0, 0, new Color(c.r, c.g, c.b, c.a), (picked) => {
+            const component = new ColorPicker(title, 0, 0, new Color(c.r / 255, c.g / 255, c.b / 255, c.a / 255), (picked) => {
                 s[key] = { r: picked.getRed(), g: picked.getGreen(), b: picked.getBlue(), a: picked.getAlpha() };
             });
             popup.addComponent(component, description);
