@@ -1,3 +1,4 @@
+
 import { ModuleBase } from '../../utils/ModuleBase';
 import { Slider } from '../../gui/components/Slider';
 import { ToggleButton } from '../../gui/components/Toggle';
@@ -26,11 +27,42 @@ class Legit extends ModuleBase {
         }).setName('legit');
     }
 
+    // Safely converts a channel to an integer from 0 to 255.
+    channel(value) {
+        const n = Number(value);
+        if (!isFinite(n)) return 255;
+        return Math.max(0, Math.min(255, Math.round(n)));
+    }
+
+    // Uses Color(int rgba, boolean hasAlpha).
+    // This avoids Rhino selecting the wrong four-argument overload.
+    createColor(c) {
+        c = c || { r: 255, g: 255, b: 255, a: 255 };
+
+        const r = this.channel(c.r);
+        const g = this.channel(c.g);
+        const b = this.channel(c.b);
+        const a = this.channel(c.a);
+
+        const argb =
+        ((a << 24) |
+        (r << 16) |
+        (g << 8) |
+        b);
+
+        return new Color(argb, true);
+    }
+
     setupPuzzleSolvers() {
         const s = puzzleSettings;
-        const popup = this.addPopup('Puzzle Solvers', null, 'Solvers for the Catacombs puzzle rooms. Each one only runs inside its own room.');
+        const popup = this.addPopup(
+            'Puzzle Solvers',
+            null,
+            'Solvers for the Catacombs puzzle rooms. Each one only runs inside its own room.'
+        );
 
-        const section = (title) => popup.addComponent(new Separator(title, true), '');
+        const section = (title) =>
+        popup.addComponent(new Separator(title, true), '');
 
         const toggle = (title, key, description, onChange) =>
         popup.addComponent(
@@ -50,22 +82,27 @@ class Legit extends ModuleBase {
         );
 
         const slider = (title, min, max, key, description) =>
-        popup.addComponent(new Slider(title, min, max, 0, 0, undefined, undefined, s[key], (v) => (s[key] = Math.round(v))), description);
-
-        // Keep all Java Color integer channels inside the valid 0-255 range.
-        const channel = (value) => {
-            const n = Number(value);
-            return Number.isFinite(n) ? Math.max(0, Math.min(255, Math.round(n))) : 255;
-        };
+        popup.addComponent(
+            new Slider(
+                title,
+                min,
+                max,
+                0,
+                0,
+                undefined,
+                undefined,
+                s[key],
+                (v) => (s[key] = Math.round(v))
+            ),
+            description
+        );
 
         const color = (title, key, description) => {
-            const c = s[key] || { r: 255, g: 255, b: 255, a: 255 };
-
             const component = new ColorPicker(
                 title,
                 0,
                 0,
-                new Color(channel(c.r), channel(c.g), channel(c.b), channel(c.a)),
+                this.createColor(s[key]),
                                               (picked) => {
                                                   s[key] = {
                                                       r: picked.getRed(),
@@ -119,10 +156,24 @@ class Legit extends ModuleBase {
         section('Tic Tac Toe');
         toggle('Tic Tac Toe Solver', 'ttt', 'Highlights the best move.');
         toggle('Prevent Miss Click', 'preventMissClick', 'Stops you clicking a button that is not a best move.');
+
         color('Tic Tac Toe Color', 'tttColor', 'Colour of the best moves.');
+
         let predictionColor;
-        toggle('Prediction', 'prediction', 'Also predict the AI reply and the next move.', (v) => (predictionColor.visible = v));
-        predictionColor = color('Prediction Color', 'predictionColor', 'Colour of the move to prefire.');
+
+        toggle(
+            'Prediction',
+            'prediction',
+            'Also predict the AI reply and the next move.',
+            (v) => (predictionColor.visible = v)
+        );
+
+        predictionColor = color(
+            'Prediction Color',
+            'predictionColor',
+            'Colour of the move to prefire.'
+        );
+
         predictionColor.visible = s.prediction;
 
         section('Water Board');
@@ -142,7 +193,11 @@ class Legit extends ModuleBase {
 
     setupLividSolver() {
         const s = lividSettings;
-        const popup = this.addPopup('Livid Solver', null, 'Finds the real Livid on F5.');
+        const popup = this.addPopup(
+            'Livid Solver',
+            null,
+            'Finds the real Livid on F5.'
+        );
 
         let tracerColor;
         let iceSprayTitle;
@@ -165,20 +220,12 @@ class Legit extends ModuleBase {
             return component;
         };
 
-        // Use the same safe 0-255 conversion for Livid colors.
-        const channel = (value) => {
-            const n = Number(value);
-            return Number.isFinite(n) ? Math.max(0, Math.min(255, Math.round(n))) : 255;
-        };
-
         const color = (title, key, description) => {
-            const c = s[key] || { r: 255, g: 255, b: 255, a: 255 };
-
             const component = new ColorPicker(
                 title,
                 0,
                 0,
-                new Color(channel(c.r), channel(c.g), channel(c.b), channel(c.a)),
+                this.createColor(s[key]),
                                               (picked) => {
                                                   s[key] = {
                                                       r: picked.getRed(),
@@ -195,12 +242,34 @@ class Legit extends ModuleBase {
 
         toggle('Livid Solver', 'enabled', 'Highlight the real Livid.');
         toggle('Show Livid HP', 'showHp', 'Show the Livid health above it.');
-        toggle('Livid Tracer', 'tracer', 'Draw a line to the Livid.', (v) => (tracerColor.visible = v));
-        toggle('Livid Invulnerability Timer', 'invulnerabilityTimer', 'Alert when Livid can be damaged again.', (v) => (iceSprayTitle.visible = v));
-        iceSprayTitle = toggle('Ice Spray Title', 'iceSprayTitle', 'Show a title when the ice spray window starts.');
+
+        toggle(
+            'Livid Tracer',
+            'tracer',
+            'Draw a line to the Livid.',
+            (v) => (tracerColor.visible = v)
+        );
+
+        toggle(
+            'Livid Invulnerability Timer',
+            'invulnerabilityTimer',
+            'Alert when Livid can be damaged again.',
+            (v) => (iceSprayTitle.visible = v)
+        );
+
+        iceSprayTitle = toggle(
+            'Ice Spray Title',
+            'iceSprayTitle',
+            'Show a title when the ice spray window starts.'
+        );
 
         color('Livid Highlight Color', 'highlightColor', 'Colour of the Livid highlight.');
-        tracerColor = color('Livid Tracer Color', 'tracerColor', 'Colour of the tracer.');
+
+        tracerColor = color(
+            'Livid Tracer Color',
+            'tracerColor',
+            'Colour of the tracer.'
+        );
 
         iceSprayTitle.visible = s.invulnerabilityTimer;
         tracerColor.visible = s.tracer;
