@@ -2,6 +2,6 @@
   "name": "V5",
   "creator": "Zurviq, Rdbt, EpilsonPhoenix and Contributors",
   "description": "Cheaters get banned",
-  "version": "102-r10",
+  "version": "102-r11",
   "entry": "loader.js"
 }

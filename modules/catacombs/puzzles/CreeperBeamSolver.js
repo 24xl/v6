@@ -1,12 +1,12 @@
-import { ModuleBase } from "../../utils/ModuleBase";
-import { RenderColor, Vec3d } from "../../utils/Constants";
-import { puzzleSettings } from "../../utils/catacombs/puzzles/PuzzleSettings";
+import { ModuleBase } from "../../../utils/ModuleBase";
+import { Vec3d } from "../../../utils/Constants";
+import { puzzleSettings } from "../../../utils/catacombs/puzzles/PuzzleSettings";
 import {
   onRoomEnter,
   onRoomExit,
   getRealCoord,
-} from "../../utils/catacombs/RoomScanner";
-import { loadPuzzleData } from "../../utils/catacombs/puzzles/PuzzleData";
+} from "../../../utils/catacombs/RoomScanner";
+import { loadPuzzleData } from "../../../utils/catacombs/puzzles/PuzzleData";
 
 // Creeper Beams: pairs up prismarine/sea-lantern blocks with a connecting line.
 // Ported from NoammAddons' CreeperBeamSolver.kt.

@@ -1,12 +1,12 @@
-import { ModuleBase } from "../../utils/ModuleBase";
-import { RenderColor, Vec3d } from "../../utils/Constants";
-import { puzzleSettings } from "../../utils/catacombs/puzzles/PuzzleSettings";
+import { ModuleBase } from "../../../utils/ModuleBase";
+import { Vec3d } from "../../../utils/Constants";
+import { puzzleSettings } from "../../../utils/catacombs/puzzles/PuzzleSettings";
 import {
   onRoomEnter,
   onRoomExit,
   getRealCoord,
-} from "../../utils/catacombs/RoomScanner";
-import { loadPuzzleData } from "../../utils/catacombs/puzzles/PuzzleData";
+} from "../../../utils/catacombs/RoomScanner";
+import { loadPuzzleData } from "../../../utils/catacombs/puzzles/PuzzleData";
 
 // Quiz: highlight the correct answer among 3 options, block wrong clicks,
 // and show a countdown timer. Ported from NoammAddons' QuizSolver.kt.

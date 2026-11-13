@@ -1,12 +1,12 @@
-import { ModuleBase } from "../../utils/ModuleBase";
-import { RenderColor, Vec3d, BP, Blocks } from "../../utils/Constants";
-import { puzzleSettings } from "../../utils/catacombs/puzzles/PuzzleSettings";
+import { ModuleBase } from "../../../utils/ModuleBase";
+import { Vec3d, BP, Blocks } from "../../../utils/Constants";
+import { puzzleSettings } from "../../../utils/catacombs/puzzles/PuzzleSettings";
 import {
   onRoomEnter,
   onRoomExit,
   isInRoom,
-} from "../../utils/catacombs/RoomScanner";
-import { isInBoss } from "../../utils/catacombs/DungeonLocation";
+} from "../../../utils/catacombs/RoomScanner";
+import { isInBoss } from "../../../utils/catacombs/DungeonLocation";
 
 // Three Weirdos: scan NPC chat lines against known answer regexes,
 // highlight or remove wrong chests, play a sound on the correct one.

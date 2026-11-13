@@ -1,29 +1,19 @@
-// Reads puzzle solution data from assets/ (boulderSolutions.json, creeperBeamSolutions.json,
-// quizSolutions.json, waterSolutions.json).
-//
-//   import { loadPuzzleData } from '../../../utils/catacombs/puzzles/PuzzleData';
-//   const solutions = loadPuzzleData('quizSolutions.json');
+// Solution data for the puzzles that need it (assets/*.json). Loaded once, on first use.
 
-import { File, globalAssetsDir } from '../../Constants';
+const cache = {};
 
-const cache = new Map();
+export function loadAsset(name) {
+    if (cache[name] !== undefined) return cache[name];
 
-export function loadPuzzleData(fileName) {
-    if (cache.has(fileName)) return cache.get(fileName);
-
+    let parsed = null;
     try {
-        const file = new File(globalAssetsDir, fileName);
-        if (!file.exists()) {
-            console.error('[PuzzleData] Asset missing: ' + fileName);
-            return null;
-        }
-        const raw = FileLib.read(file.getPath());
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        cache.set(fileName, parsed);
-        return parsed;
-    } catch (e) {
-        console.error('[PuzzleData] Failed to load ' + fileName + ': ' + e);
-        return null;
+        const raw = FileLib.read('V5', 'assets/' + name);
+        if (raw && raw.trim()) parsed = JSON.parse(raw);
+        else console.error('[Puzzles] could not read V5/assets/' + name);
+    } catch (error) {
+        console.error('[Puzzles] failed to load ' + name + ': ' + error);
     }
+
+    cache[name] = parsed;
+    return parsed;
 }

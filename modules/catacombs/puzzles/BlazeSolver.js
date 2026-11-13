@@ -1,11 +1,11 @@
-import { ModuleBase } from "../../utils/ModuleBase";
-import { RenderColor, Vec3d } from "../../utils/Constants";
-import { puzzleSettings } from "../../utils/catacombs/puzzles/PuzzleSettings";
+import { ModuleBase } from "../../../utils/ModuleBase";
+import { Vec3d } from "../../../utils/Constants";
+import { puzzleSettings } from "../../../utils/catacombs/puzzles/PuzzleSettings";
 import {
   onRoomEnter,
   onRoomExit,
   isInRoom,
-} from "../../utils/catacombs/RoomScanner";
+} from "../../../utils/catacombs/RoomScanner";
 
 // Blaze puzzle: highlight Blazes by HP, draw connecting lines, send "Blaze Done!"
 // party message when cleared. Ported from NoammAddons' BlazeSolver.kt.

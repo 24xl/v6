@@ -1,12 +1,12 @@
-import { ModuleBase } from "../../utils/ModuleBase";
-import { RenderColor, Vec3d, BP } from "../../utils/Constants";
-import { puzzleSettings } from "../../utils/catacombs/puzzles/PuzzleSettings";
+import { ModuleBase } from "../../../utils/ModuleBase";
+import { Vec3d, BP } from "../../../utils/Constants";
+import { puzzleSettings } from "../../../utils/catacombs/puzzles/PuzzleSettings";
 import {
   onRoomEnter,
   onRoomExit,
   getRealCoord,
-} from "../../utils/catacombs/RoomScanner";
-import { loadPuzzleData } from "../../utils/catacombs/puzzles/PuzzleData";
+} from "../../../utils/catacombs/RoomScanner";
+import { loadPuzzleData } from "../../../utils/catacombs/puzzles/PuzzleData";
 
 // Boulder: scan a 7x6 grid of air/blocks, look up the solution pattern in
 // boulderSolutions.json, and render the box + click target for each move.
