@@ -33,30 +33,49 @@ class Legit extends ModuleBase {
         const section = (title) => popup.addComponent(new Separator(title, true), '');
 
         const toggle = (title, key, description, onChange) =>
-            popup.addComponent(
-                new ToggleButton(
-                    title,
-                    0,
-                    0,
-                    undefined,
-                    undefined,
-                    (v) => {
-                        s[key] = !!v;
-                        if (onChange) onChange(!!v);
-                    },
-                    s[key]
-                ),
-                description
-            );
+        popup.addComponent(
+            new ToggleButton(
+                title,
+                0,
+                0,
+                undefined,
+                undefined,
+                (v) => {
+                    s[key] = !!v;
+                    if (onChange) onChange(!!v);
+                },
+                s[key]
+            ),
+            description
+        );
 
         const slider = (title, min, max, key, description) =>
-            popup.addComponent(new Slider(title, min, max, 0, 0, undefined, undefined, s[key], (v) => (s[key] = Math.round(v))), description);
+        popup.addComponent(new Slider(title, min, max, 0, 0, undefined, undefined, s[key], (v) => (s[key] = Math.round(v))), description);
+
+        // Keep all Java Color integer channels inside the valid 0-255 range.
+        const channel = (value) => {
+            const n = Number(value);
+            return Number.isFinite(n) ? Math.max(0, Math.min(255, Math.round(n))) : 255;
+        };
 
         const color = (title, key, description) => {
-            const c = s[key];
-            const component = new ColorPicker(title, 0, 0, new Color(c.r / 255, c.g / 255, c.b / 255, c.a / 255), (picked) => {
-                s[key] = { r: picked.getRed(), g: picked.getGreen(), b: picked.getBlue(), a: picked.getAlpha() };
-            });
+            const c = s[key] || { r: 255, g: 255, b: 255, a: 255 };
+
+            const component = new ColorPicker(
+                title,
+                0,
+                0,
+                new Color(channel(c.r), channel(c.g), channel(c.b), channel(c.a)),
+                                              (picked) => {
+                                                  s[key] = {
+                                                      r: picked.getRed(),
+                                              g: picked.getGreen(),
+                                              b: picked.getBlue(),
+                                              a: picked.getAlpha()
+                                                  };
+                                              }
+            );
+
             popup.addComponent(component, description);
             return component;
         };
@@ -141,15 +160,35 @@ class Legit extends ModuleBase {
                 },
                 s[key]
             );
+
             popup.addComponent(component, description);
             return component;
         };
 
+        // Use the same safe 0-255 conversion for Livid colors.
+        const channel = (value) => {
+            const n = Number(value);
+            return Number.isFinite(n) ? Math.max(0, Math.min(255, Math.round(n))) : 255;
+        };
+
         const color = (title, key, description) => {
-            const c = s[key];
-            const component = new ColorPicker(title, 0, 0, new Color(c.r, c.g, c.b, c.a), (picked) => {
-                s[key] = { r: picked.getRed(), g: picked.getGreen(), b: picked.getBlue(), a: picked.getAlpha() };
-            });
+            const c = s[key] || { r: 255, g: 255, b: 255, a: 255 };
+
+            const component = new ColorPicker(
+                title,
+                0,
+                0,
+                new Color(channel(c.r), channel(c.g), channel(c.b), channel(c.a)),
+                                              (picked) => {
+                                                  s[key] = {
+                                                      r: picked.getRed(),
+                                              g: picked.getGreen(),
+                                              b: picked.getBlue(),
+                                              a: picked.getAlpha()
+                                                  };
+                                              }
+            );
+
             popup.addComponent(component, description);
             return component;
         };
@@ -159,6 +198,7 @@ class Legit extends ModuleBase {
         toggle('Livid Tracer', 'tracer', 'Draw a line to the Livid.', (v) => (tracerColor.visible = v));
         toggle('Livid Invulnerability Timer', 'invulnerabilityTimer', 'Alert when Livid can be damaged again.', (v) => (iceSprayTitle.visible = v));
         iceSprayTitle = toggle('Ice Spray Title', 'iceSprayTitle', 'Show a title when the ice spray window starts.');
+
         color('Livid Highlight Color', 'highlightColor', 'Colour of the Livid highlight.');
         tracerColor = color('Livid Tracer Color', 'tracerColor', 'Colour of the tracer.');
 
