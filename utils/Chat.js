@@ -3,7 +3,7 @@ import { isDeveloperModeEnabled } from './DeveloperModeState';
 
 const sendGradient = (prefix, ...args) => {
     if (!args.length) return;
-    Client.getMinecraft().execute(() => GradientChat.sendGradientMsg(prefix, 0x05b9f9, 0x0539f9, ...args));
+    Client.getMinecraft().execute(() => GradientChat.sendGradientMsg(prefix, 0xFF4500, 0x8B0000, ...args));
 };
 
 export const chat = (message) => sendGradient('Plex >>', message);

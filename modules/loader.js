@@ -123,4 +123,3 @@ import "./combat/CombatNavigation";
 
 /* CATACOMBS */
 import "./catacombs/Cheats";
-import "./catacombs/Legit";

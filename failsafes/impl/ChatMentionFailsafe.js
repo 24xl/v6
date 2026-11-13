@@ -10,8 +10,21 @@ class ChatMentionFailsafe extends Failsafe {
         this.registerChatListeners();
         this.FailsafeReactionTime = 600;
         this.isFailsafeEnabled = true;
-        this.mediumBlacklist = ['idk what words to put here they are all high or completely useless'].map((word) => word.toLowerCase());
-        this.highBlacklist = ['wdr', 'report', 'macro', 'cheat', 'exploit', 'hack', 'bot', `${Player.getName()}`].map((word) => word.toLowerCase());
+
+        this.mediumBlacklist = [
+            'idk what words to put here they are all high or completely useless'
+        ].map((word) => word.toLowerCase());
+
+        this.highBlacklist = [
+            'wdr',
+            'report',
+            'macro',
+            'cheat',
+            'exploit',
+            'hack',
+            'bot',
+            `${Player.getName()}`
+        ].map((word) => word.toLowerCase());
     }
 
     registerChatListeners() {
@@ -21,11 +34,17 @@ class ChatMentionFailsafe extends Failsafe {
 
             this.settings = FailsafeUtils.getFailsafeSettings('Chat Mention');
             if (!this.settings.isEnabled) return;
+
             this.FailsafeReactionTime = this.settings.FailsafeReactionTime || 600;
 
             const content = packet.content().getString();
+
+            // Ignore all NPC messages (case-insensitive).
+            if (content.toLowerCase().includes('[npc]')) return;
+
             const colonIndex = content.indexOf(':');
             if (colonIndex === -1) return;
+
             const messageBody = content.slice(colonIndex + 1).trim();
 
             const result = this.scanMessage(messageBody, content.trim());
@@ -37,13 +56,20 @@ class ChatMentionFailsafe extends Failsafe {
 
     scanMessage(msg, fullMessage = msg) {
         const lower = msg.toLowerCase();
+
         const highMatch = this.highBlacklist.find((word) => lower.includes(word));
         const mediumMatch = this.mediumBlacklist.find((word) => lower.includes(word));
+
         const isBlocked = !!highMatch || !!mediumMatch;
         const isHigh = !!highMatch;
         const blockedWord = highMatch || mediumMatch;
 
-        return { isBlocked, blockedWord, isHigh, fullMessage };
+        return {
+            isBlocked,
+            blockedWord,
+            isHigh,
+            fullMessage
+        };
     }
 
     onTrigger(result) {
@@ -52,7 +78,9 @@ class ChatMentionFailsafe extends Failsafe {
         const embedColour = result.isHigh ? 16744448 : 16776960;
 
         chatFailsafe(`&c&lDetected blacklisted word - "${result.blockedWord}"!`);
+
         FailsafeUtils.incrementFailsafeIntensity(pressure);
+
         FailsafeUtils.sendFailsafeEmbed(
             'Chat Mention',
             severity,
