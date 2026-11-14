@@ -4,7 +4,6 @@ import { ModuleBase } from '../../utils/ModuleBase';
 import { CombatNavigator } from '../../utils/combat/CombatNavigator';
 import { CombatRotations } from '../../utils/combat/CombatRotations';
 import { CombatWalker } from '../../utils/combat/CombatWalker';
-import { ExperimentalPathfinderInstance } from '../../utils/combat/ExperimentalPathfinder';
 import { isLineClear, isLookingAtEntity } from '../../utils/Raytrace';
 
 const STATES = {

@@ -68,6 +68,7 @@ export class AutoTerminal {
     }
 
     enabledFor(handler) {
+        if (!this.settings.enabled) return false;
         switch (handler.displayName) {
             case 'Numbers':
                 return this.settings.numbers;
@@ -163,6 +164,7 @@ export class AutoTerminal {
 
     melodyTick() {
         const s = this.settings;
+        if (!s.enabled) return;
         if (!s.melody) return;
         if (s.melodyFcDelay && this.session.checkFcDelay()) return;
         const handler = this.session.currentHandler;

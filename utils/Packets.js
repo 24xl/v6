@@ -30,6 +30,10 @@ export const ClientboundSetTitleTextPacket = net.minecraft.network.protocol.game
 export const ClientboundSetHeldSlotPacket = net.minecraft.network.protocol.game.ClientboundSetHeldSlotPacket;
 export const ClientboundAwardStatsPacket = net.minecraft.network.protocol.game.ClientboundAwardStatsPacket;
 export const ClientboundLevelChunkWithLightPacket = net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
+export const ClientboundContainerSetSlotPacket = net.minecraft.network.protocol.game.ClientboundContainerSetSlotPacket;
+export const ClientboundContainerSetContentPacket = net.minecraft.network.protocol.game.ClientboundContainerSetContentPacket;
+export const ClientboundContainerClosePacket = net.minecraft.network.protocol.game.ClientboundContainerClosePacket;
+export const ServerboundAttackPacket = net.minecraft.network.protocol.game.ServerboundAttackPacket;
 
 export const createSwingPacket = () => (IS_MC_26_3 ? ServerboundSwingPacket.INSTANCE : new ServerboundSwingPacket(MCHand.MAIN_HAND));
 

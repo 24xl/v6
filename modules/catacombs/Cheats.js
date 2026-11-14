@@ -5,6 +5,7 @@ import { DataComponents } from '../../utils/Constants';
 import { isInBoss } from '../../utils/catacombs/DungeonLocation';
 import { MultiToggle } from '../../gui/components/Dropdown';
 import { autoTerminalSettings } from '../../utils/catacombs/terminals/AutoTerminalSettings';
+import { initTerminalAdapter } from '../../utils/catacombs/terminals/TerminalAdapter';
 
 class Cheats extends ModuleBase {
     constructor() {
@@ -145,6 +146,7 @@ class Cheats extends ModuleBase {
         addSlider('Break Timeout', 300, 800, 50, 'breakTimeout', 'How long should the solver wait for a click to be confirmed by hypixel.');
 
         refreshVisibility();
+        initTerminalAdapter();
     }
 
     onTerminatorAcTick() {
