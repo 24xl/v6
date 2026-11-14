@@ -1,5 +1,5 @@
 // Persisted Secrets settings.
-import { getConfigFile, writeConfigFile } from '../../../Utils';
+import { getConfigFile, writeConfigFile } from '../../utils/Utils';
 
 const DEFAULTS = {
     enabled: false,

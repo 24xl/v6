@@ -1,5 +1,5 @@
 // Persisted Terminal ESP settings. Read by TerminalESP logic, written by ESP UI popup.
-import { getConfigFile, writeConfigFile } from '../../../Utils';
+import { getConfigFile, writeConfigFile } from '../../utils/Utils';
 
 const DEFAULTS = {
     enabled: false,
