@@ -1,5 +1,5 @@
 // Persisted Teammate ESP settings.
-import { getConfigFile, writeConfigFile } from '../Utils';
+import { getConfigFile, writeConfigFile } from '../../../Utils';
 
 const DEFAULTS = {
     enabled: false,
