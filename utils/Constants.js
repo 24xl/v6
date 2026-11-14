@@ -76,11 +76,12 @@ export const InputConstants = com.mojang.blaze3d.platform.InputConstants;
 export const SkijaPIP = Java.type('com.chattriggers.ctjs.api.render.skia.SkijaPIP');
 export const CritParticle = ParticleTypes.CRIT;
 export const HappyVillagerParticle = ParticleTypes.HAPPY_VILLAGER;
-
 export const SoundCategory = net.minecraft.sounds.SoundSource;
 export const Identifier = net.minecraft.resources.Identifier;
 export const SoundEvent = net.minecraft.sounds.SoundEvent;
 export const Consumer = Java.type('java.util.function.Consumer');
 export const ScreenshotRecorder = net.minecraft.client.Screenshot;
+export const MenuType = net.minecraft.world.inventory.MenuType;
+export const EquipmentSlot = net.minecraft.world.entity.EquipmentSlot;
 
 export const V5ConfigFile = new File('./config/ChatTriggers/modules/V5Config/config.json');

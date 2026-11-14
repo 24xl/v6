@@ -90,6 +90,21 @@ export class TerminalSession {
         this.emit('slotUpdate', { handler, slot, item });
     }
 
+    // Direct slot update for Melody: reads the packet item straight into currentItems and
+    // calls solve() immediately. No container rebuild, no tick deferral. Melody panes arrive
+    // one per tick and the button moves every tick, so any delay here desyncs the click.
+    slotUpdateItem(windowId, slot, item) {
+        if (!this.inTerm || windowId !== this.lastWindowId) return;
+        const handler = this.currentHandler;
+        if (!handler || handler.displayName !== 'Melody') return;
+        if (slot < 0 || slot >= handler.slotCount) return;
+        if (item.id === BLACK_PANE) return;
+
+        this.currentItems.set(slot, item);
+        handler.solve(this.currentItems, this.currentTitle, slot, item);
+        this.emit('slotUpdate', { handler, slot, item });
+    }
+
     // Re-read the whole container and rebuild the solution.
     sync(handler, slotId = 0, stack = EMPTY_ITEM) {
         const items = this.deps.getContainerItems();

@@ -34,7 +34,10 @@ export function itemToDescriptor(item) {
 
     let id = '';
     try {
-        id = item.type?.getRegistryName?.() || String(mcStack.getItem().toString());
+        // Authoritative registry name (e.g. "minecraft:lime_stained_glass_pane").
+        // mcStack.getItem().toString() is NOT reliable across mappings.
+        const BuiltInRegistries = net.minecraft.core.registries.BuiltInRegistries;
+        id = String(BuiltInRegistries.ITEM.getKey(mcStack.getItem()).toString());
     } catch (e) {
         id = String(mcStack.getItem?.()?.toString?.() ?? 'minecraft:air');
     }
@@ -195,6 +198,13 @@ export class TerminalAdapter {
 
             const slot = packet.getSlot();
             const desc = itemToDescriptor(packet.getItem());
+            // Melody panes arrive one per tick and the button moves every tick, so the
+            // update must land on the same tick Noam's does (no deferral, no container rebuild).
+            if (this.session.isMelody()) {
+                this.session.slotUpdateItem(containerId, slot, desc);
+                return;
+            }
+
             ScheduleTask(1, () => this.session.slotUpdate(containerId, slot, desc));
         }).setFilteredClass(ClientboundContainerSetSlotPacket);
 
