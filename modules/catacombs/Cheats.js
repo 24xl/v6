@@ -65,12 +65,7 @@ class Cheats extends ModuleBase {
         register('tick', () => this.onTerminatorAcTick());
 
         this.setupAutoTerminalPopup();
-        this.setupTerminalESPPopup();
-        this.setupStarMobESPPopup();
-        this.setupTeammateESPPopup();
-        this.setupRevealMobsPopup();
-        this.setupSecretsPopup();
-        this.setupDoorESPPopup();
+        this.setupESPPopup();
     }
 
     setupAutoTerminalPopup() {
@@ -164,33 +159,43 @@ class Cheats extends ModuleBase {
         initTerminalAdapter();
     }
 
-    // --- Terminal ESP ---
-    setupTerminalESPPopup() {
-        const c = TerminalESPConfig;
-        const popup = this.addPopup('Terminal ESP', null, 'Highlights the interactable hitboxes of the terminals in F7/M7.');
+    setupESPPopup() {
+        const s = {
+            term: TerminalESPConfig,
+            star: StarMobESPConfig,
+            team: TeammateESPConfig,
+            reveal: RevealMobsConfig,
+            secrets: SecretsConfig,
+            door: DoorESPConfig,
+        };
 
-        const addToggle = (title, key, description) => {
+        const popup = this.addPopup('ESP', null, 'Visual ESP features for dungeons and F7.');
+
+        // Helper functions
+        const addToggle = (title, config, key, description, section) => {
             const component = new ToggleButton(
                 title,
                 0,
                 0,
                 undefined,
                 undefined,
-                (v) => (c[key] = !!v),
-                c[key]
+                (v) => (config[key] = !!v),
+                config[key]
             );
+            if (section) component.section = section;
             popup.addComponent(component, description);
             return component;
         };
 
-        const addSlider = (title, min, max, step, key, description) => {
-            const component = new Slider(title, min, max, 0, 0, undefined, undefined, c[key], (v) => (c[key] = Math.round(v)));
+        const addSlider = (title, min, max, step, config, key, description, section) => {
+            const component = new Slider(title, min, max, 0, 0, undefined, undefined, config[key], (v) => (config[key] = Math.round(v)));
             component.step = step;
+            if (section) component.section = section;
             popup.addComponent(component, description);
             return component;
         };
 
-        const addChoice = (title, names, key, description) => {
+        const addChoice = (title, names, config, key, description, section) => {
             const component = new MultiToggle(
                 title,
                 0,
@@ -199,259 +204,108 @@ class Cheats extends ModuleBase {
                 true,
                 (options) => {
                     const picked = options.find((option) => option.enabled);
-                    c[key] = picked ? names.indexOf(picked.name) : c[key];
+                    config[key] = picked ? names.indexOf(picked.name) : config[key];
                 },
-                names[c[key]]
+                names[config[key]]
             );
+            if (section) component.section = section;
             popup.addComponent(component, description);
             return component;
         };
 
-        const addColor = (title, key, description, defaultColor) => {
-            const component = new ColorPicker(title, 0, 0, undefined, undefined, (c) => (c[key] = c), c[key] ?? defaultColor);
+        const addColor = (title, config, key, description, defaultColor, section) => {
+            const component = new ColorPicker(title, 0, 0, config[key] ?? defaultColor, (c) => (config[key] = c));
+            if (section) component.section = section;
             popup.addComponent(component, description);
             return component;
         };
 
-        addChoice('Mode', ['Outline', 'Fill', 'Filled Outline'], 'mode', 'Rendering mode for terminal hitboxes.');
-        addToggle('Phase', 'phase', 'Render through walls.');
-        addColor('Fill Color', 'fillColor', 'Fill color (when mode is Fill or Filled Outline).', 0x00FF00);
-        addColor('Outline Color', 'outlineColor', 'Outline color (when mode is Outline or Filled Outline).', 0xFFFFFF);
-        addSlider('Line Width', 1, 10, 0.1, 'lineWidth', 'Width of the outline in pixels.');
-        addToggle('Flash On Click', 'flashOnHit', 'Flash the hitbox when you click it.');
-        addColor('Flash Color', 'flashColor', 'Color to flash when hit.', 0xFF0000);
-    }
+        // --- Terminal ESP ---
+        popup.addComponent({ type: 'separator', title: 'Terminal ESP' }, null);
+        addChoice('Mode', ['Outline', 'Fill', 'Filled Outline'], s.term, 'mode', 'Rendering mode for terminal hitboxes.', 'Terminal ESP');
+        addToggle('Phase', s.term, 'phase', 'Render through walls.', 'Terminal ESP');
+        addColor('Fill Color', s.term, 'fillColor', 'Fill color (when mode is Fill or Filled Outline).', 0x00FF00, 'Terminal ESP');
+        addColor('Outline Color', s.term, 'outlineColor', 'Outline color (when mode is Outline or Filled Outline).', 0xFFFFFF, 'Terminal ESP');
+        addSlider('Line Width', 1, 10, 0.1, s.term, 'lineWidth', 'Width of the outline in pixels.', 'Terminal ESP');
+        addToggle('Flash On Click', s.term, 'flashOnHit', 'Flash the hitbox when you click it.', 'Terminal ESP');
+        addColor('Flash Color', s.term, 'flashColor', 'Color to flash when hit.', 0xFF0000, 'Terminal ESP');
 
-    // --- StarMob ESP ---
-    setupStarMobESPPopup() {
-        const c = StarMobESPConfig;
-        const popup = this.addPopup('StarMob ESP', null, 'Highlights all starred mobs in a dungeon.');
+        // --- StarMob ESP ---
+        popup.addComponent({ type: 'separator', title: 'StarMob ESP' }, null);
+        addToggle('Highlight Star Mobs', s.star, 'enabled', 'Highlights starred mobs in dungeons.', 'StarMob ESP');
+        addColor('Star Mob Color', s.star, 'starColor', 'Default color for starred mobs.', 0xFFFF00, 'StarMob ESP');
+        addColor('Fel Color', s.star, 'felColor', 'Color for Fels (Dinnerbone Endermen).', 0xFFC0CB, 'StarMob ESP');
+        addToggle('Highlight Bats', s.star, 'highlightBats', 'Highlights Bats in dungeons (helps with bat room).', 'StarMob ESP');
+        addColor('Bat Color', s.star, 'batColor', 'Color for highlighted bats.', 0x00FF00, 'StarMob ESP');
 
-        const addToggle = (title, key, description) => {
-            const component = new ToggleButton(
-                title,
-                0,
-                0,
-                undefined,
-                undefined,
-                (v) => (c[key] = !!v),
-                c[key]
-            );
-            popup.addComponent(component, description);
-            return component;
-        };
+        // --- Teammate ESP ---
+        popup.addComponent({ type: 'separator', title: 'Teammate ESP' }, null);
+        addToggle('Highlight Teammates', s.team, 'enabled', 'Glows teammates with their class color.', 'Teammate ESP');
+        addToggle('Show Name/Distance', s.team, 'drawName', 'Draws teammate name, class initial, and distance above their head.', 'Teammate ESP');
 
-        const addColor = (title, key, description, defaultColor) => {
-            const component = new ColorPicker(title, 0, 0, undefined, undefined, (c) => (c[key] = c), c[key] ?? defaultColor);
-            popup.addComponent(component, description);
-            return component;
-        };
+        // --- Reveal Mobs (was Hidden Mobs) ---
+        popup.addComponent({ type: 'separator', title: 'Reveal Mobs' }, null);
+        addToggle('Show Fels', s.reveal, 'showFels', 'Reveals Fels (Dinnerbone Endermen).', 'Reveal Mobs');
+        addToggle('Show Shadow Assassins', s.reveal, 'showShadowAssassins', 'Reveals Shadow Assassins by name.', 'Reveal Mobs');
+        addToggle('Show Stealthy Mobs', s.reveal, 'showStealthy', 'Reveals Stealthy mobs (Watcher mobs and Giants).', 'Reveal Mobs');
 
-        addToggle('Highlight Star Mobs', 'enabled', 'Highlights starred mobs in dungeons.');
-        addColor('Star Mob Color', 'starColor', 'Default color for starred mobs.', 0xFFFF00);
-        addColor('Fel Color', 'felColor', 'Color for Fels (Dinnerbone Endermen).', 0xFFC0CB);
-        addToggle('Highlight Bats', 'highlightBats', 'Highlights Bats in dungeons (helps with bat room).');
-        addColor('Bat Color', 'batColor', 'Color for highlighted bats.', 0x00FF00);
-    }
-
-    // --- Teammate ESP ---
-    setupTeammateESPPopup() {
-        const c = TeammateESPConfig;
-        const popup = this.addPopup('Teammate ESP', null, 'Highlights your dungeon party members and shows their class/distance.');
-
-        const addToggle = (title, key, description) => {
-            const component = new ToggleButton(
-                title,
-                0,
-                0,
-                undefined,
-                undefined,
-                (v) => (c[key] = !!v),
-                c[key]
-            );
-            popup.addComponent(component, description);
-            return component;
-        };
-
-        addToggle('Highlight Teammates', 'enabled', 'Glows teammates with their class color.');
-        addToggle('Show Name/Distance', 'drawName', 'Draws teammate name, class initial, and distance above their head.');
-    }
-
-    // --- Reveal Mobs (was Hidden Mobs) ---
-    setupRevealMobsPopup() {
-        const c = RevealMobsConfig;
-        const popup = this.addPopup('Reveal Mobs', null, 'Reveals invisible mobs in dungeons (Fels, Shadow Assassins, Stealthy mobs).');
-
-        const addToggle = (title, key, description) => {
-            const component = new ToggleButton(
-                title,
-                0,
-                0,
-                undefined,
-                undefined,
-                (v) => (c[key] = !!v),
-                c[key]
-            );
-            popup.addComponent(component, description);
-            return component;
-        };
-
-        addToggle('Show Fels', 'showFels', 'Reveals Fels (Dinnerbone Endermen).');
-        addToggle('Show Shadow Assassins', 'showShadowAssassins', 'Reveals Shadow Assassins by name.');
-        addToggle('Show Stealthy Mobs', 'showStealthy', 'Reveals Stealthy mobs (Watcher mobs and Giants).');
-    }
-
-    // --- Secrets ---
-    setupSecretsPopup() {
-        const c = SecretsConfig;
-        const popup = this.addPopup('Secrets', null, 'Secret finder: highlights clicked secrets, HUD counter, sound alerts, and triggerbot for auto-interaction.');
-
-        const addToggle = (title, key, description) => {
-            const component = new ToggleButton(
-                title,
-                0,
-                0,
-                undefined,
-                undefined,
-                (v) => (c[key] = !!v),
-                c[key]
-            );
-            popup.addComponent(component, description);
-            return component;
-        };
-
-        const addSlider = (title, min, max, step, key, description) => {
-            const component = new Slider(title, min, max, 0, 0, undefined, undefined, c[key], (v) => (c[key] = Math.round(v)));
-            component.step = step;
-            popup.addComponent(component, description);
-            return component;
-        };
-
-        const addChoice = (title, names, key, description) => {
-            const component = new MultiToggle(
-                title,
-                0,
-                0,
-                names,
-                true,
-                (options) => {
-                    const picked = options.find((option) => option.enabled);
-                    c[key] = picked ? names.indexOf(picked.name) : c[key];
-                },
-                names[c[key]]
-            );
-            popup.addComponent(component, description);
-            return component;
-        };
-
-        const addColor = (title, key, description, defaultColor) => {
-            const component = new ColorPicker(title, 0, 0, undefined, undefined, (c) => (c[key] = c), c[key] ?? defaultColor);
-            popup.addComponent(component, description);
-            return component;
-        };
-
+        // --- Secrets ---
+        popup.addComponent({ type: 'separator', title: 'Secrets' }, null);
         // Secret Clicked Highlight
-        addToggle('Highlight Clicked Secret', 'clicked', 'Highlights the block of a secret when you interact with it.');
-        addSlider('Highlight Time (s)', 0.5, 5.0, 0.1, 'displayTime', 'How long the highlight box remains visible.');
-        addColor('Highlight Color', 'clickedColor', 'The color of the secret highlight box.', 0xFF0000);
-        addChoice('Render Mode', ['Fill', 'Outline', 'Filled Outline'], 'mode', 'Choose how the box is rendered.');
-        addToggle('See Through Walls', 'phase', 'If enabled, the highlight will be visible through other blocks.');
+        addToggle('Highlight Clicked Secret', s.secrets, 'clicked', 'Highlights the block of a secret when you interact with it.', 'Secrets');
+        addSlider('Highlight Time (s)', 0.5, 5.0, 0.1, s.secrets, 'displayTime', 'How long the highlight box remains visible.', 'Secrets');
+        addColor('Highlight Color', s.secrets, 'clickedColor', 'The color of the secret highlight box.', 0xFF0000, 'Secrets');
+        addChoice('Render Mode', ['Fill', 'Outline', 'Filled Outline'], s.secrets, 'mode', 'Choose how the box is rendered.', 'Secrets');
+        addToggle('See Through Walls', s.secrets, 'phase', 'If enabled, the highlight will be visible through other blocks.', 'Secrets');
 
         // Secret Sound
-        addToggle('Secret Sound', 'sound', 'Plays a sound effect when a secret is clicked/found.');
+        addToggle('Secret Sound', s.secrets, 'sound', 'Plays a sound effect when a secret is clicked/found.', 'Secrets');
 
         // HUD
-        addToggle('Secret HUD', 'hud', 'Displays the current room\'s secrets on screen.');
-        addColor('HUD Prefix', 'hudPrefix', 'The text before the secret count of the room.');
+        addToggle('Secret HUD', s.secrets, 'hud', 'Displays the current room\'s secrets on screen.', 'Secrets');
+        // Note: TextInput for prefix not supported in this simplified version
 
         // Triggerbot
-        const addTbOption = (title, key, description) => {
+        const addTbOption = (title, config, key, description) => {
             const component = new ToggleButton(
                 title,
                 0,
                 0,
                 undefined,
                 undefined,
-                (v) => (c[key] = !!v),
-                c[key]
+                (v) => (config[key] = !!v),
+                config[key]
             );
+            component.section = 'Secrets';
             popup.addComponent(component, description);
             return component;
         };
 
-        addToggle('Triggerbot', 'tb', 'Automatically interacts with secrets when looking at them.').section('Triggerbot');
-        addToggle('Close Chest', 'closeChest', 'Automatically closes the secret chest for you.');
-        addSlider('Interact Delay (ms)', 0, 700, 1, 'clickDelay', 'Delay between interactions.');
+        addToggle('Triggerbot', s.secrets, 'tb', 'Automatically interacts with secrets when looking at them.', 'Secrets');
+        addToggle('Close Chest', s.secrets, 'closeChest', 'Automatically closes the secret chest for you.', 'Secrets');
+        addSlider('Interact Delay (ms)', 0, 700, 1, s.secrets, 'clickDelay', 'Delay between interactions.', 'Secrets');
 
-        addTbOption('Chest', 'tbChest', 'Auto-open regular chests.');
-        addTbOption('Lever', 'tbLever', 'Auto-pull levers (with Wither Essence/Redstone Key).');
-        addTbOption('Skull', 'tbSkull', 'Auto-click skulls (with Wither Essence/Redstone Key).');
-        addTbOption('Mimic', 'tbMimic', 'Auto-open trapped chests (mimics).');
-    }
+        addTbOption('Chest', s.secrets, 'tbChest', 'Auto-open regular chests.');
+        addTbOption('Lever', s.secrets, 'tbLever', 'Auto-pull levers (with Wither Essence/Redstone Key).');
+        addTbOption('Skull', s.secrets, 'tbSkull', 'Auto-click skulls (with Wither Essence/Redstone Key).');
+        addTbOption('Mimic', s.secrets, 'tbMimic', 'Auto-open trapped chests (mimics).');
 
-    // --- Door ESP ---
-    setupDoorESPPopup() {
-        const c = DoorESPConfig;
-        const popup = this.addPopup('Door ESP', null, 'Highlights every door in the dungeon run during clear, showing keys, room names, and secrets.');
+        // --- Door ESP ---
+        popup.addComponent({ type: 'separator', title: 'Door ESP' }, null);
+        addToggle('Blood Rush Doors', s.door, 'bloodRush', 'Highlights blood rush and wither doors.', 'Door ESP');
+        addToggle('Highlight All Blood Doors', s.door, 'highlightAll', 'Shows all blood doors instead of only next door after run starts.', 'Door ESP');
+        addToggle('Normal Doors', s.door, 'normalDoors', 'Highlights normal doors in the current room.', 'Door ESP');
 
-        const addToggle = (title, key, description) => {
-            const component = new ToggleButton(
-                title,
-                0,
-                0,
-                undefined,
-                undefined,
-                (v) => (c[key] = !!v),
-                c[key]
-            );
-            popup.addComponent(component, description);
-            return component;
-        };
+        addColor('Normal Door Color', s.door, 'normalColor', 'Color for normal doors.', 0xFFFFFF, 'Door ESP');
+        addColor('No Key Color', s.door, 'noKeyColor', 'Color for blood doors without keys.', 0xFF0000, 'Door ESP');
+        addColor('Has Key Color', s.door, 'hasKeyColor', 'Color for blood doors with keys.', 0x00FF00, 'Door ESP');
 
-        const addSlider = (title, min, max, step, key, description) => {
-            const component = new Slider(title, min, max, 0, 0, undefined, undefined, c[key], (v) => (c[key] = Math.round(v)));
-            component.step = step;
-            popup.addComponent(component, description);
-            return component;
-        };
+        addToggle('Room Name', s.door, 'roomName', 'Shows the name of the room the door leads to.', 'Door ESP');
+        addToggle('Room Secrets', s.door, 'roomSecrets', 'Shows the secrets count of the room the door leads to.', 'Door ESP');
 
-        const addChoice = (title, names, key, description) => {
-            const component = new MultiToggle(
-                title,
-                0,
-                0,
-                names,
-                true,
-                (options) => {
-                    const picked = options.find((option) => option.enabled);
-                    c[key] = picked ? names.indexOf(picked.name) : c[key];
-                },
-                names[c[key]]
-            );
-            popup.addComponent(component, description);
-            return component;
-        };
-
-        const addColor = (title, key, description, defaultColor) => {
-            const component = new ColorPicker(title, 0, 0, undefined, undefined, (c) => (c[key] = c), c[key] ?? defaultColor);
-            popup.addComponent(component, description);
-            return component;
-        };
-
-        addToggle('Blood Rush Doors', 'bloodRush', 'Highlights blood rush and wither doors.');
-        addToggle('Highlight All Blood Doors', 'highlightAll', 'Shows all blood doors instead of only next door after run starts.');
-        addToggle('Normal Doors', 'normalDoors', 'Highlights normal doors in the current room.');
-
-        addColor('Normal Door Color', 'normalColor', 'Color for normal doors.', 0xFFFFFF);
-        addColor('No Key Color', 'noKeyColor', 'Color for blood doors without keys.', 0xFF0000);
-        addColor('Has Key Color', 'hasKeyColor', 'Color for blood doors with keys.', 0x00FF00);
-
-        addToggle('Room Name', 'roomName', 'Shows the name of the room the door leads to.');
-        addToggle('Room Secrets', 'roomSecrets', 'Shows the secrets count of the room the door leads to.');
-
-        addChoice('Mode', ['Outline', 'Fill', 'Filled Outline'], 'mode', 'Rendering mode for door boxes.');
-        addSlider('Line Width', 1, 10, 0.1, 'lineWidth', 'Width of the outline in pixels.');
-        addToggle('Phase', 'phase', 'Render through walls.');
+        addChoice('Mode', ['Outline', 'Fill', 'Filled Outline'], s.door, 'mode', 'Rendering mode for door boxes.', 'Door ESP');
+        addSlider('Line Width', 1, 10, 0.1, s.door, 'lineWidth', 'Width of the outline in pixels.', 'Door ESP');
+        addToggle('Phase', s.door, 'phase', 'Render through walls.', 'Door ESP');
     }
 
     onTerminatorAcTick() {
